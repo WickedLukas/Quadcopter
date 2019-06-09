@@ -4,7 +4,6 @@
 * Created: 26.04.2019
 * Author: Lukas
 * 
-* Using ICM-20948 Arduino library from Sparkfun
 */
 
 #include "ICM20948.h"
@@ -43,10 +42,10 @@ int32_t dt = 0;
 // measured IMU update time in seconds
 float dT = 0;
 
-// IMU measurements
-float ax, ay, az;		// accelerometer
-float gx, gy, gz;		// gyroscope
-float hx, hy, hz;		// magnetometer
+// IMU raw measurements
+int16_t ax, ay, az;		// accelerometer
+int16_t gx, gy, gz;		// gyroscope
+int16_t hx, hy, hz;		// magnetometer
 
 volatile bool imuInterrupt = false;		// indicates whether IMU interrupt pin has gone high
 void imuReady() {
@@ -57,12 +56,12 @@ void setup() {
 	#ifdef DEBUG
 		// initialize serial communication
 		Serial.begin(115200);
-		while (!Serial); // wait for Leonardo eNUMeration, others continue immediately
+		while (!Serial);
 	#endif
 
 	static int8_t imuStatus;
-	// start communication with IMU 
-	imuStatus = IMU.open();
+	// start communication with IMU
+	imuStatus = IMU.init();
 	if (!imuStatus) {
 		DEBUG_PRINTLN("IMU initialization unsuccessful");
 		DEBUG_PRINTLN("Check IMU wiring or try cycling power");
@@ -83,9 +82,8 @@ void loop() {
 	}
 	imuInterrupt = false;
 	
-	// TODO: get rid of reading the resolution every time to calculate the measurements
-	IMU.get_gyroscope(&gx, &gy, &gz);
-	IMU.get_accelerometer(&ax, &ay, &az);
+	IMU.read_gyro(gx, gy, gz);
+	IMU.read_accel(ax, ay, az);
 	
 	t = micros();
 	dt = (t - t0);				// in us
