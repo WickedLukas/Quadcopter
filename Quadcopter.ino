@@ -31,10 +31,7 @@
 #define IMU_CS_PIN 10
 #define IMU_INTERRUPT_PIN 24
 
-// Object for ICM-20948 sensor on I2C bus 1
-// IMU I2C address has to be passed as a parameter here
-// AD0 low = 0x68 (default for InvenSense evaluation board)
-// AD0 high = 0x69
+// Object for ICM-20948 IMU
 ICM20948_SPI IMU(IMU_CS_PIN, IMU_SPI_PORT);
 
 // measured IMU update time in microseconds
@@ -59,10 +56,13 @@ void setup() {
         Serial.begin(115200);
         while (!Serial);
     #endif
+    
+    IMU_SPI_PORT.begin();
 
     static int8_t imuStatus;
     // start communication with IMU
     imuStatus = IMU.init();
+    
     if (!imuStatus) {
         DEBUG_PRINTLN("IMU initialization unsuccessful");
         DEBUG_PRINTLN("Check IMU wiring or try cycling power");
@@ -77,7 +77,7 @@ void setup() {
 void loop() {
     static uint32_t t0 = 0;
     static uint32_t t = 0;
-
+    
     while (!imuInterrupt) {
         // wait for the next interrupt
     }
