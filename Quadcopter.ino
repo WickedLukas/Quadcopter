@@ -14,6 +14,9 @@
 // compiler macro (Arduino IDE 1.0+ required).
 #define DEBUG
 
+// define if you want to calibrate the IMU
+#define IMU_CALIBRATION
+
 #ifdef DEBUG
 #define DEBUG_PRINT(x) Serial.print(x)
 #define DEBUG_PRINTLN(x) Serial.println(x)
@@ -83,6 +86,11 @@ void setup() {
     // setup interrupt pin
     pinMode(IMU_INTERRUPT_PIN, INPUT);
     attachInterrupt(digitalPinToInterrupt(IMU_INTERRUPT_PIN), imuReady, FALLING);
+    
+    // calibrate imu
+    #ifdef IMU_CALIBRATION
+    imu.calibrate_accel_gyro(imuInterrupt, 5.0, 10, 5);
+    #endif
 }
 
 void loop() {
@@ -103,7 +111,7 @@ void loop() {
         t0 = micros();
         
         // read imu measurements
-        imu.read_gyro_accel(gx, gy, gz, ax, ay, az);
+        imu.read_accel_gyro(ax, ay, az, gx, gy, gz);
         new_mag = imu.read_mag(mx, my, mz);
         //imu.read_gyro_dps_accel_g(gx_dps, gy_dps, gz_dps, ax_g, ay_g, az_g);
         //new_mag = imu.read_mag_ut(mx_ut, my_ut, mz_ut);
@@ -123,14 +131,14 @@ void loop() {
     t = micros();
     
     // read imu measurements
-    imu.read_gyro_accel(gx, gy, gz, ax, ay, az);
+    imu.read_accel_gyro(ax, ay, az, gx, gy, gz);
     new_mag = imu.read_mag(mx, my, mz);
     //imu.read_gyro_dps_accel_g(gx_dps, gy_dps, gz_dps, ax_g, ay_g, az_g);
     //new_mag = imu.read_mag_ut(mx_ut, my_ut, mz_ut);
     
-    dt = (t - t0);              // in us
-    dt_s = (float) (dt) * 1.e-6;  // in s
-    t0 = t;                     // update last imu update time measurement
+    dt = (t - t0);                  // in us
+    dt_s = (float) (dt) * 1.e-6;    // in s
+    t0 = t;                         // update last imu update time measurement
     
     
     // display the data
