@@ -15,7 +15,7 @@
 #define DEBUG
 
 // define if you want to calibrate the IMU
-#define IMU_CALIBRATION
+//#define IMU_CALIBRATION
 
 #ifdef DEBUG
 #define DEBUG_PRINT(x) Serial.print(x)
@@ -46,10 +46,13 @@ int32_t dt = 0;
 float dt_s = 0;
 
 // imu measurements
-int16_t ax, ay, az;     // accelerometer
-int16_t gx, gy, gz;     // gyroscope
-int16_t mx, my, mz;     // magnetometer
-int16_t temperature;    // temperature
+int16_t ax, ay, az;
+int16_t gx, gy, gz;
+int16_t mx, my, mz;
+// last imu measurements
+int16_t ax0, ay0, az0;
+int16_t gx0, gy0, gz0;
+int16_t mx0, my0, mz0;
 
 // imu measurements in units
 /*
@@ -89,7 +92,10 @@ void setup() {
     
     // calibrate imu
     #ifdef IMU_CALIBRATION
-    imu.calibrate_accel_gyro(imuInterrupt, 5.0, 10, 5);
+        //imu.reset_accel_gyro_offsets();
+        //imu.calibrate_gyro(imuInterrupt, 5.0, 1);
+        //imu.calibrate_accel_gyro(imuInterrupt, 5.0, 16, 1);
+        imu.calibrate_mag(imuInterrupt, 20, 0);
     #endif
 }
 
@@ -111,8 +117,8 @@ void loop() {
         t0 = micros();
         
         // read imu measurements
-        imu.read_accel_gyro(ax, ay, az, gx, gy, gz);
-        new_mag = imu.read_mag(mx, my, mz);
+        imu.read_accel_gyro(ax0, ay0, az0, gx0, gy0, gz0);
+        new_mag = imu.read_mag(mx0, my0, mz0);
         //imu.read_gyro_dps_accel_g(gx_dps, gy_dps, gz_dps, ax_g, ay_g, az_g);
         //new_mag = imu.read_mag_ut(mx_ut, my_ut, mz_ut);
         
@@ -121,6 +127,9 @@ void loop() {
             first = false;
         }
     }
+    
+    static uint32_t t_a = 0;    // time since last accelerometer measurement
+    static uint32_t t_m = 0;    // time since last gyroscope measurement
     
     while (!imuInterrupt) {
         // wait for next imu interrupt
@@ -140,63 +149,41 @@ void loop() {
     dt_s = (float) (dt) * 1.e-6;    // in s
     t0 = t;                         // update last imu update time measurement
     
-    
-    // display the data
-    static int16_t ax_old = ax;
-    static int16_t ay_old = ay;
-    static int16_t az_old = az;
-    static int16_t gx_old = gx;
-    static int16_t gy_old = gy;
-    static int16_t gz_old = gz;
-    static int16_t temperature_old = temperature;
-    
-    static uint32_t t_g = 0;
-    static uint32_t t_a = 0;
-    static uint32_t t_m = 0;
-    static uint32_t t_temperature = 0;
-    
-    t_g += dt;
     t_a += dt;
     t_m += dt;
-    t_temperature += dt;
     
-    if (first | ((gx != gx_old) | (gy != gy_old) | (gz != gz_old))) {
-        DEBUG_PRINT("g "); DEBUG_PRINT(t_g);
-        DEBUG_PRINT("\t"); DEBUG_PRINT(gx); DEBUG_PRINT("\t"); DEBUG_PRINT(gy); DEBUG_PRINT("\t"); DEBUG_PRINTLN(gz);
-        
-        t_g = 0;
-    }
+    //DEBUG_PRINT("g "); DEBUG_PRINT(dt);
+    //DEBUG_PRINT("\t"); DEBUG_PRINT(gx); DEBUG_PRINT("\t"); DEBUG_PRINT(gy); DEBUG_PRINT("\t"); DEBUG_PRINTLN(gz);
     
-    if (first | ((ax != ax_old) | (ay != ay_old) | (az != az_old))) {
-        DEBUG_PRINT("a "); DEBUG_PRINT(t_a);
-        DEBUG_PRINT("\t"); DEBUG_PRINT(ax); DEBUG_PRINT("\t"); DEBUG_PRINT(ay); DEBUG_PRINT("\t"); DEBUG_PRINTLN(az);
+    gx0 = gx;
+    gy0 = gy;
+    gz0 = gz;
+    
+    if (first | ((ax != ax0) | (ay != ay0) | (az != az0))) {
+        //DEBUG_PRINT("a "); DEBUG_PRINT(t_a);
+        //DEBUG_PRINT("\t"); DEBUG_PRINT(ax); DEBUG_PRINT("\t"); DEBUG_PRINT(ay); DEBUG_PRINT("\t"); DEBUG_PRINTLN(az);
         
         t_a = 0;
+        
+        ax0 = ax;
+        ay0 = ay;
+        az0 = az;
     }
     
     if (new_mag) {
-        //DEBUG_PRINT("m "); DEBUG_PRINTLN(t_m);
-        //DEBUG_PRINT(mx); DEBUG_PRINT("\t"); DEBUG_PRINT(my); DEBUG_PRINT("\t"); DEBUG_PRINTLN(mz);
+        DEBUG_PRINT("m "); DEBUG_PRINT(t_m);
+        DEBUG_PRINT("\t"); DEBUG_PRINT(mx); DEBUG_PRINT("\t"); DEBUG_PRINT(my); DEBUG_PRINT("\t"); DEBUG_PRINTLN(mz);
         
         t_m = 0;
+                
+        mx0 = mx;
+        my0 = my;
+        mz0 = mz;
     }
     
-    if (first | (temperature != temperature_old)) {
-        //DEBUG_PRINT("t "); DEBUG_PRINTLN(t_temperature);
-        //DEBUG_PRINT("\t"); DEBUG_PRINTLN(temperature);
-        
-        t_temperature = 0;
-    }
+    //DEBUG_PRINTLN();
     
-    DEBUG_PRINTLN();
-    
-    ax_old = ax;
-    ay_old = ay;
-    az_old = az;
-    gx_old = gx;
-    gy_old = gy;
-    gz_old = gz;
-    temperature_old = temperature;
+    first = false;
     
     //DEBUG_PRINT(ax); DEBUG_PRINT("\t"); DEBUG_PRINT(ay); DEBUG_PRINT("\t"); DEBUG_PRINTLN(az);
     //DEBUG_PRINT(ax_g); DEBUG_PRINT("\t"); DEBUG_PRINT(ay_g); DEBUG_PRINT("\t"); DEBUG_PRINTLN(az_g);
