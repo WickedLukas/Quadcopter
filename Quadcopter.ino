@@ -5,8 +5,12 @@
 * Author: Lukas
 * 
 */
+#include <Arduino.h>
 
 #include "ICM20948.h"
+#include "MadgwickAHRS.h"
+
+#include "sendSerial.h"
 
 // NOTE! Enabling DEBUG adds about 3.3kB to the flash program size.
 // Debug output is now working even on ATMega328P MCUs (e.g. Arduino Uno)
@@ -37,6 +41,9 @@
 // object for ICM-20948 imu
 ICM20948_SPI imu(IMU_CS_PIN, IMU_SPI_PORT);
 
+// object for Madgwick filter
+MADGWICK_AHRS madgwickFilter(0.12);
+
 // initialization flag, necessary to calculate starting values
 boolean first = true;
 
@@ -47,11 +54,11 @@ float dt_s = 0;
 
 // imu measurements
 int16_t ax, ay, az;
-int16_t gx, gy, gz;
+float gx_rps, gy_rps, gz_rps;
 int16_t mx, my, mz;
 // last imu measurements
 int16_t ax0, ay0, az0;
-int16_t gx0, gy0, gz0;
+float gx0_rps, gy0_rps, gz0_rps;
 int16_t mx0, my0, mz0;
 
 // imu measurements in units
@@ -95,7 +102,7 @@ void setup() {
         //imu.reset_accel_gyro_offsets();
         //imu.calibrate_gyro(imuInterrupt, 5.0, 1);
         //imu.calibrate_accel_gyro(imuInterrupt, 5.0, 16, 1);
-        imu.calibrate_mag(imuInterrupt, 20, 0);
+        imu.calibrate_mag(imuInterrupt, 60, 0);
     #endif
 }
 
@@ -107,6 +114,9 @@ void loop() {
     // flag to indicate new magnetometer data
     static bool new_mag;
     
+    // quadcopter pose
+    static float angle_x, angle_y, angle_z;
+    
     while (first) {        
         while (!imuInterrupt) {
             // wait for next imu interrupt
@@ -117,7 +127,7 @@ void loop() {
         t0 = micros();
         
         // read imu measurements
-        imu.read_accel_gyro(ax0, ay0, az0, gx0, gy0, gz0);
+        imu.read_accel_gyro_rps(ax0, ay0, az0, gx0_rps, gy0_rps, gz0_rps);
         new_mag = imu.read_mag(mx0, my0, mz0);
         //imu.read_gyro_dps_accel_g(gx_dps, gy_dps, gz_dps, ax_g, ay_g, az_g);
         //new_mag = imu.read_mag_ut(mx_ut, my_ut, mz_ut);
@@ -128,19 +138,17 @@ void loop() {
         }
     }
     
-    static uint32_t t_a = 0;    // time since last accelerometer measurement
-    static uint32_t t_m = 0;    // time since last gyroscope measurement
-    
     while (!imuInterrupt) {
         // wait for next imu interrupt
     }
+    
     // reset imu interrupt flag
     imuInterrupt = false;
     
     t = micros();
     
     // read imu measurements
-    imu.read_accel_gyro(ax, ay, az, gx, gy, gz);
+    imu.read_accel_gyro_rps(ax, ay, az, gx_rps, gy_rps, gz_rps);
     new_mag = imu.read_mag(mx, my, mz);
     //imu.read_gyro_dps_accel_g(gx_dps, gy_dps, gz_dps, ax_g, ay_g, az_g);
     //new_mag = imu.read_mag_ut(mx_ut, my_ut, mz_ut);
@@ -149,21 +157,22 @@ void loop() {
     dt_s = (float) (dt) * 1.e-6;    // in s
     t0 = t;                         // update last imu update time measurement
     
-    t_a += dt;
-    t_m += dt;
+    //madgwickFilter.get_euler(angle_x, angle_y, angle_z, dt_s, ax, ay, az, gx_rps, gy_rps, gz_rps, mx, my, -mz);
     
-    //DEBUG_PRINT("g "); DEBUG_PRINT(dt);
-    //DEBUG_PRINT("\t"); DEBUG_PRINT(gx); DEBUG_PRINT("\t"); DEBUG_PRINT(gy); DEBUG_PRINT("\t"); DEBUG_PRINTLN(gz);
     
-    gx0 = gx;
-    gy0 = gy;
-    gz0 = gz;
     
+    
+    
+    gx0_rps = gx_rps;
+    gy0_rps = gy_rps;
+    gz0_rps = gz_rps;
+    
+    first = false;
+
+
     if (first | ((ax != ax0) | (ay != ay0) | (az != az0))) {
         //DEBUG_PRINT("a "); DEBUG_PRINT(t_a);
         //DEBUG_PRINT("\t"); DEBUG_PRINT(ax); DEBUG_PRINT("\t"); DEBUG_PRINT(ay); DEBUG_PRINT("\t"); DEBUG_PRINTLN(az);
-        
-        t_a = 0;
         
         ax0 = ax;
         ay0 = ay;
@@ -171,43 +180,54 @@ void loop() {
     }
     
     if (new_mag) {
-        DEBUG_PRINT("m "); DEBUG_PRINT(t_m);
-        DEBUG_PRINT("\t"); DEBUG_PRINT(mx); DEBUG_PRINT("\t"); DEBUG_PRINT(my); DEBUG_PRINT("\t"); DEBUG_PRINTLN(mz);
-        
-        t_m = 0;
+        //DEBUG_PRINT("m "); DEBUG_PRINT(t_m);
+        //DEBUG_PRINT("\t"); DEBUG_PRINT(mx); DEBUG_PRINT("\t"); DEBUG_PRINT(my); DEBUG_PRINT("\t"); DEBUG_PRINTLN(mz);
                 
         mx0 = mx;
         my0 = my;
         mz0 = mz;
     }
+   
+   
+   // run serial print at a rate independent of the main loop
+   static uint32_t t0_serial = micros();
+   if (micros() - t0_serial > 16666) {
+        t0_serial = micros();
+        
+        //DEBUG_PRINT(angle_x); DEBUG_PRINT("\t"); DEBUG_PRINT(angle_y); DEBUG_PRINT("\t"); DEBUG_PRINTLN(angle_z);
+        
+        //DEBUG_PRINTLN();
     
-    //DEBUG_PRINTLN();
+        //DEBUG_PRINT(ax); DEBUG_PRINT("\t"); DEBUG_PRINT(ay); DEBUG_PRINT("\t"); DEBUG_PRINTLN(az);
+        //DEBUG_PRINT(gx_rps); DEBUG_PRINT("\t"); DEBUG_PRINT(gy_rps); DEBUG_PRINT("\t"); DEBUG_PRINTLN(gz_rps);
+		DEBUG_PRINT(mx); DEBUG_PRINT("\t"); DEBUG_PRINT(my); DEBUG_PRINT("\t"); DEBUG_PRINTLN(mz);
+        
+        //DEBUG_PRINT(ax_g); DEBUG_PRINT("\t"); DEBUG_PRINT(ay_g); DEBUG_PRINT("\t"); DEBUG_PRINTLN(az_g);
+        //DEBUG_PRINT(mx_ut); DEBUG_PRINT("\t"); DEBUG_PRINT(my_ut); DEBUG_PRINT("\t"); DEBUG_PRINTLN(mz_ut);
     
-    first = false;
-    
-    //DEBUG_PRINT(ax); DEBUG_PRINT("\t"); DEBUG_PRINT(ay); DEBUG_PRINT("\t"); DEBUG_PRINTLN(az);
-    //DEBUG_PRINT(ax_g); DEBUG_PRINT("\t"); DEBUG_PRINT(ay_g); DEBUG_PRINT("\t"); DEBUG_PRINTLN(az_g);
-    //DEBUG_PRINT(mx_ut); DEBUG_PRINT("\t"); DEBUG_PRINT(my_ut); DEBUG_PRINT("\t"); DEBUG_PRINTLN(mz_ut);
-    
-    /*DEBUG_PRINT(dt);
-    DEBUG_PRINT("\t");
-    DEBUG_PRINT2(imu.getAccelX_mss(),2);
-    DEBUG_PRINT("\t");
-    DEBUG_PRINT2(imu.getAccelY_mss(),2);
-    DEBUG_PRINT("\t");
-    DEBUG_PRINT2(imu.getAccelZ_mss(),2);
-    DEBUG_PRINT("\t");
-    DEBUG_PRINT2(imu.getGyroX_rads(),2);
-    DEBUG_PRINT("\t");
-    DEBUG_PRINT2(imu.getGyroY_rads(),2);
-    DEBUG_PRINT("\t");
-    DEBUG_PRINT2(imu.getGyroZ_rads(),2);
-    DEBUG_PRINT("\t");
-    DEBUG_PRINT2(imu.getMagX_uT(),2);
-    DEBUG_PRINT("\t");
-    DEBUG_PRINT2(imu.getMagY_uT(),2);
-    DEBUG_PRINT("\t");
-    DEBUG_PRINT2(imu.getMagZ_uT(),2);
-    DEBUG_PRINT("\t");
-    DEBUG_PRINTLN2(imu.getTemperature_C(),2);*/
+        /*DEBUG_PRINT(dt);
+        DEBUG_PRINT("\t");
+        DEBUG_PRINT2(imu.getAccelX_mss(),2);
+        DEBUG_PRINT("\t");
+        DEBUG_PRINT2(imu.getAccelY_mss(),2);
+        DEBUG_PRINT("\t");
+        DEBUG_PRINT2(imu.getAccelZ_mss(),2);
+        DEBUG_PRINT("\t");
+        DEBUG_PRINT2(imu.getGyroX_rads(),2);
+        DEBUG_PRINT("\t");
+        DEBUG_PRINT2(imu.getGyroY_rads(),2);
+        DEBUG_PRINT("\t");
+        DEBUG_PRINT2(imu.getGyroZ_rads(),2);
+        DEBUG_PRINT("\t");
+        DEBUG_PRINT2(imu.getMagX_uT(),2);
+        DEBUG_PRINT("\t");
+        DEBUG_PRINT2(imu.getMagY_uT(),2);
+        DEBUG_PRINT("\t");
+        DEBUG_PRINT2(imu.getMagZ_uT(),2);
+        DEBUG_PRINT("\t");
+        DEBUG_PRINTLN2(imu.getTemperature_C(),2);*/
+        
+        // Send data to "Processing" for visualization
+        //sendSerial(Serial, dt, angle_x, angle_y, angle_z);
+    }
 }
