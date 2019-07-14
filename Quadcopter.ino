@@ -16,21 +16,24 @@
 // Debug output is now working even on ATMega328P MCUs (e.g. Arduino Uno)
 // after moving string constants to flash memory storage using the F()
 // compiler macro (Arduino IDE 1.0+ required).
-#define DEBUG
+//#define DEBUG
 
-// define if you want to calibrate the IMU
+// define if you want to send imu data through serial (for example to visualize it in "Processing")
+#define SEND_SERIAL
+
+// define if you want to calibrate the imu
 //#define IMU_CALIBRATION
 
 #ifdef DEBUG
-#define DEBUG_PRINT(x) Serial.print(x)
-#define DEBUG_PRINTLN(x) Serial.println(x)
-#define DEBUG_PRINT2(x,y) Serial.print(x,y)
-#define DEBUG_PRINTLN2(x,y) Serial.println(x,y)
+    #define DEBUG_PRINT(x) Serial.print(x)
+    #define DEBUG_PRINTLN(x) Serial.println(x)
+    #define DEBUG_PRINT2(x,y) Serial.print(x,y)
+    #define DEBUG_PRINTLN2(x,y) Serial.println(x,y)
 #else
-#define DEBUG_PRINT(x)
-#define DEBUG_PRINTLN(x)
-#define DEBUG_PRINT2(x,y)
-#define DEBUG_PRINTLN2(x,y)
+    #define DEBUG_PRINT(x)
+    #define DEBUG_PRINTLN(x)
+    #define DEBUG_PRINT2(x,y)
+    #define DEBUG_PRINTLN2(x,y)
 #endif
 
 // pins connected to imu
@@ -42,7 +45,7 @@
 ICM20948_SPI imu(IMU_CS_PIN, IMU_SPI_PORT);
 
 // object for Madgwick filter
-MADGWICK_AHRS madgwickFilter(0.12);
+MADGWICK_AHRS madgwickFilter(0.041);
 
 // initialization flag, necessary to calculate starting values
 boolean first = true;
@@ -61,15 +64,8 @@ int16_t ax0, ay0, az0;
 float gx0_rps, gy0_rps, gz0_rps;
 int16_t mx0, my0, mz0;
 
-// imu measurements in units
-/*
-float ax_g, ay_g, az_g;         // accelerometer measurement in g
-float gx_dps, gy_dps, gz_dps;   // gyroscope measurement in deg/s
-float mx_ut, my_ut, mz_ut;      // magnetometer measurement in uT
-float temperature_c;            // temperature measurement in C
-*/
-
-volatile bool imuInterrupt = false;     // indicates whether imu interrupt pin has gone high
+// imu interrupt flag
+volatile bool imuInterrupt = false;
 void imuReady() {
     imuInterrupt = true;
 }
@@ -83,8 +79,8 @@ void setup() {
     
     IMU_SPI_PORT.begin();
 
+    // initialize imu
     static int8_t imuStatus;
-    // start communication with imu
     imuStatus = imu.init();
     
     if (!imuStatus) {
@@ -111,7 +107,7 @@ void loop() {
     static uint32_t t0 = 0;
     static uint32_t t = 0;
     
-    // flag to indicate new magnetometer data
+    // flag for new magnetometer data
     static bool new_mag;
     
     // quadcopter pose
@@ -129,8 +125,6 @@ void loop() {
         // read imu measurements
         imu.read_accel_gyro_rps(ax0, ay0, az0, gx0_rps, gy0_rps, gz0_rps);
         new_mag = imu.read_mag(mx0, my0, mz0);
-        //imu.read_gyro_dps_accel_g(gx_dps, gy_dps, gz_dps, ax_g, ay_g, az_g);
-        //new_mag = imu.read_mag_ut(mx_ut, my_ut, mz_ut);
         
         // continue if new magnetometer data is available
         if (new_mag) {
@@ -150,16 +144,12 @@ void loop() {
     // read imu measurements
     imu.read_accel_gyro_rps(ax, ay, az, gx_rps, gy_rps, gz_rps);
     new_mag = imu.read_mag(mx, my, mz);
-    //imu.read_gyro_dps_accel_g(gx_dps, gy_dps, gz_dps, ax_g, ay_g, az_g);
-    //new_mag = imu.read_mag_ut(mx_ut, my_ut, mz_ut);
     
     dt = (t - t0);                  // in us
     dt_s = (float) (dt) * 1.e-6;    // in s
     t0 = t;                         // update last imu update time measurement
     
-    //madgwickFilter.get_euler(angle_x, angle_y, angle_z, dt_s, ax, ay, az, gx_rps, gy_rps, gz_rps, mx, my, -mz);
-    
-    
+    madgwickFilter.get_euler(angle_x, angle_y, angle_z, dt_s, ax, ay, az, gx_rps, gy_rps, gz_rps, mx, -my, -mz);
     
     
     
@@ -197,10 +187,10 @@ void loop() {
         //DEBUG_PRINT(angle_x); DEBUG_PRINT("\t"); DEBUG_PRINT(angle_y); DEBUG_PRINT("\t"); DEBUG_PRINTLN(angle_z);
         
         //DEBUG_PRINTLN();
-    
+        
         //DEBUG_PRINT(ax); DEBUG_PRINT("\t"); DEBUG_PRINT(ay); DEBUG_PRINT("\t"); DEBUG_PRINTLN(az);
         //DEBUG_PRINT(gx_rps); DEBUG_PRINT("\t"); DEBUG_PRINT(gy_rps); DEBUG_PRINT("\t"); DEBUG_PRINTLN(gz_rps);
-		DEBUG_PRINT(mx); DEBUG_PRINT("\t"); DEBUG_PRINT(my); DEBUG_PRINT("\t"); DEBUG_PRINTLN(mz);
+        //DEBUG_PRINT(mx); DEBUG_PRINT("\t"); DEBUG_PRINT(my); DEBUG_PRINT("\t"); DEBUG_PRINTLN(mz);
         
         //DEBUG_PRINT(ax_g); DEBUG_PRINT("\t"); DEBUG_PRINT(ay_g); DEBUG_PRINT("\t"); DEBUG_PRINTLN(az_g);
         //DEBUG_PRINT(mx_ut); DEBUG_PRINT("\t"); DEBUG_PRINT(my_ut); DEBUG_PRINT("\t"); DEBUG_PRINTLN(mz_ut);
@@ -227,7 +217,9 @@ void loop() {
         DEBUG_PRINT("\t");
         DEBUG_PRINTLN2(imu.getTemperature_C(),2);*/
         
-        // Send data to "Processing" for visualization
-        //sendSerial(Serial, dt, angle_x, angle_y, angle_z);
+        #ifdef SEND_SERIAL
+            // Send data to "Processing" for visualization
+            sendSerial(dt, angle_x, angle_y, angle_z);
+        #endif
     }
 }

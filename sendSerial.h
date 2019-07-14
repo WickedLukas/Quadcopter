@@ -11,6 +11,6 @@
 #include <Arduino.h>
 
 // send serial data to Processing
-void sendSerial(Stream &port, float dt, float angle_x, float angle_y, float angle_z);
+void sendSerial(float dt, float angle_x, float angle_y, float angle_z);
 
 #endif /* SENDSERIAL_H_ */
