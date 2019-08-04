@@ -12,6 +12,9 @@
 
 #include "sendSerial.h"
 
+// calculate accelerometer x and y angles in degrees
+void calc_accelAngles(float& angle_x_accel, float& angle_y_accel);
+
 // NOTE! Enabling DEBUG adds about 3.3kB to the flash program size.
 // Debug output is now working even on ATMega328P MCUs (e.g. Arduino Uno)
 // after moving string constants to flash memory storage using the F()
@@ -41,15 +44,19 @@
 #define IMU_CS_PIN 10
 #define IMU_INTERRUPT_PIN 24
 
+#define BETA_INIT 50    // Madgwick algorithm gain (2 * proportional gain (Kp)) during initial pose estimation
+#define BETA 0.041      // Madgwick algorithm gain (2 * proportional gain (Kp))
+
+#define INIT_ANGLE_DIFF 2   // Maximum angle difference between the accelerometer angle and the filtered angle after initialization
+
 // object for ICM-20948 imu
 ICM20948_SPI imu(IMU_CS_PIN, IMU_SPI_PORT);
 
 // object for Madgwick filter
-MADGWICK_AHRS madgwickFilter(0.041);
+MADGWICK_AHRS madgwickFilter(BETA_INIT);
 
-// initialization flag, necessary to calculate starting values
-boolean first = true;
-
+// variables to measure imu update time
+uint32_t t0 = 0, t = 0;
 // measured imu update time in microseconds
 int32_t dt = 0;
 // measured imu update time in seconds
@@ -58,13 +65,12 @@ float dt_s = 0;
 // imu measurements
 int16_t ax, ay, az;
 float gx_rps, gy_rps, gz_rps;
-int16_t mx, my, mz;
-// last imu measurements
-int16_t ax0, ay0, az0;
-float gx0_rps, gy0_rps, gz0_rps;
-int16_t mx0, my0, mz0;
+int16_t mx = 0, my = 0, mz = 0;
 
-// imu interrupt flag
+// quadcopter pose
+float angle_x, angle_y, angle_z;
+
+// imu interrupt
 volatile bool imuInterrupt = false;
 void imuReady() {
     imuInterrupt = true;
@@ -80,7 +86,7 @@ void setup() {
     IMU_SPI_PORT.begin();
 
     // initialize imu
-    static int8_t imuStatus;
+    int8_t imuStatus;
     imuStatus = imu.init();
     
     if (!imuStatus) {
@@ -100,38 +106,62 @@ void setup() {
         //imu.calibrate_accel_gyro(imuInterrupt, 5.0, 16, 1);
         imu.calibrate_mag(imuInterrupt, 60, 0);
     #endif
-}
-
-void loop() {
-    // variables to measure imu update time
-    static uint32_t t0 = 0;
-    static uint32_t t = 0;
+        
+    // initial pose estimation flag
+    bool init = true;
+    // angles calculated from accelerometer
+    float angle_x_accel, angle_y_accel;
     
-    // flag for new magnetometer data
-    static bool new_mag;
+    DEBUG_PRINTLN(F("Estimating initial pose. Keep device at rest ..."));
     
-    // quadcopter pose
-    static float angle_x, angle_y, angle_z;
-    
-    while (first) {        
+    // estimate initial pose
+    while (init) {
         while (!imuInterrupt) {
             // wait for next imu interrupt
         }
         // reset imu interrupt flag
         imuInterrupt = false;
         
-        t0 = micros();
+        t = micros();
         
         // read imu measurements
-        imu.read_accel_gyro_rps(ax0, ay0, az0, gx0_rps, gy0_rps, gz0_rps);
-        new_mag = imu.read_mag(mx0, my0, mz0);
+        imu.read_accel_gyro_rps(ax, ay, az, gx_rps, gy_rps, gz_rps);
+        imu.read_mag(mx, my, mz);
         
-        // continue if new magnetometer data is available
-        if (new_mag) {
-            first = false;
+        dt = (t - t0);                  // in us
+        dt_s = (float) (dt) * 1.e-6;    // in s
+        t0 = t;                         // update last imu update time measurement
+        
+        madgwickFilter.get_euler(angle_x, angle_y, angle_z, dt_s, ax, ay, az, gx_rps, gy_rps, gz_rps, mx, my, mz);
+        
+        // (calculate rotation quaternion for initial z/yaw-angle)
+        calc_accelAngles(angle_x_accel, angle_y_accel);
+        
+        // run serial print at a rate independent of the main loop
+        static uint32_t t0_serial = micros();
+        if (micros() - t0_serial > 16666) {
+            t0_serial = micros();
+               
+            DEBUG_PRINT(angle_x); DEBUG_PRINT("\t"); DEBUG_PRINT(angle_y); DEBUG_PRINT("\t"); DEBUG_PRINTLN(angle_z);
+            DEBUG_PRINT(angle_x_accel); DEBUG_PRINT("\t"); DEBUG_PRINT(angle_y_accel); DEBUG_PRINT("\t"); DEBUG_PRINTLN(0);
+            DEBUG_PRINTLN();
+        }            
+
+        if ((abs(angle_x_accel - angle_x) < INIT_ANGLE_DIFF) && (abs(angle_y_accel - angle_y) < INIT_ANGLE_DIFF)) {            
+            madgwickFilter.set_beta(BETA);
+            
+            //madgwickFilter.set_angle_z(0);
+            
+            init = false;
+            
+            DEBUG_PRINTLN(F("Initial pose estimated."));
+            DEBUG_PRINTLN(abs(angle_x_accel - angle_x));
+            DEBUG_PRINTLN(abs(angle_y_accel - angle_y));
         }
     }
-    
+}
+
+void loop() {
     while (!imuInterrupt) {
         // wait for next imu interrupt
     }
@@ -143,40 +173,14 @@ void loop() {
     
     // read imu measurements
     imu.read_accel_gyro_rps(ax, ay, az, gx_rps, gy_rps, gz_rps);
-    new_mag = imu.read_mag(mx, my, mz);
+    imu.read_mag(mx, my, mz);
     
     dt = (t - t0);                  // in us
     dt_s = (float) (dt) * 1.e-6;    // in s
     t0 = t;                         // update last imu update time measurement
     
-    madgwickFilter.get_euler(angle_x, angle_y, angle_z, dt_s, ax, ay, az, gx_rps, gy_rps, gz_rps, mx, -my, -mz);
-    
-    
-    
-    gx0_rps = gx_rps;
-    gy0_rps = gy_rps;
-    gz0_rps = gz_rps;
-    
-    first = false;
-
-
-    if (first | ((ax != ax0) | (ay != ay0) | (az != az0))) {
-        //DEBUG_PRINT("a "); DEBUG_PRINT(t_a);
-        //DEBUG_PRINT("\t"); DEBUG_PRINT(ax); DEBUG_PRINT("\t"); DEBUG_PRINT(ay); DEBUG_PRINT("\t"); DEBUG_PRINTLN(az);
-        
-        ax0 = ax;
-        ay0 = ay;
-        az0 = az;
-    }
-    
-    if (new_mag) {
-        //DEBUG_PRINT("m "); DEBUG_PRINT(t_m);
-        //DEBUG_PRINT("\t"); DEBUG_PRINT(mx); DEBUG_PRINT("\t"); DEBUG_PRINT(my); DEBUG_PRINT("\t"); DEBUG_PRINTLN(mz);
-                
-        mx0 = mx;
-        my0 = my;
-        mz0 = mz;
-    }
+    madgwickFilter.get_euler(angle_x, angle_y, angle_z, dt_s, ax, ay, az, gx_rps, gy_rps, gz_rps, mx, my, mz);
+   
    
    
    // run serial print at a rate independent of the main loop
@@ -184,13 +188,20 @@ void loop() {
    if (micros() - t0_serial > 16666) {
         t0_serial = micros();
         
-        //DEBUG_PRINT(angle_x); DEBUG_PRINT("\t"); DEBUG_PRINT(angle_y); DEBUG_PRINT("\t"); DEBUG_PRINTLN(angle_z);
+        //DEBUG_PRINT(ax); DEBUG_PRINT("\t"); DEBUG_PRINT(ay); DEBUG_PRINT("\t"); DEBUG_PRINTLN(az);
+        //DEBUG_PRINT(gx_rps); DEBUG_PRINT("\t"); DEBUG_PRINT(gy_rps); DEBUG_PRINT("\t"); DEBUG_PRINTLN(gz_rps);
+        //DEBUG_PRINT(mx); DEBUG_PRINT("\t"); DEBUG_PRINT(my); DEBUG_PRINT("\t"); DEBUG_PRINTLN(mz);
         
-        //DEBUG_PRINTLN();
+        static float angle_x_accel, angle_y_accel;
+        calc_accelAngles(angle_x_accel, angle_y_accel);
+        DEBUG_PRINT(angle_x_accel); DEBUG_PRINT("\t"); DEBUG_PRINT(angle_y_accel); DEBUG_PRINT("\t"); DEBUG_PRINTLN(0);
+        DEBUG_PRINT(angle_x); DEBUG_PRINT("\t"); DEBUG_PRINT(angle_y); DEBUG_PRINT("\t"); DEBUG_PRINTLN(angle_z);
         
         //DEBUG_PRINT(ax); DEBUG_PRINT("\t"); DEBUG_PRINT(ay); DEBUG_PRINT("\t"); DEBUG_PRINTLN(az);
         //DEBUG_PRINT(gx_rps); DEBUG_PRINT("\t"); DEBUG_PRINT(gy_rps); DEBUG_PRINT("\t"); DEBUG_PRINTLN(gz_rps);
         //DEBUG_PRINT(mx); DEBUG_PRINT("\t"); DEBUG_PRINT(my); DEBUG_PRINT("\t"); DEBUG_PRINTLN(mz);
+        
+        DEBUG_PRINTLN();
         
         //DEBUG_PRINT(ax_g); DEBUG_PRINT("\t"); DEBUG_PRINT(ay_g); DEBUG_PRINT("\t"); DEBUG_PRINTLN(az_g);
         //DEBUG_PRINT(mx_ut); DEBUG_PRINT("\t"); DEBUG_PRINT(my_ut); DEBUG_PRINT("\t"); DEBUG_PRINTLN(mz_ut);
@@ -222,4 +233,13 @@ void loop() {
             sendSerial(dt, angle_x, angle_y, angle_z);
         #endif
     }
+}
+
+
+// calculate accelerometer x and y angles in degrees
+void calc_accelAngles(float& angle_x_accel, float& angle_y_accel) {
+    static const float RAD2DEG = 4068 / 71;
+    
+    angle_x_accel = atan2(ay, az) * RAD2DEG;
+    angle_y_accel = atan2(-ax, sqrt(pow(ay,2) + pow(az,2))) * RAD2DEG;
 }
