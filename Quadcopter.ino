@@ -19,10 +19,10 @@ void calc_accelAngles(float& angle_x_accel, float& angle_y_accel);
 // Debug output is now working even on ATMega328P MCUs (e.g. Arduino Uno)
 // after moving string constants to flash memory storage using the F()
 // compiler macro (Arduino IDE 1.0+ required).
-//#define DEBUG
+#define DEBUG
 
 // define if you want to send imu data through serial (for example to visualize it in "Processing")
-#define SEND_SERIAL
+//#define SEND_SERIAL
 
 // define if you want to calibrate the imu
 //#define IMU_CALIBRATION
@@ -47,7 +47,7 @@ void calc_accelAngles(float& angle_x_accel, float& angle_y_accel);
 #define BETA_INIT 50    // Madgwick algorithm gain (2 * proportional gain (Kp)) during initial pose estimation
 #define BETA 0.041      // Madgwick algorithm gain (2 * proportional gain (Kp))
 
-#define INIT_ANGLE_DIFF 2   // Maximum angle difference between the accelerometer angle and the filtered angle after initialization
+#define INIT_ANGLE_DIFF -1  // Maximum angle difference between the accelerometer angle and the filtered angle after initialization
 
 // object for ICM-20948 imu
 ICM20948_SPI imu(IMU_CS_PIN, IMU_SPI_PORT);
@@ -134,8 +134,19 @@ void setup() {
         
         madgwickFilter.get_euler(angle_x, angle_y, angle_z, dt_s, ax, ay, az, gx_rps, gy_rps, gz_rps, mx, my, mz);
         
-        // (calculate rotation quaternion for initial z/yaw-angle)
+        //madgwickFilter.set_angle_z(0);
+        
         calc_accelAngles(angle_x_accel, angle_y_accel);
+        
+        if ((abs(angle_x_accel - angle_x) < INIT_ANGLE_DIFF) && (abs(angle_y_accel - angle_y) < INIT_ANGLE_DIFF)) {
+            madgwickFilter.set_beta(BETA);
+            
+            init = false;
+            
+            DEBUG_PRINTLN(F("Initial pose estimated."));
+            DEBUG_PRINTLN(abs(angle_x_accel - angle_x));
+            DEBUG_PRINTLN(abs(angle_y_accel - angle_y));
+        }
         
         // run serial print at a rate independent of the main loop
         static uint32_t t0_serial = micros();
@@ -145,18 +156,6 @@ void setup() {
             DEBUG_PRINT(angle_x); DEBUG_PRINT("\t"); DEBUG_PRINT(angle_y); DEBUG_PRINT("\t"); DEBUG_PRINTLN(angle_z);
             DEBUG_PRINT(angle_x_accel); DEBUG_PRINT("\t"); DEBUG_PRINT(angle_y_accel); DEBUG_PRINT("\t"); DEBUG_PRINTLN(0);
             DEBUG_PRINTLN();
-        }            
-
-        if ((abs(angle_x_accel - angle_x) < INIT_ANGLE_DIFF) && (abs(angle_y_accel - angle_y) < INIT_ANGLE_DIFF)) {            
-            madgwickFilter.set_beta(BETA);
-            
-            //madgwickFilter.set_angle_z(0);
-            
-            init = false;
-            
-            DEBUG_PRINTLN(F("Initial pose estimated."));
-            DEBUG_PRINTLN(abs(angle_x_accel - angle_x));
-            DEBUG_PRINTLN(abs(angle_y_accel - angle_y));
         }
     }
 }
@@ -205,7 +204,7 @@ void loop() {
         
         //DEBUG_PRINT(ax_g); DEBUG_PRINT("\t"); DEBUG_PRINT(ay_g); DEBUG_PRINT("\t"); DEBUG_PRINTLN(az_g);
         //DEBUG_PRINT(mx_ut); DEBUG_PRINT("\t"); DEBUG_PRINT(my_ut); DEBUG_PRINT("\t"); DEBUG_PRINTLN(mz_ut);
-    
+        
         /*DEBUG_PRINT(dt);
         DEBUG_PRINT("\t");
         DEBUG_PRINT2(imu.getAccelX_mss(),2);
