@@ -11,7 +11,7 @@
 void sendSerial(float dt, float angle_x, float angle_y, float angle_z) {
 	// send dt and angles
 	Serial.print(F("DEL:"));
-	Serial.print(dt, DEC);
+	Serial.print((uint16_t) dt);
 	Serial.print(F("#MDF:"));
 	Serial.print(angle_x, 2); Serial.print(F(",")); Serial.print(angle_y, 2); Serial.print(F(",")); Serial.print(angle_z, 2);
 	Serial.println(F(""));
