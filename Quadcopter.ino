@@ -15,16 +15,13 @@
 // calculate accelerometer x and y angles in degrees
 void calc_accelAngles(float& angle_x_accel, float& angle_y_accel);
 
-// NOTE! Enabling DEBUG adds about 3.3kB to the flash program size.
-// Debug output is now working even on ATMega328P MCUs (e.g. Arduino Uno)
-// after moving string constants to flash memory storage using the F()
-// compiler macro (Arduino IDE 1.0+ required).
+// print debug outputs through serial
 //#define DEBUG
 
 // send imu data through serial (for example to visualize it in "Processing")
 #define SEND_SERIAL
 
-// calibrate the imu
+// calibrate imu
 //#define IMU_CALIBRATION
 
 #ifdef DEBUG
@@ -80,7 +77,7 @@ void imuReady() {
 
 void setup() {
 	// last quadcopter z-axis angle
-	float angle_z_last = 0;
+	float angle_z_0 = 0;
 	
 	#ifdef DEBUG
 		// initialize serial communication
@@ -117,9 +114,8 @@ void setup() {
 	// angles calculated from accelerometer
 	float angle_x_accel, angle_y_accel;
 	
-	DEBUG_PRINTLN(F("Estimating initial pose. Keep device at rest ..."));
-	
 	// estimate initial pose
+	DEBUG_PRINTLN(F("Estimating initial pose. Keep device at rest ..."));
 	while (init) {
 		while (!imuInterrupt) {
 			// wait for next imu interrupt
@@ -143,7 +139,7 @@ void setup() {
 		
 		// initialization is completed if filtered angles converged
 		if ((abs(angle_x_accel - angle_x) < INIT_ANGLE_DIFFERENCE) && (abs(angle_y_accel - angle_y) < INIT_ANGLE_DIFFERENCE)
-		&& ((abs(angle_z - angle_z_last) / dt_s) < INIT_ANGULAR_VELOCITY)) {
+		&& ((abs(angle_z - angle_z_0) / dt_s) < INIT_ANGULAR_VELOCITY)) {
 			// reduce beta value, since filtered angles have stabilized during initialization
 			madgwickFilter.set_beta(BETA);
 			
@@ -152,9 +148,9 @@ void setup() {
 			DEBUG_PRINTLN(F("Initial pose estimated."));
 			DEBUG_PRINTLN2(abs(angle_x_accel - angle_x), 6);
 			DEBUG_PRINTLN2(abs(angle_y_accel - angle_y), 6);
-			DEBUG_PRINTLN2(abs(angle_z - angle_z_last) / dt_s, 6);
+			DEBUG_PRINTLN2(abs(angle_z - angle_z_0) / dt_s, 6);
 		}
-		angle_z_last = angle_z;
+		angle_z_0 = angle_z;
 		
 		// run serial print at a rate independent of the main loop
 		static uint32_t t0_serial = micros();
