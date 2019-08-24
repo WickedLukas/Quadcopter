@@ -6,14 +6,12 @@
 *
 */
 #include <Arduino.h>
+#include <EEPROM.h>
 
 #include "ICM20948.h"
 #include "MadgwickAHRS.h"
 
 #include "sendSerial.h"
-
-// calculate accelerometer x and y angles in degrees
-void calc_accelAngles(float& angle_x_accel, float& angle_y_accel);
 
 // print debug outputs through serial
 //#define DEBUG
@@ -36,6 +34,9 @@ void calc_accelAngles(float& angle_x_accel, float& angle_y_accel);
 	#define DEBUG_PRINTLN2(x,y)
 #endif
 
+// address for data saved to eeprom
+#define ADDRESS_EEPROM 0
+
 // pins connected to imu
 #define IMU_SPI_PORT SPI
 #define IMU_CS_PIN 10
@@ -53,6 +54,14 @@ ICM20948_SPI imu(IMU_CS_PIN, IMU_SPI_PORT);
 
 // object for Madgwick filter
 MADGWICK_AHRS madgwickFilter(BETA_INIT);
+
+// configuration data structure
+typedef struct {
+	// magnetometer hard iron distortion correction
+	float offset_mx, offset_my, offset_mz;
+	// magnetometer soft iron distortion correction
+	float scale_mx, scale_my, scale_mz;
+} config_data;
 
 // variables to measure imu update time
 uint32_t t0 = 0, t = 0;
@@ -75,21 +84,30 @@ void imuReady() {
 	imuInterrupt = true;
 }
 
+// calculate accelerometer x and y angles in degrees
+void calc_accelAngles(float& angle_x_accel, float& angle_y_accel);
+
 void setup() {
+	// configuration data
+	config_data data_eeprom;
+	
 	// last quadcopter z-axis angle
 	float angle_z_0 = 0;
 	
-	#ifdef DEBUG
+	#if defined(DEBUG) || defined(SEND_SERIAL) || defined(IMU_CALIBRATION)
 		// initialize serial communication
 		Serial.begin(115200);
 		while (!Serial);
 	#endif
 	
 	IMU_SPI_PORT.begin();
-
+	
+	// get configuration data from eeprom
+	EEPROM.get(ADDRESS_EEPROM, data_eeprom);
+	
 	// initialize imu
 	int8_t imuStatus;
-	imuStatus = imu.init();
+	imuStatus = imu.init(data_eeprom.offset_mx, data_eeprom.offset_my, data_eeprom.offset_mz, data_eeprom.scale_mx, data_eeprom.scale_my, data_eeprom.scale_mz);
 	
 	if (!imuStatus) {
 		DEBUG_PRINTLN("imu initialization unsuccessful");
@@ -106,7 +124,10 @@ void setup() {
 		//imu.reset_accel_gyro_offsets();
 		//imu.calibrate_gyro(imuInterrupt, 5.0, 1);
 		//imu.calibrate_accel_gyro(imuInterrupt, 5.0, 16, 1);
-		imu.calibrate_mag(imuInterrupt, 60, 0);
+		imu.calibrate_mag(imuInterrupt, 60, 0, data_eeprom.offset_mx, data_eeprom.offset_my, data_eeprom.offset_mz, data_eeprom.scale_mx, data_eeprom.scale_my, data_eeprom.scale_mz);
+		
+		// save configuration data to eeprom
+		EEPROM.put(ADDRESS_EEPROM, data_eeprom);
 	#endif
 	
 	// initial pose estimation flag
@@ -133,7 +154,7 @@ void setup() {
 		dt_s = (float) (dt) * 1.e-6;	// in s
 		t0 = t;							// update last imu update time measurement
 		
-		madgwickFilter.get_euler(angle_x, angle_y, angle_z, dt_s, ax, ay, az, gx_rps, gy_rps, gz_rps, mx, my, mz);
+		madgwickFilter.get_euler(dt_s, ax, ay, az, gx_rps, gy_rps, gz_rps, mx, my, mz, angle_x, angle_y, angle_z);
 		
 		calc_accelAngles(angle_x_accel, angle_y_accel);
 		
@@ -182,7 +203,7 @@ void loop() {
 	dt_s = (float) (dt) * 1.e-6;	// in s
 	t0 = t;							// update last imu update time measurement
 	
-	madgwickFilter.get_euler(angle_x, angle_y, angle_z, dt_s, ax, ay, az, gx_rps, gy_rps, gz_rps, mx, my, mz);
+	madgwickFilter.get_euler(dt_s, ax, ay, az, gx_rps, gy_rps, gz_rps, mx, my, mz, angle_x, angle_y, angle_z);
 	
 	
 	
