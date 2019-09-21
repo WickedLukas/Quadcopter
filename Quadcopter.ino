@@ -10,6 +10,7 @@
 
 #include "ICM20948.h"
 #include "MadgwickAHRS.h"
+#include "iBus.h"
 
 #include "sendSerial.h"
 
@@ -17,7 +18,7 @@
 //#define DEBUG
 
 // send imu data through serial (for example to visualize it in "Processing")
-#define SEND_SERIAL
+//#define SEND_SERIAL
 
 // calibrate imu
 //#define IMU_CALIBRATION
@@ -54,6 +55,9 @@ ICM20948_SPI imu(IMU_CS_PIN, IMU_SPI_PORT);
 
 // object for Madgwick filter
 MADGWICK_AHRS madgwickFilter(BETA_INIT);
+
+// object for remote control
+IBUS remoteControl();
 
 // configuration data structure
 typedef struct {
