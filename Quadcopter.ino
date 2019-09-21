@@ -57,7 +57,7 @@ ICM20948_SPI imu(IMU_CS_PIN, IMU_SPI_PORT);
 MADGWICK_AHRS madgwickFilter(BETA_INIT);
 
 // object for remote control
-IBUS remoteControl();
+IBUS remoteControl;
 
 // configuration data structure
 typedef struct {
