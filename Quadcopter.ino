@@ -15,7 +15,7 @@
 #include "sendSerial.h"
 
 // print debug outputs through serial
-//#define DEBUG
+#define DEBUG
 
 // send imu data through serial (for example to visualize it in "Processing")
 //#define SEND_SERIAL
@@ -56,8 +56,8 @@ ICM20948_SPI imu(IMU_CS_PIN, IMU_SPI_PORT);
 // object for Madgwick filter
 MADGWICK_AHRS madgwickFilter(BETA_INIT);
 
-// object for remote control
-IBUS remoteControl;
+// object for radio control (rc)
+IBUS rc;
 
 // configuration data structure
 typedef struct {
@@ -79,6 +79,9 @@ int16_t ax, ay, az;
 float gx_rps, gy_rps, gz_rps;
 int16_t mx = 0, my = 0, mz = 0;
 
+// pointer on an array of received rc channel values with a maximum size of 10
+uint16_t *rc_channelValues;
+
 // quadcopter pose
 float angle_x, angle_y, angle_z;
 
@@ -99,14 +102,19 @@ void setup() {
 	float angle_z_0 = 0;
 	
 	#if defined(DEBUG) || defined(SEND_SERIAL) || defined(IMU_CALIBRATION)
-		// initialize serial communication
+		// initialize serial for monitoring
 		Serial.begin(115200);
 		while (!Serial);
 	#endif
 	
+	// initialize serial for iBus communication
+	Serial3.begin(115200, SERIAL_8N1);
+	while (!Serial3);
+	
+	// initialize SPI for imu communication
 	IMU_SPI_PORT.begin();
 	
-	// get configuration data from eeprom
+	// get configuration data from EEPROM
 	EEPROM.get(ADDRESS_EEPROM, data_eeprom);
 	
 	// initialize imu
@@ -114,10 +122,12 @@ void setup() {
 	imuStatus = imu.init(data_eeprom.offset_mx, data_eeprom.offset_my, data_eeprom.offset_mz, data_eeprom.scale_mx, data_eeprom.scale_my, data_eeprom.scale_mz);
 	
 	if (!imuStatus) {
-		DEBUG_PRINTLN("imu initialization unsuccessful");
-		DEBUG_PRINTLN("Check imu wiring or try cycling power");
+		DEBUG_PRINTLN(F("IMU initialization failed."));
 		while(1) {}
 	}
+	
+	// initialize rc and return a pointer on the received channel values
+	rc_channelValues = rc.begin(Serial3);
 	
 	// setup interrupt pin
 	pinMode(IMU_INTERRUPT_PIN, INPUT);
@@ -182,9 +192,8 @@ void setup() {
 		if (micros() - t0_serial > 16666) {
 			t0_serial = micros();
 			
+			DEBUG_PRINT(angle_x_accel); DEBUG_PRINT("\t"); DEBUG_PRINTLN(angle_y_accel);
 			DEBUG_PRINT(angle_x); DEBUG_PRINT("\t"); DEBUG_PRINT(angle_y); DEBUG_PRINT("\t"); DEBUG_PRINTLN(angle_z);
-			DEBUG_PRINT(angle_x_accel); DEBUG_PRINT("\t"); DEBUG_PRINT(angle_y_accel); DEBUG_PRINT("\t"); DEBUG_PRINTLN(0);
-			DEBUG_PRINTLN();
 		}
 	}
 }
@@ -202,6 +211,9 @@ void loop() {
 	// read imu measurements
 	imu.read_accel_gyro_rps(ax, ay, az, gx_rps, gy_rps, gz_rps);
 	imu.read_mag(mx, my, mz);
+	
+	// update rc
+	rc.update();
 	
 	dt = (t - t0);					// in us
 	dt_s = (float) (dt) * 1.e-6;	// in s
@@ -222,10 +234,16 @@ void loop() {
 		
 		static float angle_x_accel, angle_y_accel;
 		calc_accelAngles(angle_x_accel, angle_y_accel);
-		//DEBUG_PRINT(angle_x_accel); DEBUG_PRINT("\t"); DEBUG_PRINT(angle_y_accel); DEBUG_PRINT("\t"); DEBUG_PRINTLN(0);
+		//DEBUG_PRINT(angle_x_accel); DEBUG_PRINT("\t"); DEBUG_PRINTLN(angle_y_accel);
 		//DEBUG_PRINT(angle_x); DEBUG_PRINT("\t"); DEBUG_PRINT(angle_y); DEBUG_PRINT("\t"); DEBUG_PRINTLN(angle_z);
 		
 		//DEBUG_PRINTLN();
+		
+		// print channel values
+		for (int i=0; i<10 ; i++) {
+			DEBUG_PRINT(rc_channelValues[i]); DEBUG_PRINT("\t");
+		}
+		DEBUG_PRINTLN();
 		
 		#ifdef SEND_SERIAL
 			// Send data to "Processing" for visualization
