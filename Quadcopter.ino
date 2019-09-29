@@ -7,10 +7,14 @@
 */
 #include <Arduino.h>
 #include <EEPROM.h>
+// TODO: Maybe it can be avoided to use this library
+#include <PWMServo.h>
 
 #include "ICM20948.h"
 #include "MadgwickAHRS.h"
 #include "iBus.h"
+#include "ema_filter.h"
+#include "PID_controller.h"
 
 #include "sendSerial.h"
 
@@ -50,6 +54,30 @@
 #define INIT_ANGLE_DIFFERENCE 0.5	// Maximum angle difference between filtered angles and accelerometer angles (x- and y-axis) after initialization
 #define INIT_ANGULAR_VELOCITY 0.05	// Maximum angular velocity of filtered angle (z-axis) after initialization
 
+// rc channel assignment
+#define ROLL		0
+#define PITCH		1
+#define YAW			3
+#define THROTTLE	2
+
+// limits for flight setpoints
+#define ROLL_LIMIT		33		// deg
+#define PITCH_LIMIT		33		// deg
+#define YAW_LIMIT		180		// deg/s
+#define THROTTLE_LIMIT	1750	// < 2000 because there is some headroom needed for pid control, so the quadcopter stays stable during full throttle
+
+// moving average filter configuration for the flight setpoints
+#define EMA_ROLL_SP			0.0002
+#define EMA_PITCH_SP		0.0002
+#define EMA_YAW_SP			0.0002
+#define EMA_THROTTLE_SP		0.0002
+
+//TODO: Check if it is better to use a cascaded PID loop controlling rotational rate and angle
+// PID values for pose controller
+float P_roll = 1,	I_roll = 0,		D_roll = 0;
+float P_pitch = 1,	I_pitch = 0,	D_pitch = 0;
+float P_yaw = 1,	I_yaw = 0,		D_yaw = 0;
+
 // object for ICM-20948 imu
 ICM20948_SPI imu(IMU_CS_PIN, IMU_SPI_PORT);
 
@@ -58,6 +86,11 @@ MADGWICK_AHRS madgwickFilter(BETA_INIT);
 
 // object for radio control (rc)
 IBUS rc;
+
+// PID controller for pose
+PID_controller roll_pid(P_roll, I_roll, D_roll, 0, 0, 2000);
+PID_controller pitch_pid(P_pitch, I_pitch, D_yaw, 0, 0, 2000);
+PID_controller yaw_pid(P_yaw, I_yaw, D_yaw, 0, 0, 2000);
 
 // configuration data structure
 typedef struct {
@@ -79,8 +112,8 @@ int16_t ax, ay, az;
 float gx_rps, gy_rps, gz_rps;
 int16_t mx = 0, my = 0, mz = 0;
 
-// pointer on an array of received rc channel values with a maximum size of 10
-uint16_t *rc_channelValues;
+// pointer on an array of 10 received rc channel values [1000; 2000]
+uint16_t *rc_channelValue;
 
 // quadcopter pose
 float angle_x, angle_y, angle_z;
@@ -92,7 +125,10 @@ void imuReady() {
 }
 
 // calculate accelerometer x and y angles in degrees
-void calc_accelAngles(float& angle_x_accel, float& angle_y_accel);
+void accelAngles(float& angle_x_accel, float& angle_y_accel);
+
+// calculate flight setpoints from rc input
+void flight_setpoints(float& roll_sp, float& pitch_sp, float& yaw_sp, float& throttle_sp);
 
 void setup() {
 	// configuration data
@@ -126,8 +162,8 @@ void setup() {
 		while(1) {}
 	}
 	
-	// initialize rc and return a pointer on the received channel values
-	rc_channelValues = rc.begin(Serial3);
+	// initialize rc and return a pointer on the received rc channel values
+	rc_channelValue = rc.begin(Serial3);
 	
 	// setup interrupt pin
 	pinMode(IMU_INTERRUPT_PIN, INPUT);
@@ -170,7 +206,7 @@ void setup() {
 		
 		madgwickFilter.get_euler(dt_s, ax, ay, az, gx_rps, gy_rps, gz_rps, mx, my, mz, angle_x, angle_y, angle_z);
 		
-		calc_accelAngles(angle_x_accel, angle_y_accel);
+		accelAngles(angle_x_accel, angle_y_accel);
 		
 		// initialization is completed if filtered angles converged
 		if ((abs(angle_x_accel - angle_x) < INIT_ANGLE_DIFFERENCE) && (abs(angle_y_accel - angle_y) < INIT_ANGLE_DIFFERENCE)
@@ -212,14 +248,27 @@ void loop() {
 	imu.read_accel_gyro_rps(ax, ay, az, gx_rps, gy_rps, gz_rps);
 	imu.read_mag(mx, my, mz);
 	
-	// update rc
-	rc.update();
-	
 	dt = (t - t0);					// in us
 	dt_s = (float) (dt) * 1.e-6;	// in s
 	t0 = t;							// update last imu update time measurement
 	
 	madgwickFilter.get_euler(dt_s, ax, ay, az, gx_rps, gy_rps, gz_rps, mx, my, mz, angle_x, angle_y, angle_z);
+	
+	// update rc
+	rc.update();
+	
+	// calculate flight setpoints
+	static float roll_sp, pitch_sp, yaw_sp, throttle_sp;
+	flight_setpoints(roll_sp, pitch_sp, yaw_sp, throttle_sp);
+	
+	// get manipulated variables
+	static float roll_mv, pitch_mv, yaw_mv;
+	roll_mv = roll_pid.get_mv(roll_sp, angle_x, dt_s);
+	pitch_mv = pitch_pid.get_mv(pitch_sp, angle_y, dt_s);
+	yaw_mv = yaw_pid.get_mv(yaw_sp, angle_z, dt_s);
+	
+	// TODO: Throttle necessary hold altitude depends on roll and pitch angle, so it might be useful to compensate for this
+	
 	
 	
 	
@@ -232,8 +281,8 @@ void loop() {
 		//DEBUG_PRINT(gx_rps); DEBUG_PRINT("\t"); DEBUG_PRINT(gy_rps); DEBUG_PRINT("\t"); DEBUG_PRINTLN(gz_rps);
 		//DEBUG_PRINT(mx); DEBUG_PRINT("\t"); DEBUG_PRINT(my); DEBUG_PRINT("\t"); DEBUG_PRINTLN(mz);
 		
-		static float angle_x_accel, angle_y_accel;
-		calc_accelAngles(angle_x_accel, angle_y_accel);
+		//static float angle_x_accel, angle_y_accel;
+		//accelAngles(angle_x_accel, angle_y_accel);
 		//DEBUG_PRINT(angle_x_accel); DEBUG_PRINT("\t"); DEBUG_PRINTLN(angle_y_accel);
 		//DEBUG_PRINT(angle_x); DEBUG_PRINT("\t"); DEBUG_PRINT(angle_y); DEBUG_PRINT("\t"); DEBUG_PRINTLN(angle_z);
 		
@@ -241,7 +290,7 @@ void loop() {
 		
 		// print channel values
 		for (int i=0; i<10 ; i++) {
-			DEBUG_PRINT(rc_channelValues[i]); DEBUG_PRINT("\t");
+			DEBUG_PRINT(rc_channelValue[i]); DEBUG_PRINT("\t");
 		}
 		DEBUG_PRINTLN();
 		
@@ -254,9 +303,26 @@ void loop() {
 
 
 // calculate accelerometer x and y angles in degrees
-void calc_accelAngles(float& angle_x_accel, float& angle_y_accel) {
+void accelAngles(float& angle_x_accel, float& angle_y_accel) {
 	static const float RAD2DEG = 4068 / 71;
 	
 	angle_x_accel = atan2(ay, az) * RAD2DEG;
 	angle_y_accel = atan2(-ax, sqrt(pow(ay,2) + pow(az,2))) * RAD2DEG;
+}
+
+// calculate flight setpoints from rc input
+void flight_setpoints(float& roll_sp, float& pitch_sp, float& yaw_sp, float& throttle_sp) {
+	static float roll_mapped, pitch_mapped, yaw_mapped, throttle_mapped;
+	
+	// map rc channel values
+	roll_mapped = map((float) rc_channelValue[ROLL], 1000, 2000, -ROLL_LIMIT, ROLL_LIMIT);
+	pitch_mapped = map((float) rc_channelValue[PITCH], 1000, 2000, -PITCH_LIMIT, PITCH_LIMIT);
+	yaw_mapped = map((float) rc_channelValue[YAW], 1000, 2000, -YAW_LIMIT, YAW_LIMIT);
+	throttle_mapped = map((float) rc_channelValue[THROTTLE], 1000, 2000, 1000, THROTTLE_LIMIT);
+	
+	// calculate flight setpoints by filtering the mapped rc channel values
+	roll_sp = ema_filter(roll_mapped, roll_sp, EMA_ROLL_SP);
+	pitch_sp = ema_filter(pitch_mapped, pitch_sp, EMA_PITCH_SP);
+	yaw_sp = ema_filter(yaw_mapped, roll_sp, EMA_YAW_SP);
+	throttle_sp = ema_filter(throttle_mapped, throttle_sp, EMA_THROTTLE_SP);
 }
