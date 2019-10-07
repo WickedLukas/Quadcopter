@@ -8,13 +8,14 @@
 #include <Arduino.h>
 #include <EEPROM.h>
 // TODO: Maybe it can be avoided to use this library
-#include <PWMServo.h>
+#include <Servo.h>
 
 #include "ICM20948.h"
 #include "MadgwickAHRS.h"
 #include "iBus.h"
 #include "ema_filter.h"
 #include "PID_controller.h"
+#include "DShot.h"
 
 #include "sendSerial.h"
 
@@ -59,6 +60,7 @@
 #define PITCH		1
 #define YAW			3
 #define THROTTLE	2
+#define STOP		10
 
 // limits for flight setpoints
 #define ROLL_LIMIT		33		// deg
@@ -78,6 +80,8 @@ float P_roll = 1,	I_roll = 0,		D_roll = 0;
 float P_pitch = 1,	I_pitch = 0,	D_pitch = 0;
 float P_yaw = 1,	I_yaw = 0,		D_yaw = 0;
 
+// TODO: Implement flight modes: acro, stable with and without tilt-compensated thrust
+
 // object for ICM-20948 imu
 ICM20948_SPI imu(IMU_CS_PIN, IMU_SPI_PORT);
 
@@ -91,6 +95,17 @@ IBUS rc;
 PID_controller roll_pid(P_roll, I_roll, D_roll, 0, 0, 2000);
 PID_controller pitch_pid(P_pitch, I_pitch, D_yaw, 0, 0, 2000);
 PID_controller yaw_pid(P_yaw, I_yaw, D_yaw, 0, 0, 2000);
+
+// esc inputs
+// 1: top-left (CW); 2: top-right (CCW); 3: bottom-left (CW); 4: bottom-right (CCW);
+/*Servo esc_motor_1;
+Servo esc_motor_2;
+Servo esc_motor_3;
+Servo esc_motor_4;*/
+DShot esc_motor_1(1);
+DShot esc_motor_2(1);
+DShot esc_motor_3(1);
+DShot esc_motor_4(1);
 
 // configuration data structure
 typedef struct {
@@ -162,12 +177,14 @@ void setup() {
 		while(1) {}
 	}
 	
-	// initialize rc and return a pointer on the received rc channel values
-	rc_channelValue = rc.begin(Serial3);
-	
 	// setup interrupt pin
 	pinMode(IMU_INTERRUPT_PIN, INPUT);
 	attachInterrupt(digitalPinToInterrupt(IMU_INTERRUPT_PIN), imuReady, FALLING);
+	
+	// initialize rc and return a pointer on the received rc channel values
+	rc_channelValue = rc.begin(Serial3);
+	
+	// TODO: Implement a proper startup procedure here, which also gives the option for calibration and guides the user with display, sounds or LEDs
 	
 	// calibrate imu
 	#ifdef IMU_CALIBRATION
@@ -232,6 +249,12 @@ void setup() {
 			DEBUG_PRINT(angle_x); DEBUG_PRINT("\t"); DEBUG_PRINT(angle_y); DEBUG_PRINT("\t"); DEBUG_PRINTLN(angle_z);
 		}
 	}
+	
+	// attach escs to pins
+	/*esc_motor_1.attach(20, 1000, 2000);
+	esc_motor_2.attach(21, 1000, 2000);
+	esc_motor_3.attach(22, 1000, 2000);
+	esc_motor_4.attach(23, 1000, 2000);*/
 }
 
 void loop() {
@@ -267,9 +290,32 @@ void loop() {
 	pitch_mv = pitch_pid.get_mv(pitch_sp, angle_y, dt_s);
 	yaw_mv = yaw_pid.get_mv(yaw_sp, angle_z, dt_s);
 	
-	// TODO: Throttle necessary hold altitude depends on roll and pitch angle, so it might be useful to compensate for this
+	// print channel values
+	for (int i=0; i<10 ; i++) {
+		DEBUG_PRINT(rc_channelValue[i]); DEBUG_PRINT("\t");
+	}
+	DEBUG_PRINTLN();
 	
-	
+	// TODO: Implement more advanced failsafe
+	if (rc_channelValue[STOP] == 1000) {
+		// TODO: Throttle necessary hold altitude depends on roll and pitch angle, so it might be useful to compensate for this
+		// TODO: Check logic motor mixing carefully
+		/*esc_motor_1 = throttle_sp + roll_mv - pitch_mv + yaw_mv;
+		esc_motor_2 = throttle_sp - roll_mv - pitch_mv - yaw_mv;
+		esc_motor_3 = throttle_sp + roll_mv + pitch_mv + yaw_mv;
+		esc_motor_4 = throttle_sp - roll_mv + pitch_mv - yaw_mv;*/
+		
+		/*esc_motor_1.writeMicroseconds(rc_channelValue[THROTTLE]);
+		esc_motor_2.writeMicroseconds(rc_channelValue[THROTTLE]);
+		esc_motor_3.writeMicroseconds(rc_channelValue[THROTTLE]);
+		esc_motor_4.writeMicroseconds(rc_channelValue[THROTTLE]);*/
+	}
+	else {
+		/*esc_motor_1.writeMicroseconds(1000);
+		esc_motor_2.writeMicroseconds(1000);
+		esc_motor_3.writeMicroseconds(1000);
+		esc_motor_4.writeMicroseconds(1000);*/
+	}
 	
 	
 	// run serial print at a rate independent of the main loop (t0_serial = 16666 for 60 Hz update rate)
