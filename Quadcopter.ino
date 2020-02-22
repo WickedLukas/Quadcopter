@@ -7,15 +7,12 @@
 */
 #include <Arduino.h>
 #include <EEPROM.h>
-// TODO: Maybe it can be avoided to use this library
-#include <Servo.h>
 
 #include "ICM20948.h"
 #include "MadgwickAHRS.h"
 #include "iBus.h"
 #include "ema_filter.h"
 #include "PID_controller.h"
-#include "DShot.h"
 
 #include "sendSerial.h"
 
@@ -40,13 +37,32 @@
 	#define DEBUG_PRINTLN2(x,y)
 #endif
 
-// address for data saved to eeprom
+// address for eeprom data
 #define ADDRESS_EEPROM 0
 
-// pins connected to imu
+// imu pins
 #define IMU_SPI_PORT SPI
 #define IMU_CS_PIN 10
 #define IMU_INTERRUPT_PIN 24
+
+// pwm pins to control motors
+// 1: top-left (CW); 2: top-right (CCW); 3: bottom-left (CW); 4: bottom-right (CCW);
+#define MOTOR_PIN_1 20
+#define MOTOR_PIN_2 21
+#define MOTOR_PIN_3 22
+#define MOTOR_PIN_4 23
+
+// motor pwm resolution
+#define MOTOR_PWM_RESOLUTION 11
+
+// motor pwm frequency
+#define MOTOR_PWM_FREQENCY 12000
+
+// rc channel assignment
+#define ROLL		0
+#define PITCH		1
+#define YAW			3
+#define THROTTLE	2
 
 #define BETA_INIT 10	// Madgwick algorithm gain (2 * proportional gain (Kp)) during initial pose estimation
 #define BETA 0.041		// Madgwick algorithm gain (2 * proportional gain (Kp))
@@ -54,13 +70,6 @@
 // parameters to check if filtered angles converged during initialization
 #define INIT_ANGLE_DIFFERENCE 0.5	// Maximum angle difference between filtered angles and accelerometer angles (x- and y-axis) after initialization
 #define INIT_ANGULAR_VELOCITY 0.05	// Maximum angular velocity of filtered angle (z-axis) after initialization
-
-// rc channel assignment
-#define ROLL		0
-#define PITCH		1
-#define YAW			3
-#define THROTTLE	2
-#define STOP		10
 
 // limits for flight setpoints
 #define ROLL_LIMIT		33		// deg
@@ -76,36 +85,58 @@
 
 //TODO: Check if it is better to use a cascaded PID loop controlling rotational rate and angle
 // PID values for pose controller
-float P_roll = 1,	I_roll = 0,		D_roll = 0;
-float P_pitch = 1,	I_pitch = 0,	D_pitch = 0;
-float P_yaw = 1,	I_yaw = 0,		D_yaw = 0;
+const float P_roll = 1,		I_roll = 0,		D_roll = 0;
+const float P_pitch = 1,	I_pitch = 0,	D_pitch = 0;
+const float P_yaw = 1,		I_yaw = 0,		D_yaw = 0;
 
 // TODO: Implement flight modes: acro, stable with and without tilt-compensated thrust
 
-// object for ICM-20948 imu
+// motor class
+class PWMServoMotor
+{
+	public:
+	PWMServoMotor(uint8_t pin, uint8_t motor_pwm_resolution, uint16_t motor_pwm_frequency) {
+		m_pin = pin;
+		m_motor_pwm_resolution = motor_pwm_resolution;
+		
+		analogWriteFrequency(pin, motor_pwm_frequency);
+		digitalWrite(pin, LOW);
+		pinMode(pin, OUTPUT);
+	}
+	
+	void write(uint16_t value) {
+		noInterrupts();
+		m_oldRes = analogWriteResolution(m_motor_pwm_resolution);
+		analogWrite(m_pin, value);
+		analogWriteResolution(m_oldRes);
+		interrupts();
+	}
+	
+	private:
+	uint8_t m_pin;
+	uint8_t m_motor_pwm_resolution;
+	uint8_t m_oldRes;
+};
+
+// ICM-20948 imu object
 ICM20948_SPI imu(IMU_CS_PIN, IMU_SPI_PORT);
 
-// object for Madgwick filter
+// motor objects
+PWMServoMotor motor_1(MOTOR_PIN_1, MOTOR_PWM_RESOLUTION, MOTOR_PWM_FREQENCY);
+PWMServoMotor motor_2(MOTOR_PIN_2, MOTOR_PWM_RESOLUTION, MOTOR_PWM_FREQENCY);
+PWMServoMotor motor_3(MOTOR_PIN_3, MOTOR_PWM_RESOLUTION, MOTOR_PWM_FREQENCY);
+PWMServoMotor motor_4(MOTOR_PIN_4, MOTOR_PWM_RESOLUTION, MOTOR_PWM_FREQENCY);
+
+// Madgwick filter object
 MADGWICK_AHRS madgwickFilter(BETA_INIT);
 
-// object for radio control (rc)
+// radio control (rc) object
 IBUS rc;
 
-// PID controller for pose
+// pose PID controller
 PID_controller roll_pid(P_roll, I_roll, D_roll, 0, 0, 2000);
 PID_controller pitch_pid(P_pitch, I_pitch, D_yaw, 0, 0, 2000);
 PID_controller yaw_pid(P_yaw, I_yaw, D_yaw, 0, 0, 2000);
-
-// esc inputs
-// 1: top-left (CW); 2: top-right (CCW); 3: bottom-left (CW); 4: bottom-right (CCW);
-/*Servo esc_motor_1;
-Servo esc_motor_2;
-Servo esc_motor_3;
-Servo esc_motor_4;*/
-DShot esc_motor_1(1);
-DShot esc_motor_2(1);
-DShot esc_motor_3(1);
-DShot esc_motor_4(1);
 
 // configuration data structure
 typedef struct {
@@ -146,6 +177,9 @@ void accelAngles(float& angle_x_accel, float& angle_y_accel);
 void flight_setpoints(float& roll_sp, float& pitch_sp, float& yaw_sp, float& throttle_sp);
 
 void setup() {
+	// set default resolution for analog write, in order to go back to it after running motors with different resolution
+	analogWriteResolution(8);
+	
 	// configuration data
 	config_data data_eeprom;
 	
@@ -240,6 +274,7 @@ void setup() {
 		}
 		angle_z_0 = angle_z;
 		
+		
 		// run serial print at a rate independent of the main loop
 		static uint32_t t0_serial = micros();
 		if (micros() - t0_serial > 16666) {
@@ -249,12 +284,6 @@ void setup() {
 			DEBUG_PRINT(angle_x); DEBUG_PRINT("\t"); DEBUG_PRINT(angle_y); DEBUG_PRINT("\t"); DEBUG_PRINTLN(angle_z);
 		}
 	}
-	
-	// attach escs to pins
-	/*esc_motor_1.attach(20, 1000, 2000);
-	esc_motor_2.attach(21, 1000, 2000);
-	esc_motor_3.attach(22, 1000, 2000);
-	esc_motor_4.attach(23, 1000, 2000);*/
 }
 
 void loop() {
@@ -290,33 +319,18 @@ void loop() {
 	pitch_mv = pitch_pid.get_mv(pitch_sp, angle_y, dt_s);
 	yaw_mv = yaw_pid.get_mv(yaw_sp, angle_z, dt_s);
 	
-	// print channel values
-	for (int i=0; i<10 ; i++) {
-		DEBUG_PRINT(rc_channelValue[i]); DEBUG_PRINT("\t");
-	}
-	DEBUG_PRINTLN();
 	
-	// TODO: Implement more advanced failsafe
-	if (rc_channelValue[STOP] == 1000) {
-		// TODO: Throttle necessary hold altitude depends on roll and pitch angle, so it might be useful to compensate for this
-		// TODO: Check logic motor mixing carefully
-		/*esc_motor_1 = throttle_sp + roll_mv - pitch_mv + yaw_mv;
-		esc_motor_2 = throttle_sp - roll_mv - pitch_mv - yaw_mv;
-		esc_motor_3 = throttle_sp + roll_mv + pitch_mv + yaw_mv;
-		esc_motor_4 = throttle_sp - roll_mv + pitch_mv - yaw_mv;*/
+	// TODO: Throttle necessary hold altitude depends on roll and pitch angle, so it might be useful to compensate for this
+	// TODO: Check motor mixing logic carefully
+	/*motor_1 = throttle_sp + roll_mv - pitch_mv + yaw_mv;
+	motor_2 = throttle_sp - roll_mv - pitch_mv - yaw_mv;
+	motor_3 = throttle_sp + roll_mv + pitch_mv + yaw_mv;
+	motor_4 = throttle_sp - roll_mv + pitch_mv - yaw_mv;*/
 		
-		/*esc_motor_1.writeMicroseconds(rc_channelValue[THROTTLE]);
-		esc_motor_2.writeMicroseconds(rc_channelValue[THROTTLE]);
-		esc_motor_3.writeMicroseconds(rc_channelValue[THROTTLE]);
-		esc_motor_4.writeMicroseconds(rc_channelValue[THROTTLE]);*/
-	}
-	else {
-		/*esc_motor_1.writeMicroseconds(1000);
-		esc_motor_2.writeMicroseconds(1000);
-		esc_motor_3.writeMicroseconds(1000);
-		esc_motor_4.writeMicroseconds(1000);*/
-	}
-	
+	motor_1.write(rc_channelValue[THROTTLE]);
+	/*motor_2.write(rc_channelValue[THROTTLE]);
+	motor_3.write(rc_channelValue[THROTTLE]);
+	motor_4.write(rc_channelValue[THROTTLE]);*/
 	
 	// run serial print at a rate independent of the main loop (t0_serial = 16666 for 60 Hz update rate)
 	static uint32_t t0_serial = micros();
