@@ -177,6 +177,8 @@ void accelAngles(float& angle_x_accel, float& angle_y_accel);
 void flight_setpoints(float& roll_sp, float& pitch_sp, float& yaw_sp, float& throttle_sp);
 
 void setup() {
+  // TODO: Implement watchdog timer
+  
 	// set default resolution for analog write, in order to go back to it after running motors with different resolution
 	analogWriteResolution(8);
 	
