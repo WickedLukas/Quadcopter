@@ -67,6 +67,7 @@
 #define PITCH		1
 #define YAW			3
 #define THROTTLE	2
+#define FMODE		8
 
 #define BETA_INIT 10	// Madgwick algorithm gain (2 * proportional gain (Kp)) during initial pose estimation
 #define BETA 0.041		// Madgwick algorithm gain (2 * proportional gain (Kp))
@@ -152,6 +153,9 @@ typedef struct {
 	// magnetometer soft iron distortion correction
 	float scale_mx, scale_my, scale_mz;
 } config_data;
+
+// motors can only run in armed state
+bool armed = false;
 
 // variables to measure imu update time
 uint32_t t0 = 0, t = 0;
@@ -330,28 +334,85 @@ void loop() {
 	// update rc
 	rc.update();
 	
-	// calculate flight setpoints
+	// arming / disarming procedure
+	static uint32_t t_arm;
+	static uint32_t t_disarm;
+	
+	if (rc_channelValue[THROTTLE] < 1050) {
+		if (rc_channelValue[YAW] > 1950) {
+			// hold stick to complete disarming
+			t_disarm += dt;
+			t_arm = 0;
+			
+			if (t_disarm > 2000000) {
+				armed = false;
+			}
+		} 
+		else if (rc_channelValue[YAW] < 1050) {
+			// hold stick to complete arming
+			t_arm += dt;
+			t_disarm = 0;
+			
+			if (t_arm > 2000000) {
+				armed = true;
+			}
+		}
+		else {
+			t_arm = 0;
+			t_disarm = 0;
+		}
+	}
+	else {
+		t_arm = 0;
+		t_disarm = 0;
+	}
+	
+	// flight setpoints
 	static float roll_sp, pitch_sp, yaw_sp, throttle_sp;
-	flight_setpoints(roll_sp, pitch_sp, yaw_sp, throttle_sp);
 	
-	// get manipulated variables
-	static float roll_mv, pitch_mv, yaw_mv;
-	roll_mv = roll_pid.get_mv(roll_sp, angle_x, dt_s);
-	pitch_mv = pitch_pid.get_mv(pitch_sp, angle_y, dt_s);
-	yaw_mv = yaw_pid.get_mv(yaw_sp, angle_z, dt_s);
-	
-	
-	// TODO: Throttle necessary hold altitude depends on roll and pitch angle, so it might be useful to compensate for this
-	// TODO: Check motor mixing logic carefully
-	/*motor_1 = throttle_sp + roll_mv - pitch_mv + yaw_mv;
-	motor_2 = throttle_sp - roll_mv - pitch_mv - yaw_mv;
-	motor_3 = throttle_sp + roll_mv + pitch_mv + yaw_mv;
-	motor_4 = throttle_sp - roll_mv + pitch_mv - yaw_mv;*/
+	// calculate flight setpoints, manipulated variables and control motors, only when armed 
+	if (armed) {
+		// calculate flight setpoints
+		flight_setpoints(roll_sp, pitch_sp, yaw_sp, throttle_sp);
 		
-	motor_1.write(rc_channelValue[THROTTLE]);
-	/*motor_2.write(rc_channelValue[THROTTLE]);
-	motor_3.write(rc_channelValue[THROTTLE]);
-	motor_4.write(rc_channelValue[THROTTLE]);*/
+		// get manipulated variables
+		static float roll_mv, pitch_mv, yaw_mv;
+		roll_mv = roll_pid.get_mv(roll_sp, angle_x, dt_s);
+		pitch_mv = pitch_pid.get_mv(pitch_sp, angle_y, dt_s);
+		yaw_mv = yaw_pid.get_mv(yaw_sp, angle_z, dt_s);
+		
+		// TODO: Throttle necessary hold altitude depends on roll and pitch angle, so it might be useful to compensate for this
+		// TODO: Check motor mixing logic carefully
+		/*motor_1 = throttle_sp + roll_mv - pitch_mv + yaw_mv;
+		motor_2 = throttle_sp - roll_mv - pitch_mv - yaw_mv;
+		motor_3 = throttle_sp + roll_mv + pitch_mv + yaw_mv;
+		motor_4 = throttle_sp - roll_mv + pitch_mv - yaw_mv;*/
+		
+		motor_1.write(rc_channelValue[THROTTLE]);
+		/*motor_2.write(rc_channelValue[THROTTLE]);
+		motor_3.write(rc_channelValue[THROTTLE]);
+		motor_4.write(rc_channelValue[THROTTLE]);*/
+	}
+	else {
+		// set flight setpoints to zero
+		roll_sp = 0;
+		pitch_sp = 0;
+		yaw_sp = 0;
+		throttle_sp = 0;
+		
+		flight_setpoints(roll_sp, pitch_sp, yaw_sp, throttle_sp);
+		
+		// reset PIDs
+		roll_pid.reset();
+		pitch_pid.reset();
+		yaw_pid.reset();
+		
+		// turn off motors
+		motor_1.write(0);
+		motor_2.write(0);
+		motor_3.write(0);
+		motor_4.write(0);
+	}
 	
 	// run serial print at a rate independent of the main loop (t0_serial = 16666 for 60 Hz update rate)
 	static uint32_t t0_serial = micros();
