@@ -16,11 +16,15 @@
 
 #include "sendSerial.h"
 
+// TODO: integrate telemetry (MAVLink?)
+// TODO: arming sequence
+// TODO: LED notification
+
 // print debug outputs through serial
-#define DEBUG
+//#define DEBUG
 
 // send imu data through serial (for example to visualize it in "Processing")
-//#define SEND_SERIAL
+#define SEND_SERIAL
 
 // calibrate imu
 //#define IMU_CALIBRATION
@@ -43,14 +47,14 @@
 // imu pins
 #define IMU_SPI_PORT SPI
 #define IMU_CS_PIN 10
-#define IMU_INTERRUPT_PIN 24
+#define IMU_INTERRUPT_PIN 9
 
 // pwm pins to control motors
 // 1: top-left (CW); 2: top-right (CCW); 3: bottom-left (CW); 4: bottom-right (CCW);
-#define MOTOR_PIN_1 20
-#define MOTOR_PIN_2 21
-#define MOTOR_PIN_3 22
-#define MOTOR_PIN_4 23
+#define MOTOR_PIN_1 2
+#define MOTOR_PIN_2 3
+#define MOTOR_PIN_3 4
+#define MOTOR_PIN_4 5
 
 // motor pwm resolution
 #define MOTOR_PWM_RESOLUTION 11
@@ -88,6 +92,7 @@
 const float P_roll = 1,		I_roll = 0,		D_roll = 0;
 const float P_pitch = 1,	I_pitch = 0,	D_pitch = 0;
 const float P_yaw = 1,		I_yaw = 0,		D_yaw = 0;
+//const float P_level = 1,	I_level = 0,	D_level = 0;
 
 // TODO: Implement flight modes: acro, stable with and without tilt-compensated thrust
 
@@ -113,10 +118,12 @@ class PWMServoMotor
 	}
 	
 	private:
+	static uint8_t m_oldRes;
 	uint8_t m_pin;
 	uint8_t m_motor_pwm_resolution;
-	uint8_t m_oldRes;
 };
+
+uint8_t PWMServoMotor::m_oldRes;
 
 // ICM-20948 imu object
 ICM20948_SPI imu(IMU_CS_PIN, IMU_SPI_PORT);
@@ -177,8 +184,8 @@ void accelAngles(float& angle_x_accel, float& angle_y_accel);
 void flight_setpoints(float& roll_sp, float& pitch_sp, float& yaw_sp, float& throttle_sp);
 
 void setup() {
-  // TODO: Implement watchdog timer
-  
+	// TODO: Implement failsafe features(watchdog?)
+	
 	// set default resolution for analog write, in order to go back to it after running motors with different resolution
 	analogWriteResolution(8);
 	
@@ -195,8 +202,8 @@ void setup() {
 	#endif
 	
 	// initialize serial for iBus communication
-	Serial3.begin(115200, SERIAL_8N1);
-	while (!Serial3);
+	Serial2.begin(115200, SERIAL_8N1);
+	while (!Serial2);
 	
 	// initialize SPI for imu communication
 	IMU_SPI_PORT.begin();
@@ -218,7 +225,7 @@ void setup() {
 	attachInterrupt(digitalPinToInterrupt(IMU_INTERRUPT_PIN), imuReady, FALLING);
 	
 	// initialize rc and return a pointer on the received rc channel values
-	rc_channelValue = rc.begin(Serial3);
+	rc_channelValue = rc.begin(Serial2);
 	
 	// TODO: Implement a proper startup procedure here, which also gives the option for calibration and guides the user with display, sounds or LEDs
 	
