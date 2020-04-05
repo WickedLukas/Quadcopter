@@ -171,6 +171,9 @@ uint16_t *rc_channelValue;
 // quadcopter pose
 float angle_x, angle_y, angle_z;
 
+// z-axis pose offset to compensate for the sensor mounting orientation relative to the quadcopter frame
+float angle_z_offset = 90;
+
 // imu interrupt
 volatile bool imuInterrupt = false;
 void imuReady() {
@@ -309,11 +312,20 @@ void loop() {
 	imu.read_accel_gyro_rps(ax, ay, az, gx_rps, gy_rps, gz_rps);
 	imu.read_mag(mx, my, mz);
 	
-	dt = (t - t0);					// in us
+	dt = (t - t0);  // in us
 	dt_s = (float) (dt) * 1.e-6;	// in s
-	t0 = t;							// update last imu update time measurement
+	t0 = t; // update last imu update time measurement
 	
 	madgwickFilter.get_euler(dt_s, ax, ay, az, gx_rps, gy_rps, gz_rps, mx, my, mz, angle_x, angle_y, angle_z);
+	
+	// Make sure the initial z-axis pose is zero
+	angle_z += angle_z_offset;
+	if (angle_z > 180) {
+		angle_z -= 360;
+	}
+	else if (angle_z < -180) {
+		angle_z += 360;
+	}
 	
 	// update rc
 	rc.update();
