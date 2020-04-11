@@ -21,10 +21,10 @@
 // TODO: LED notification
 
 // print debug outputs through serial
-//#define DEBUG
+#define DEBUG
 
 // send imu data through serial (for example to visualize it in "Processing")
-#define SEND_SERIAL
+//#define SEND_SERIAL
 
 // calibrate imu
 //#define IMU_CALIBRATION
@@ -63,11 +63,12 @@
 #define MOTOR_PWM_FREQENCY 12000
 
 // rc channel assignment
-#define ROLL		0
-#define PITCH		1
-#define YAW			3
+#define ROLL			0
+#define PITCH			1
+#define YAW				3
 #define THROTTLE	2
-#define FMODE		8
+#define ARM				6	// disarmed: 1000, armed: 2000
+#define FMODE			8	// stable: 1000/2000, stable with tilt compensated thrust: 1500, acro (not implemented)
 
 #define BETA_INIT 10	// Madgwick algorithm gain (2 * proportional gain (Kp)) during initial pose estimation
 #define BETA 0.041		// Madgwick algorithm gain (2 * proportional gain (Kp))
@@ -94,8 +95,6 @@ const float P_roll = 1,		I_roll = 0,		D_roll = 0;
 const float P_pitch = 1,	I_pitch = 0,	D_pitch = 0;
 const float P_yaw = 1,		I_yaw = 0,		D_yaw = 0;
 //const float P_level = 1,	I_level = 0,	D_level = 0;
-
-// TODO: Implement flight modes: acro, stable with and without tilt-compensated thrust
 
 // motor class
 class PWMServoMotor
@@ -154,7 +153,7 @@ typedef struct {
 	float scale_mx, scale_my, scale_mz;
 } config_data;
 
-// motors can only run in armed state
+// motors can only run when armed
 bool armed = false;
 
 // variables to measure imu update time
@@ -184,15 +183,16 @@ void imuReady() {
 	imuInterrupt = true;
 }
 
+// arm/disarm on rc command and disarm on failsafe conditions
+void arm_failsafe();
+
 // calculate accelerometer x and y angles in degrees
 void accelAngles(float& angle_x_accel, float& angle_y_accel);
 
-// calculate flight setpoints from rc input
-void flight_setpoints(float& roll_sp, float& pitch_sp, float& yaw_sp, float& throttle_sp);
+// calculate flight setpoints from rc input for stable flightmode without and with tilt compensated thrust
+void flightSetpoints(float& roll_sp, float& pitch_sp, float& yaw_sp, float& throttle_sp);
 
 void setup() {
-	// TODO: Implement failsafe features(watchdog?)
-	
 	// set default resolution for analog write, in order to go back to it after running motors with different resolution
 	analogWriteResolution(8);
 	
@@ -322,7 +322,7 @@ void loop() {
 	
 	madgwickFilter.get_euler(dt_s, ax, ay, az, gx_rps, gy_rps, gz_rps, mx, my, mz, angle_x, angle_y, angle_z);
 	
-	// Make sure the initial z-axis pose is zero
+	// apply offset to z-axis pose in order to compensate for the sensor mounting orientation relative to the quadcopter frame
 	angle_z += angle_z_offset;
 	if (angle_z > 180) {
 		angle_z -= 360;
@@ -334,49 +334,17 @@ void loop() {
 	// update rc
 	rc.update();
 	
-	// arming / disarming procedure
-	static uint32_t t_arm;
-	static uint32_t t_disarm;
+	// arm/disarm on rc command and disarm on failsafe conditions
+	arm_failsafe();
 	
-	if (rc_channelValue[THROTTLE] < 1050) {
-		if (rc_channelValue[YAW] > 1950) {
-			// hold stick to complete disarming
-			t_disarm += dt;
-			t_arm = 0;
-			
-			if (t_disarm > 2000000) {
-				armed = false;
-			}
-		} 
-		else if (rc_channelValue[YAW] < 1050) {
-			// hold stick to complete arming
-			t_arm += dt;
-			t_disarm = 0;
-			
-			if (t_arm > 2000000) {
-				armed = true;
-			}
-		}
-		else {
-			t_arm = 0;
-			t_disarm = 0;
-		}
-	}
-	else {
-		t_arm = 0;
-		t_disarm = 0;
-	}
-	
-	// flight setpoints
-	static float roll_sp, pitch_sp, yaw_sp, throttle_sp;
-	
-	// calculate flight setpoints, manipulated variables and control motors, only when armed 
+	// when armed, calculate flight setpoints, manipulated variables and control motors
+	static float roll_sp, pitch_sp, yaw_sp, throttle_sp;	// flight setpoints
+	static float roll_mv, pitch_mv, yaw_mv;	// manipulated variables
 	if (armed) {
 		// calculate flight setpoints
-		flight_setpoints(roll_sp, pitch_sp, yaw_sp, throttle_sp);
+		flightSetpoints(roll_sp, pitch_sp, yaw_sp, throttle_sp);
 		
 		// get manipulated variables
-		static float roll_mv, pitch_mv, yaw_mv;
 		roll_mv = roll_pid.get_mv(roll_sp, angle_x, dt_s);
 		pitch_mv = pitch_pid.get_mv(pitch_sp, angle_y, dt_s);
 		yaw_mv = yaw_pid.get_mv(yaw_sp, angle_z, dt_s);
@@ -400,7 +368,7 @@ void loop() {
 		yaw_sp = 0;
 		throttle_sp = 0;
 		
-		flight_setpoints(roll_sp, pitch_sp, yaw_sp, throttle_sp);
+		flightSetpoints(roll_sp, pitch_sp, yaw_sp, throttle_sp);
 		
 		// reset PIDs
 		roll_pid.reset();
@@ -427,8 +395,9 @@ void loop() {
 		//accelAngles(angle_x_accel, angle_y_accel);
 		//DEBUG_PRINT(angle_x_accel); DEBUG_PRINT("\t"); DEBUG_PRINTLN(angle_y_accel);
 		//DEBUG_PRINT(angle_x); DEBUG_PRINT("\t"); DEBUG_PRINT(angle_y); DEBUG_PRINT("\t"); DEBUG_PRINTLN(angle_z);
+		DEBUG_PRINTLN(armed);
 		
-		//DEBUG_PRINTLN();
+		DEBUG_PRINTLN();
 		
 		// print channel values
 		for (int i=0; i<10 ; i++) {
@@ -444,6 +413,52 @@ void loop() {
 }
 
 
+// arm/disarm on rc command and disarm on failsafe conditions
+void arm_failsafe() {
+	// arm and disarm on rc command
+	static uint32_t t_arm;
+	static uint32_t t_disarm;
+
+	if (rc_channelValue[ARM] == 2000) {
+		// arm:			left stick bottom-right	(2s)
+		// disarm:	left stick bottom-left	(2s)
+		if (rc_channelValue[THROTTLE] < 1050) {
+			if (rc_channelValue[YAW] > 1950) {
+			  // hold stick to complete disarming
+				t_arm += dt;
+				t_disarm = 0;
+				
+				if (t_arm > 2000000) {
+						armed = true;
+				}
+			} 
+			else if (rc_channelValue[YAW] < 1050) {
+				// hold stick to complete arming
+				t_disarm += dt;
+				t_arm = 0;
+				
+				if (t_disarm > 2000000) {
+					armed = false;
+				}
+			}
+			else {
+				t_arm = 0;
+				t_disarm = 0;
+			}
+		}
+		else {
+			t_arm = 0;
+			t_disarm = 0;
+		}
+	}
+	else {
+		armed = false;
+	}
+
+	// TODO: disarm on failsafe conditions
+	
+}
+
 // calculate accelerometer x and y angles in degrees
 void accelAngles(float& angle_x_accel, float& angle_y_accel) {
 	static const float RAD2DEG = 4068 / 71;
@@ -452,15 +467,24 @@ void accelAngles(float& angle_x_accel, float& angle_y_accel) {
 	angle_y_accel = atan2(-ax, sqrt(pow(ay,2) + pow(az,2))) * RAD2DEG;
 }
 
-// calculate flight setpoints from rc input
-void flight_setpoints(float& roll_sp, float& pitch_sp, float& yaw_sp, float& throttle_sp) {
+// calculate flight setpoints from rc input for stable flightmode without and with tilt compensated thrust
+void flightSetpoints(float& roll_sp, float& pitch_sp, float& yaw_sp, float& throttle_sp) {
+	static const float DEG2RAD = 71 / 4068;
 	static float roll_mapped, pitch_mapped, yaw_mapped, throttle_mapped;
 	
 	// map rc channel values
 	roll_mapped = map((float) rc_channelValue[ROLL], 1000, 2000, -ROLL_LIMIT, ROLL_LIMIT);
 	pitch_mapped = map((float) rc_channelValue[PITCH], 1000, 2000, -PITCH_LIMIT, PITCH_LIMIT);
 	yaw_mapped = map((float) rc_channelValue[YAW], 1000, 2000, -YAW_LIMIT, YAW_LIMIT);
-	throttle_mapped = map((float) rc_channelValue[THROTTLE], 1000, 2000, 1000, THROTTLE_LIMIT);
+
+	if (rc_channelValue[FMODE] == 1500) {
+		// tilt compensated thrust: increase thrust when quadcopter is tilted, to compensate for height loss during horizontal movement
+		throttle_mapped = map((float) rc_channelValue[THROTTLE] / (cos(angle_x * DEG2RAD) * cos(angle_y * DEG2RAD)), 1000, 2000, 1000, THROTTLE_LIMIT);
+	}
+	else {
+		// stable
+		throttle_mapped = map((float) rc_channelValue[THROTTLE], 1000, 2000, 1000, THROTTLE_LIMIT);
+	}
 	
 	// calculate flight setpoints by filtering the mapped rc channel values
 	roll_sp = ema_filter(roll_mapped, roll_sp, EMA_ROLL_SP);
