@@ -17,7 +17,6 @@
 #include "sendSerial.h"
 
 // TODO: integrate telemetry (MAVLink?)
-// TODO: arming sequence
 // TODO: LED notification
 
 // print debug outputs through serial
@@ -25,9 +24,6 @@
 
 // send imu data through serial (for example to visualize it in "Processing")
 //#define SEND_SERIAL
-
-// calibrate imu
-//#define IMU_CALIBRATION
 
 #ifdef DEBUG
 	#define DEBUG_PRINT(x) Serial.print(x)
@@ -73,9 +69,9 @@
 #define BETA_INIT 10	// Madgwick algorithm gain (2 * proportional gain (Kp)) during initial pose estimation
 #define BETA 0.041		// Madgwick algorithm gain (2 * proportional gain (Kp))
 
-// parameters to check if filtered angles converged during initialization
-#define INIT_ANGLE_DIFFERENCE 0.5	// Maximum angle difference between filtered angles and accelerometer angles (x- and y-axis) after initialization
-#define INIT_ANGULAR_VELOCITY 0.05	// Maximum angular velocity of filtered angle (z-axis) after initialization
+// parameters to check if filtered angles converged during initialisation
+#define INIT_ANGLE_DIFFERENCE 0.5	// Maximum angle difference between filtered angles and accelerometer angles (x- and y-axis) after initialisation
+#define INIT_ANGULAR_VELOCITY 0.05	// Maximum angular velocity of filtered angle (z-axis) after initialisation
 
 // limits for flight setpoints
 #define ROLL_LIMIT		33		// deg
@@ -125,8 +121,25 @@ class PWMServoMotor
 
 uint8_t PWMServoMotor::m_oldRes;
 
+// configuration data structure
+typedef struct {
+	// magnetometer hard iron distortion correction
+	float offset_mx, offset_my, offset_mz;
+	// magnetometer soft iron distortion correction
+	float scale_mx, scale_my, scale_mz;
+} config_data;
+
+// radio control (rc) object
+IBUS rc;
+
+// configuration data
+config_data data_eeprom;
+
 // ICM-20948 imu object
 ICM20948_SPI imu(IMU_CS_PIN, IMU_SPI_PORT);
+	
+// initial quadcopter z-axis angle - this has to be initialise with an implausible value (> 360)
+float angle_z_0 = 1000;
 
 // motor objects
 PWMServoMotor motor_1(MOTOR_PIN_1, MOTOR_PWM_RESOLUTION, MOTOR_PWM_FREQENCY);
@@ -137,24 +150,16 @@ PWMServoMotor motor_4(MOTOR_PIN_4, MOTOR_PWM_RESOLUTION, MOTOR_PWM_FREQENCY);
 // Madgwick filter object
 MADGWICK_AHRS madgwickFilter(BETA_INIT);
 
-// radio control (rc) object
-IBUS rc;
-
 // pose PID controller
 PID_controller roll_pid(P_roll, I_roll, D_roll, 0, 0, 2000);
 PID_controller pitch_pid(P_pitch, I_pitch, D_yaw, 0, 0, 2000);
 PID_controller yaw_pid(P_yaw, I_yaw, D_yaw, 0, 0, 2000);
 
-// configuration data structure
-typedef struct {
-	// magnetometer hard iron distortion correction
-	float offset_mx, offset_my, offset_mz;
-	// magnetometer soft iron distortion correction
-	float scale_mx, scale_my, scale_mz;
-} config_data;
-
 // motors can only run when armed
 bool armed = false;
+
+// disarm flag to request disarming
+bool disarm = false;
 
 // variables to measure imu update time
 uint32_t t0 = 0, t = 0;
@@ -183,11 +188,17 @@ void imuReady() {
 	imuInterrupt = true;
 }
 
-// arm/disarm on rc command and disarm on failsafe conditions
-void arm_failsafe();
+// estimate initial pose
+void estimatePose(float beta_init, float beta, float init_angleDifference, float init_angularVelocity);
 
 // calculate accelerometer x and y angles in degrees
 void accelAngles(float& angle_x_accel, float& angle_y_accel);
+
+// calibrate gyroscope, accelerometer or magnetometer on rc command and return true if any calibration was performed
+bool imuCalibration();
+
+// arm/disarm on rc command and disarm on failsafe conditions
+void arm_failsafe();
 
 // calculate flight setpoints from rc input for stable flightmode without and with tilt compensated thrust
 void flightSetpoints(float& roll_sp, float& pitch_sp, float& yaw_sp, float& throttle_sp);
@@ -196,129 +207,68 @@ void setup() {
 	// set default resolution for analog write, in order to go back to it after running motors with different resolution
 	analogWriteResolution(8);
 	
-	// configuration data
-	config_data data_eeprom;
-	
-	// last quadcopter z-axis angle
-	float angle_z_0 = 0;
-	
-	#if defined(DEBUG) || defined(SEND_SERIAL) || defined(IMU_CALIBRATION)
-		// initialize serial for monitoring
+	#if defined(DEBUG) || defined(SEND_SERIAL)
+		// initialise serial for monitoring
 		Serial.begin(115200);
 		while (!Serial);
 	#endif
 	
-	// initialize serial for iBus communication
+	// initialise serial for iBus communication
 	Serial2.begin(115200, SERIAL_8N1);
 	while (!Serial2);
-	
-	// initialize SPI for imu communication
-	IMU_SPI_PORT.begin();
-	
-	// get configuration data from EEPROM
-	EEPROM.get(ADDRESS_EEPROM, data_eeprom);
-	
-	// initialize imu
-	int8_t imuStatus;
-	imuStatus = imu.init(data_eeprom.offset_mx, data_eeprom.offset_my, data_eeprom.offset_mz, data_eeprom.scale_mx, data_eeprom.scale_my, data_eeprom.scale_mz);
-	
-	if (!imuStatus) {
-		DEBUG_PRINTLN(F("IMU initialization failed."));
-		while(1) {}
-	}
-	
-	// setup interrupt pin
-	pinMode(IMU_INTERRUPT_PIN, INPUT);
-	attachInterrupt(digitalPinToInterrupt(IMU_INTERRUPT_PIN), imuReady, FALLING);
-	
-	// initialize rc and return a pointer on the received rc channel values
+
+	// initialise rc and return a pointer on the received rc channel values
 	rc_channelValue = rc.begin(Serial2);
 	
-	// TODO: Implement a proper startup procedure here, which also gives the option for calibration and guides the user with display, sounds or LEDs
-	
-	// calibrate imu
-	#ifdef IMU_CALIBRATION
-		//imu.reset_accel_gyro_offsets();
-		//imu.calibrate_gyro(imuInterrupt, 5.0, 1);
-		//imu.calibrate_accel_gyro(imuInterrupt, 5.0, 16, 1);
-		imu.calibrate_mag(imuInterrupt, 60, 0, data_eeprom.offset_mx, data_eeprom.offset_my, data_eeprom.offset_mz, data_eeprom.scale_mx, data_eeprom.scale_my, data_eeprom.scale_mz);
-		
-		// save configuration data to eeprom
-		EEPROM.put(ADDRESS_EEPROM, data_eeprom);
-	#endif
-	
-	// initial pose estimation flag
-	bool init = true;
-	// angles calculated from accelerometer
-	float angle_x_accel, angle_y_accel;
-	
-	// estimate initial pose
-	DEBUG_PRINTLN(F("Estimating initial pose. Keep device at rest ..."));
-	while (init) {
-		while (!imuInterrupt) {
-			// wait for next imu interrupt
-		}
-		// reset imu interrupt flag
-		imuInterrupt = false;
-		
-		t = micros();
-		
-		// read imu measurements
-		imu.read_accel_gyro_rps(ax, ay, az, gx_rps, gy_rps, gz_rps);
-		imu.read_mag(mx, my, mz);
-		
-		dt = (t - t0);					// in us
-		dt_s = (float) (dt) * 1.e-6;	// in s
-		t0 = t;							// update last imu update time measurement
-		
-		madgwickFilter.get_euler(dt_s, ax, ay, az, gx_rps, gy_rps, gz_rps, mx, my, mz, angle_x, angle_y, angle_z);
-		
-		accelAngles(angle_x_accel, angle_y_accel);
-		
-		// initialization is completed if filtered angles converged
-		if ((abs(angle_x_accel - angle_x) < INIT_ANGLE_DIFFERENCE) && (abs(angle_y_accel - angle_y) < INIT_ANGLE_DIFFERENCE)
-		&& ((abs(angle_z - angle_z_0) / dt_s) < INIT_ANGULAR_VELOCITY)) {
-			// reduce beta value, since filtered angles have stabilized during initialization
-			madgwickFilter.set_beta(BETA);
-			
-			init = false;
-			
-			DEBUG_PRINTLN(F("Initial pose estimated."));
-			DEBUG_PRINTLN2(abs(angle_x_accel - angle_x), 6);
-			DEBUG_PRINTLN2(abs(angle_y_accel - angle_y), 6);
-			DEBUG_PRINTLN2(abs(angle_z - angle_z_0) / dt_s, 6);
-		}
-		angle_z_0 = angle_z;
-		
-		
-		// run serial print at a rate independent of the main loop
-		static uint32_t t0_serial = micros();
-		if (micros() - t0_serial > 16666) {
-			t0_serial = micros();
-			
-			DEBUG_PRINT(angle_x_accel); DEBUG_PRINT("\t"); DEBUG_PRINTLN(angle_y_accel);
-			DEBUG_PRINT(angle_x); DEBUG_PRINT("\t"); DEBUG_PRINT(angle_y); DEBUG_PRINT("\t"); DEBUG_PRINTLN(angle_z);
-		}
-	}
+	// initialise SPI for imu communication
+	IMU_SPI_PORT.begin();
+
+	// setup interrupt pin for imu
+	pinMode(IMU_INTERRUPT_PIN, INPUT);
+	attachInterrupt(digitalPinToInterrupt(IMU_INTERRUPT_PIN), imuReady, FALLING);
 }
 
 void loop() {
+	// update rc
+	rc.update();
+	
+	static bool imuInitialised = false;
+	if (!imuInitialised) {
+		// get configuration data from EEPROM
+		EEPROM.get(ADDRESS_EEPROM, data_eeprom);
+		
+		// initialise imu
+		imuInitialised = imu.init(data_eeprom.offset_mx, data_eeprom.offset_my, data_eeprom.offset_mz, data_eeprom.scale_mx, data_eeprom.scale_my, data_eeprom.scale_mz);
+		if (!imuInitialised) {
+			DEBUG_PRINTLN(F("IMU initialisation failed."));
+		}
+
+		estimatePose(BETA_INIT, BETA, INIT_ANGLE_DIFFERENCE, INIT_ANGULAR_VELOCITY);
+	}
+
+	// if calibration was performed, imu needs to be initalised again
+	if (imuCalibration()) {
+		imuInitialised = false;
+		return;
+	}
+	
+	// TODO: Implement failsafe in case of no imuInterrupt
 	while (!imuInterrupt) {
 		// wait for next imu interrupt
 	}
 	
 	// reset imu interrupt flag
 	imuInterrupt = false;
-	
+
+	// update time
 	t = micros();
+	dt = (t - t0);  // in us
+	dt_s = (float) (dt) * 1.e-6;	// in s
+	t0 = t;
 	
 	// read imu measurements
 	imu.read_accel_gyro_rps(ax, ay, az, gx_rps, gy_rps, gz_rps);
 	imu.read_mag(mx, my, mz);
-	
-	dt = (t - t0);  // in us
-	dt_s = (float) (dt) * 1.e-6;	// in s
-	t0 = t; // update last imu update time measurement
 	
 	madgwickFilter.get_euler(dt_s, ax, ay, az, gx_rps, gy_rps, gz_rps, mx, my, mz, angle_x, angle_y, angle_z);
 	
@@ -331,16 +281,38 @@ void loop() {
 		angle_z += 360;
 	}
 	
-	// update rc
-	rc.update();
-	
 	// arm/disarm on rc command and disarm on failsafe conditions
 	arm_failsafe();
 	
 	// when armed, calculate flight setpoints, manipulated variables and control motors
 	static float roll_sp, pitch_sp, yaw_sp, throttle_sp;	// flight setpoints
 	static float roll_mv, pitch_mv, yaw_mv;	// manipulated variables
-	if (armed) {
+	if (disarm) {
+		// set flight setpoints to zero
+		roll_sp = 0;
+		pitch_sp = 0;
+		yaw_sp = 0;
+		throttle_sp = 0;
+		
+		flightSetpoints(roll_sp, pitch_sp, yaw_sp, throttle_sp);
+		
+		// reset PIDs
+		roll_pid.reset();
+		pitch_pid.reset();
+		yaw_pid.reset();
+		
+		// turn off motors
+		motor_1.write(0);
+		motor_2.write(0);
+		motor_3.write(0);
+		motor_4.write(0);
+
+		// armed state can only change to false here, to make sure the motors were really disarmed in this state
+		armed = false;
+		disarm = false;
+
+		DEBUG_PRINTLN("Disarmed!");
+	} else if (armed)	{
 		// calculate flight setpoints
 		flightSetpoints(roll_sp, pitch_sp, yaw_sp, throttle_sp);
 		
@@ -361,26 +333,6 @@ void loop() {
 		motor_3.write(rc_channelValue[THROTTLE]);
 		motor_4.write(rc_channelValue[THROTTLE]);*/
 	}
-	else {
-		// set flight setpoints to zero
-		roll_sp = 0;
-		pitch_sp = 0;
-		yaw_sp = 0;
-		throttle_sp = 0;
-		
-		flightSetpoints(roll_sp, pitch_sp, yaw_sp, throttle_sp);
-		
-		// reset PIDs
-		roll_pid.reset();
-		pitch_pid.reset();
-		yaw_pid.reset();
-		
-		// turn off motors
-		motor_1.write(0);
-		motor_2.write(0);
-		motor_3.write(0);
-		motor_4.write(0);
-	}
 	
 	// run serial print at a rate independent of the main loop (t0_serial = 16666 for 60 Hz update rate)
 	static uint32_t t0_serial = micros();
@@ -395,15 +347,14 @@ void loop() {
 		//accelAngles(angle_x_accel, angle_y_accel);
 		//DEBUG_PRINT(angle_x_accel); DEBUG_PRINT("\t"); DEBUG_PRINTLN(angle_y_accel);
 		//DEBUG_PRINT(angle_x); DEBUG_PRINT("\t"); DEBUG_PRINT(angle_y); DEBUG_PRINT("\t"); DEBUG_PRINTLN(angle_z);
-		DEBUG_PRINTLN(armed);
 		
-		DEBUG_PRINTLN();
+		//DEBUG_PRINTLN();
 		
 		// print channel values
-		for (int i=0; i<10 ; i++) {
+		/*for (int i=0; i<10 ; i++) {
 			DEBUG_PRINT(rc_channelValue[i]); DEBUG_PRINT("\t");
 		}
-		DEBUG_PRINTLN();
+		DEBUG_PRINTLN();*/
 		
 		#ifdef SEND_SERIAL
 			// Send data to "Processing" for visualization
@@ -412,33 +363,163 @@ void loop() {
 	}
 }
 
+// estimate initial pose
+void estimatePose(float beta_init, float beta, float init_angleDifference, float init_angularVelocity) {
+	// angles calculated from accelerometer
+	float angle_x_accel, angle_y_accel;
+
+	// set higher beta value to speed up pose estimation
+	madgwickFilter.set_beta(beta_init);
+	
+	DEBUG_PRINTLN(F("Estimating initial pose. Keep device at rest ..."));
+	while (1) {
+		while (!imuInterrupt) {
+			// wait for next imu interrupt
+		}
+		// reset imu interrupt flag
+		imuInterrupt = false;
+
+		// update time
+		t = micros();
+		dt = (t - t0);	// in us
+		dt_s = (float) (dt) * 1.e-6;	// in s
+		t0 = t;
+		
+		// read imu measurements
+		imu.read_accel_gyro_rps(ax, ay, az, gx_rps, gy_rps, gz_rps);
+		imu.read_mag(mx, my, mz);
+		
+		madgwickFilter.get_euler(dt_s, ax, ay, az, gx_rps, gy_rps, gz_rps, mx, my, mz, angle_x, angle_y, angle_z);
+		
+		accelAngles(angle_x_accel, angle_y_accel);
+		
+		// pose is estimated if filtered x- and y-axis angles, as well as z-axis angular velocity, converged
+		if ((abs(angle_x_accel - angle_x) < init_angleDifference) && (abs(angle_y_accel - angle_y) < init_angleDifference)
+		&& ((abs(angle_z - angle_z_0) / dt_s) < init_angularVelocity)) {
+			// reduce beta value, since filtered angles have stabilized during initialisation
+			madgwickFilter.set_beta(beta);
+			
+			DEBUG_PRINTLN(F("Initial pose estimated."));
+			DEBUG_PRINTLN2(abs(angle_x_accel - angle_x), 6);
+			DEBUG_PRINTLN2(abs(angle_y_accel - angle_y), 6);
+			DEBUG_PRINTLN2(abs(angle_z - angle_z_0) / dt_s, 6);
+
+			break;
+		}
+		angle_z_0 = angle_z;
+		
+		// run serial print at a rate independent of the main loop
+		static uint32_t t0_serial = micros();
+		if (micros() - t0_serial > 16666) {
+			t0_serial = micros();
+			
+			DEBUG_PRINT(angle_x_accel); DEBUG_PRINT("\t"); DEBUG_PRINTLN(angle_y_accel);
+			DEBUG_PRINT(angle_x); DEBUG_PRINT("\t"); DEBUG_PRINT(angle_y); DEBUG_PRINT("\t"); DEBUG_PRINTLN(angle_z);
+		}
+	}
+}
+
+// calculate accelerometer x and y angles in degrees
+void accelAngles(float& angle_x_accel, float& angle_y_accel) {
+	static const float RAD2DEG = 4068 / 71;
+	
+	angle_x_accel = atan2(ay, az) * RAD2DEG;
+	angle_y_accel = atan2(-ax, sqrt(pow(ay,2) + pow(az,2))) * RAD2DEG;
+}
+
+// calibrate gyroscope, accelerometer or magnetometer on rc command and return true if any calibration was performed
+bool imuCalibration() {
+	static uint32_t t_calibrateGyro;
+	static uint32_t t_calibrateAccel;
+	static uint32_t t_calibrateMag;
+	
+	if (!armed) {
+		if ((rc_channelValue[PITCH] < 1050) && (rc_channelValue[ROLL] > 1450) && (rc_channelValue[ROLL] < 1550)) {
+			if ((rc_channelValue[THROTTLE] < 1050) && (rc_channelValue[YAW] < 1050)) {
+				// hold right stick bottom center and left stick bottom-left to start gyro calibration	(2s)
+				t_calibrateGyro += dt;
+				t_calibrateAccel = 0;
+				t_calibrateMag = 0;
+				
+				if (t_calibrateGyro > 2000000) {
+					imu.calibrate_gyro(imuInterrupt, 5.0, 1);
+					t_calibrateGyro = 0;
+					return true;
+				}
+			}
+			else if ((rc_channelValue[THROTTLE] > 1950) && (rc_channelValue[YAW] < 1050)) {
+				// hold right stick bottom center and left stick top-left to start accel calibration	(2s)
+				t_calibrateGyro = 0;
+				t_calibrateAccel += dt;
+				t_calibrateMag = 0;
+				
+				if (t_calibrateAccel > 2000000) {
+					imu.calibrate_accel(imuInterrupt, 5.0, 16);
+					t_calibrateAccel = 0;
+					return true;
+				}
+			}
+			else if ((rc_channelValue[THROTTLE] > 1950) && (rc_channelValue[YAW] > 1950)) {
+				// hold right stick bottom center and left stick top-right to start mag calibration	(2s)
+				t_calibrateGyro = 0;
+				t_calibrateAccel = 0;
+				t_calibrateMag += dt;
+				
+				if (t_calibrateMag > 2000000) {
+					imu.calibrate_mag(imuInterrupt, 60, 0, data_eeprom.offset_mx, data_eeprom.offset_my, data_eeprom.offset_mz, data_eeprom.scale_mx, data_eeprom.scale_my, data_eeprom.scale_mz);
+					EEPROM.put(ADDRESS_EEPROM, data_eeprom);
+					t_calibrateMag = 0;
+					return true;
+				}
+			}
+			else {
+				t_calibrateGyro = 0;
+				t_calibrateAccel = 0;
+				t_calibrateMag = 0;
+			}
+		}
+		else {
+			t_calibrateGyro = 0;
+			t_calibrateAccel = 0;
+			t_calibrateMag = 0;
+		}
+	}
+	else {
+		t_calibrateGyro = 0;
+		t_calibrateAccel = 0;
+		t_calibrateMag = 0;
+	}
+	return false;
+}
 
 // arm/disarm on rc command and disarm on failsafe conditions
 void arm_failsafe() {
 	// arm and disarm on rc command
 	static uint32_t t_arm;
 	static uint32_t t_disarm;
-
+	
+	// Arm switch needs to be set to enable arming
 	if (rc_channelValue[ARM] == 2000) {
-		// arm:			left stick bottom-right	(2s)
-		// disarm:	left stick bottom-left	(2s)
 		if (rc_channelValue[THROTTLE] < 1050) {
 			if (rc_channelValue[YAW] > 1950) {
-			  // hold stick to complete disarming
+			  // hold left stick bottom-right	(2s) to complete arming
 				t_arm += dt;
 				t_disarm = 0;
 				
 				if (t_arm > 2000000) {
-						armed = true;
+					armed = true;
+					t_arm = 0;
+					DEBUG_PRINTLN("Armed!");
 				}
 			} 
 			else if (rc_channelValue[YAW] < 1050) {
-				// hold stick to complete arming
-				t_disarm += dt;
+				// hold left stick bottom-left (2s) to complete disarming
 				t_arm = 0;
+				t_disarm += dt;
 				
 				if (t_disarm > 2000000) {
-					armed = false;
+					disarm = true;
+					t_disarm = 0;
 				}
 			}
 			else {
@@ -452,19 +533,13 @@ void arm_failsafe() {
 		}
 	}
 	else {
-		armed = false;
+		disarm = true;
+		t_arm = 0;
+		t_disarm = 0;
 	}
 
 	// TODO: disarm on failsafe conditions
 	
-}
-
-// calculate accelerometer x and y angles in degrees
-void accelAngles(float& angle_x_accel, float& angle_y_accel) {
-	static const float RAD2DEG = 4068 / 71;
-	
-	angle_x_accel = atan2(ay, az) * RAD2DEG;
-	angle_y_accel = atan2(-ax, sqrt(pow(ay,2) + pow(az,2))) * RAD2DEG;
 }
 
 // calculate flight setpoints from rc input for stable flightmode without and with tilt compensated thrust
