@@ -8,9 +8,9 @@
 #include <Arduino.h>
 #include <EEPROM.h>
 
+#include "iBus.h"
 #include "ICM20948.h"
 #include "MadgwickAHRS.h"
-#include "iBus.h"
 #include "ema_filter.h"
 #include "PID_controller.h"
 
@@ -39,6 +39,9 @@
 
 // address for eeprom data
 #define ADDRESS_EEPROM 0
+
+// LED pin
+//#define LED_PIN 23
 
 // imu pins
 #define IMU_SPI_PORT SPI
@@ -70,13 +73,13 @@
 #define BETA 0.041		// Madgwick algorithm gain (2 * proportional gain (Kp))
 
 // parameters to check if filtered angles converged during initialisation
-#define INIT_ANGLE_DIFFERENCE 0.5	// Maximum angle difference between filtered angles and accelerometer angles (x- and y-axis) after initialisation
+#define INIT_ANGLE_DIFFERENCE 0.5		// Maximum angle difference between filtered angles and accelerometer angles (x- and y-axis) after initialisation
 #define INIT_ANGULAR_VELOCITY 0.05	// Maximum angular velocity of filtered angle (z-axis) after initialisation
 
 // limits for flight setpoints
 #define ROLL_LIMIT		33		// deg
 #define PITCH_LIMIT		33		// deg
-#define YAW_LIMIT		180		// deg/s
+#define YAW_LIMIT		180			// deg/s
 #define THROTTLE_LIMIT	1750	// < 2000 because there is some headroom needed for pid control, so the quadcopter stays stable during full throttle
 
 // moving average filter configuration for the flight setpoints
@@ -92,10 +95,31 @@ const float P_pitch = 1,	I_pitch = 0,	D_pitch = 0;
 const float P_yaw = 1,		I_yaw = 0,		D_yaw = 0;
 //const float P_level = 1,	I_level = 0,	D_level = 0;
 
+// configuration data structure
+typedef struct {
+	// magnetometer hard iron distortion correction
+	float offset_mx, offset_my, offset_mz;
+	// magnetometer soft iron distortion correction
+	float scale_mx, scale_my, scale_mz;
+} config_data;
+
+// configuration data
+config_data data_eeprom;
+
+// radio control (rc) object
+IBUS rc;
+
+// ICM-20948 imu object
+ICM20948_SPI imu(IMU_CS_PIN, IMU_SPI_PORT);
+	
+// initial quadcopter z-axis angle - this has to be initialise with an implausible value (> 360)
+float angle_z_0 = 1000;
+
 // motor class
 class PWMServoMotor
 {
 	public:
+	
 	PWMServoMotor(uint8_t pin, uint8_t motor_pwm_resolution, uint16_t motor_pwm_frequency) {
 		m_pin = pin;
 		m_motor_pwm_resolution = motor_pwm_resolution;
@@ -114,32 +138,13 @@ class PWMServoMotor
 	}
 	
 	private:
-	static uint8_t m_oldRes;
+	
 	uint8_t m_pin;
 	uint8_t m_motor_pwm_resolution;
+	static uint8_t m_oldRes;
 };
 
 uint8_t PWMServoMotor::m_oldRes;
-
-// configuration data structure
-typedef struct {
-	// magnetometer hard iron distortion correction
-	float offset_mx, offset_my, offset_mz;
-	// magnetometer soft iron distortion correction
-	float scale_mx, scale_my, scale_mz;
-} config_data;
-
-// radio control (rc) object
-IBUS rc;
-
-// configuration data
-config_data data_eeprom;
-
-// ICM-20948 imu object
-ICM20948_SPI imu(IMU_CS_PIN, IMU_SPI_PORT);
-	
-// initial quadcopter z-axis angle - this has to be initialise with an implausible value (> 360)
-float angle_z_0 = 1000;
 
 // motor objects
 PWMServoMotor motor_1(MOTOR_PIN_1, MOTOR_PWM_RESOLUTION, MOTOR_PWM_FREQENCY);
@@ -155,11 +160,11 @@ PID_controller roll_pid(P_roll, I_roll, D_roll, 0, 0, 2000);
 PID_controller pitch_pid(P_pitch, I_pitch, D_yaw, 0, 0, 2000);
 PID_controller yaw_pid(P_yaw, I_yaw, D_yaw, 0, 0, 2000);
 
-// motors can only run when armed
-bool armed = false;
+// pointer on an array of 10 received rc channel values [1000; 2000]
+uint16_t *rc_channelValue;
 
-// disarm flag to request disarming
-bool disarm = false;
+// flight setpoints
+float roll_sp, pitch_sp, yaw_sp, throttle_sp;
 
 // variables to measure imu update time
 uint32_t t0 = 0, t = 0;
@@ -173,20 +178,26 @@ int16_t ax, ay, az;
 float gx_rps, gy_rps, gz_rps;
 int16_t mx = 0, my = 0, mz = 0;
 
-// pointer on an array of 10 received rc channel values [1000; 2000]
-uint16_t *rc_channelValue;
-
 // quadcopter pose
 float angle_x, angle_y, angle_z;
 
 // z-axis pose offset to compensate for the sensor mounting orientation relative to the quadcopter frame
 float angle_z_offset = 90;
 
+// armed state - motors can only run when armed
+bool armed = false;
+
 // imu interrupt
 volatile bool imuInterrupt = false;
 void imuReady() {
 	imuInterrupt = true;
 }
+
+// update LED
+// mode: 0		off
+// mode: 1		blink
+// mode: > 1	on
+void updateLED(uint8_t pin, uint8_t mode, uint32_t interval_ms);
 
 // estimate initial pose
 void estimatePose(float beta_init, float beta, float init_angleDifference, float init_angularVelocity);
@@ -197,6 +208,9 @@ void accelAngles(float& angle_x_accel, float& angle_y_accel);
 // calibrate gyroscope, accelerometer or magnetometer on rc command and return true if any calibration was performed
 bool imuCalibration();
 
+// disarm and reset quadcopter
+void disarmAndResetQuad();
+
 // arm/disarm on rc command and disarm on failsafe conditions
 void arm_failsafe();
 
@@ -204,6 +218,9 @@ void arm_failsafe();
 void flightSetpoints(float& roll_sp, float& pitch_sp, float& yaw_sp, float& throttle_sp);
 
 void setup() {
+	// turn off LED
+	//updateLED(LED_PIN, 0);
+	
 	// set default resolution for analog write, in order to go back to it after running motors with different resolution
 	analogWriteResolution(8);
 	
@@ -216,39 +233,56 @@ void setup() {
 	// initialise serial for iBus communication
 	Serial2.begin(115200, SERIAL_8N1);
 	while (!Serial2);
-
+	
 	// initialise rc and return a pointer on the received rc channel values
 	rc_channelValue = rc.begin(Serial2);
 	
 	// initialise SPI for imu communication
 	IMU_SPI_PORT.begin();
-
+	
+	// setup built in LED
+	//pinMode(LED_PIN, OUTPUT);
+	
 	// setup interrupt pin for imu
 	pinMode(IMU_INTERRUPT_PIN, INPUT);
 	attachInterrupt(digitalPinToInterrupt(IMU_INTERRUPT_PIN), imuReady, FALLING);
 }
 
 void loop() {
+	if (armed) {
+		// blink LED normally to indicate armed status
+		//updateLED(LED_PIN, 2);
+	}
+	else {
+		// turn off LED to indicate disarmed status
+		//updateLED(LED_PIN, 0);
+	}
+	
 	// update rc
 	rc.update();
+
+	// arm/disarm on rc command and disarm on failsafe conditions
+	arm_failsafe();
 	
-	static bool imuInitialised = false;
-	if (!imuInitialised) {
+	static bool initialise = false;
+	if (!initialise) {
 		// get configuration data from EEPROM
 		EEPROM.get(ADDRESS_EEPROM, data_eeprom);
 		
 		// initialise imu
-		imuInitialised = imu.init(data_eeprom.offset_mx, data_eeprom.offset_my, data_eeprom.offset_mz, data_eeprom.scale_mx, data_eeprom.scale_my, data_eeprom.scale_mz);
-		if (!imuInitialised) {
+		initialise = imu.init(data_eeprom.offset_mx, data_eeprom.offset_my, data_eeprom.offset_mz, data_eeprom.scale_mx, data_eeprom.scale_my, data_eeprom.scale_mz);
+		if (!initialise) {
 			DEBUG_PRINTLN(F("IMU initialisation failed."));
 		}
-
+		
+		// estimate initial pose
 		estimatePose(BETA_INIT, BETA, INIT_ANGLE_DIFFERENCE, INIT_ANGULAR_VELOCITY);
 	}
 
-	// if calibration was performed, imu needs to be initalised again
+	// if disarmed, check for calibration request from rc and executed it
 	if (imuCalibration()) {
-		imuInitialised = false;
+		// after calibration was performed, imu needs to be initalised again
+		initialise = false;
 		return;
 	}
 	
@@ -281,42 +315,14 @@ void loop() {
 		angle_z += 360;
 	}
 	
-	// arm/disarm on rc command and disarm on failsafe conditions
-	arm_failsafe();
-	
 	// when armed, calculate flight setpoints, manipulated variables and control motors
-	static float roll_sp, pitch_sp, yaw_sp, throttle_sp;	// flight setpoints
-	static float roll_mv, pitch_mv, yaw_mv;	// manipulated variables
-	if (disarm) {
-		// set flight setpoints to zero
-		roll_sp = 0;
-		pitch_sp = 0;
-		yaw_sp = 0;
-		throttle_sp = 0;
-		
-		flightSetpoints(roll_sp, pitch_sp, yaw_sp, throttle_sp);
-		
-		// reset PIDs
-		roll_pid.reset();
-		pitch_pid.reset();
-		yaw_pid.reset();
-		
-		// turn off motors
-		motor_1.write(0);
-		motor_2.write(0);
-		motor_3.write(0);
-		motor_4.write(0);
-
-		// armed state can only change to false here, to make sure the motors were really disarmed in this state
-		armed = false;
-		disarm = false;
-
-		DEBUG_PRINTLN("Disarmed!");
-	} else if (armed)	{
+	if (armed) {
 		// calculate flight setpoints
 		flightSetpoints(roll_sp, pitch_sp, yaw_sp, throttle_sp);
 		
 		// get manipulated variables
+		static float roll_mv, pitch_mv, yaw_mv;
+		
 		roll_mv = roll_pid.get_mv(roll_sp, angle_x, dt_s);
 		pitch_mv = pitch_pid.get_mv(pitch_sp, angle_y, dt_s);
 		yaw_mv = yaw_pid.get_mv(yaw_sp, angle_z, dt_s);
@@ -333,6 +339,10 @@ void loop() {
 		motor_3.write(rc_channelValue[THROTTLE]);
 		motor_4.write(rc_channelValue[THROTTLE]);*/
 	}
+	else {
+		// for safety reasons repeat disarm and reset, even when it was already done
+		disarmAndResetQuad();
+	}
 	
 	// run serial print at a rate independent of the main loop (t0_serial = 16666 for 60 Hz update rate)
 	static uint32_t t0_serial = micros();
@@ -348,6 +358,7 @@ void loop() {
 		//DEBUG_PRINT(angle_x_accel); DEBUG_PRINT("\t"); DEBUG_PRINTLN(angle_y_accel);
 		//DEBUG_PRINT(angle_x); DEBUG_PRINT("\t"); DEBUG_PRINT(angle_y); DEBUG_PRINT("\t"); DEBUG_PRINTLN(angle_z);
 		
+		//DEBUG_PRINTLN(dt);
 		//DEBUG_PRINTLN();
 		
 		// print channel values
@@ -361,6 +372,39 @@ void loop() {
 			sendSerial(dt, angle_x, angle_y, angle_z);
 		#endif
 	}
+}
+
+// update LED
+// mode: 0		off
+// mode: 1		blink
+// mode: > 1	on
+void updateLED(uint8_t pin, uint8_t mode, uint32_t interval_ms = 1000) {
+	static uint8_t ledState = LOW;
+	static uint32_t t0_ms = 0, t_ms = 0;
+	
+	if (mode == 0) {
+		ledState = LOW;
+	}
+	else if (mode == 1) {
+		t_ms = millis();
+		
+		if ((t_ms - t0_ms) > interval_ms) {
+		t0_ms = t_ms;
+			
+			if (ledState == LOW) {
+				ledState = HIGH;
+			}
+			else {
+				ledState = LOW;
+			}
+		}
+	}
+	else {
+		ledState = HIGH;
+	}
+	
+	// set LED state
+	digitalWrite(pin, ledState);
 }
 
 // estimate initial pose
@@ -378,7 +422,10 @@ void estimatePose(float beta_init, float beta, float init_angleDifference, float
 		}
 		// reset imu interrupt flag
 		imuInterrupt = false;
-
+		
+		// blink LED fast to indicate pose estimation
+		//updateLED(LED_PIN, 1, 500);
+		
 		// update time
 		t = micros();
 		dt = (t - t0);	// in us
@@ -403,7 +450,7 @@ void estimatePose(float beta_init, float beta, float init_angleDifference, float
 			DEBUG_PRINTLN2(abs(angle_x_accel - angle_x), 6);
 			DEBUG_PRINTLN2(abs(angle_y_accel - angle_y), 6);
 			DEBUG_PRINTLN2(abs(angle_z - angle_z_0) / dt_s, 6);
-
+			
 			break;
 		}
 		angle_z_0 = angle_z;
@@ -442,6 +489,8 @@ bool imuCalibration() {
 				t_calibrateMag = 0;
 				
 				if (t_calibrateGyro > 2000000) {
+					// turn on LED to indicate calibration
+					//updateLED(LED_PIN, 2);
 					imu.calibrate_gyro(imuInterrupt, 5.0, 1);
 					t_calibrateGyro = 0;
 					return true;
@@ -454,6 +503,8 @@ bool imuCalibration() {
 				t_calibrateMag = 0;
 				
 				if (t_calibrateAccel > 2000000) {
+					// turn on LED to indicate calibration
+					//updateLED(LED_PIN, 2);
 					imu.calibrate_accel(imuInterrupt, 5.0, 16);
 					t_calibrateAccel = 0;
 					return true;
@@ -466,6 +517,8 @@ bool imuCalibration() {
 				t_calibrateMag += dt;
 				
 				if (t_calibrateMag > 2000000) {
+					// turn on LED to indicate calibration
+					//updateLED(LED_PIN, 2);
 					imu.calibrate_mag(imuInterrupt, 60, 0, data_eeprom.offset_mx, data_eeprom.offset_my, data_eeprom.offset_mz, data_eeprom.scale_mx, data_eeprom.scale_my, data_eeprom.scale_mz);
 					EEPROM.put(ADDRESS_EEPROM, data_eeprom);
 					t_calibrateMag = 0;
@@ -489,7 +542,36 @@ bool imuCalibration() {
 		t_calibrateAccel = 0;
 		t_calibrateMag = 0;
 	}
+	
+	// turn off LED
+	//updateLED(LED_PIN, 0);
+	
 	return false;
+}
+
+// disarm and reset quadcopter
+void disarmAndResetQuad() {
+		// set flight setpoints to zero
+		roll_sp = 0;
+		pitch_sp = 0;
+		yaw_sp = 0;
+		throttle_sp = 0;
+		
+		// reset PIDs
+		roll_pid.reset();
+		pitch_pid.reset();
+		yaw_pid.reset();
+		
+		// turn off motors
+		motor_1.write(0);
+		motor_2.write(0);
+		motor_3.write(0);
+		motor_4.write(0);
+
+		// set armed state to false - armed state can only change to false here, to make sure the motors are really disarmed in this state
+		armed = false;
+		
+		//DEBUG_PRINTLN("Disarmed!");
 }
 
 // arm/disarm on rc command and disarm on failsafe conditions
@@ -518,7 +600,7 @@ void arm_failsafe() {
 				t_disarm += dt;
 				
 				if (t_disarm > 2000000) {
-					disarm = true;
+					disarmAndResetQuad();
 					t_disarm = 0;
 				}
 			}
@@ -533,13 +615,12 @@ void arm_failsafe() {
 		}
 	}
 	else {
-		disarm = true;
+		disarmAndResetQuad();
 		t_arm = 0;
 		t_disarm = 0;
 	}
-
-	// TODO: disarm on failsafe conditions
 	
+	// TODO: disarm on failsafe conditions
 }
 
 // calculate flight setpoints from rc input for stable flightmode without and with tilt compensated thrust
@@ -553,7 +634,7 @@ void flightSetpoints(float& roll_sp, float& pitch_sp, float& yaw_sp, float& thro
 	yaw_mapped = map((float) rc_channelValue[YAW], 1000, 2000, -YAW_LIMIT, YAW_LIMIT);
 
 	if (rc_channelValue[FMODE] == 1500) {
-		// tilt compensated thrust: increase thrust when quadcopter is tilted, to compensate for height loss during horizontal movement
+		// stable with tilt compensated thrust: increase thrust when quadcopter is tilted, to compensate for height loss during horizontal movement
 		throttle_mapped = map((float) rc_channelValue[THROTTLE] / (cos(angle_x * DEG2RAD) * cos(angle_y * DEG2RAD)), 1000, 2000, 1000, THROTTLE_LIMIT);
 	}
 	else {
