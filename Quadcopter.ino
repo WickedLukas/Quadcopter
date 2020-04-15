@@ -41,7 +41,7 @@
 #define ADDRESS_EEPROM 0
 
 // LED pin
-//#define LED_PIN 23
+#define LED_PIN 23
 
 // imu pins
 #define IMU_SPI_PORT SPI
@@ -239,7 +239,7 @@ void imuReady() {
 // mode: 0		off
 // mode: 1		blink
 // mode: > 1	on
-void updateLED(uint8_t pin, uint8_t mode, uint32_t interval_ms);
+void updateLED(uint8_t pin, uint8_t mode, uint32_t interval_ms = 1000);
 
 // estimate initial pose
 void estimatePose(float beta_init, float beta, float init_angleDifference, float init_angularVelocity);
@@ -260,8 +260,11 @@ void arm_failsafe(uint8_t fs_config);
 void flightSetpoints(float& roll_sp, float& pitch_sp, float& yaw_velocity_sp, float& throttle_sp);
 
 void setup() {
+	// setup built in LED
+	pinMode(LED_PIN, OUTPUT);
+	
 	// turn off LED
-	//updateLED(LED_PIN, 0);
+	updateLED(LED_PIN, 0);
 	
 	// set default resolution for analog write, in order to go back to it after running motors with different resolution
 	analogWriteResolution(8);
@@ -282,22 +285,23 @@ void setup() {
 	// initialise SPI for imu communication
 	IMU_SPI_PORT.begin();
 	
-	// setup built in LED
-	//pinMode(LED_PIN, OUTPUT);
-	
 	// setup interrupt pin for imu
 	pinMode(IMU_INTERRUPT_PIN, INPUT);
 	attachInterrupt(digitalPinToInterrupt(IMU_INTERRUPT_PIN), imuReady, FALLING);
 }
 
 void loop() {
-	if (armed) {
+	if (error_code != 0) {
+		// blink LED very fast to indicate the error occurence
+		updateLED(LED_PIN, 2, 250);
+	}
+	else if (armed) {
 		// blink LED normally to indicate armed status
-		//updateLED(LED_PIN, 2);
+		updateLED(LED_PIN, 2);
 	}
 	else {
 		// turn off LED to indicate disarmed status
-		//updateLED(LED_PIN, 0);
+		updateLED(LED_PIN, 0);
 	}
 	
 	// update rc
@@ -446,7 +450,7 @@ void loop() {
 // mode: 0		off
 // mode: 1		blink
 // mode: > 1	on
-void updateLED(uint8_t pin, uint8_t mode, uint32_t interval_ms = 1000) {
+void updateLED(uint8_t pin, uint8_t mode, uint32_t interval_ms) {
 	static uint8_t ledState = LOW;
 	static uint32_t t0_ms = 0, t_ms = 0;
 	
@@ -492,7 +496,7 @@ void estimatePose(float beta_init, float beta, float init_angleDifference, float
 		imuInterrupt = false;
 		
 		// blink LED fast to indicate pose estimation
-		//updateLED(LED_PIN, 1, 500);
+		updateLED(LED_PIN, 1, 500);
 		
 		// update time
 		t = micros();
@@ -558,7 +562,7 @@ bool imuCalibration() {
 				
 				if (t_calibrateGyro > 2000000) {
 					// turn on LED to indicate calibration
-					//updateLED(LED_PIN, 2);
+					updateLED(LED_PIN, 2);
 					imu.calibrate_gyro(imuInterrupt, 5.0, 1);
 					t_calibrateGyro = 0;
 					return true;
@@ -575,7 +579,7 @@ bool imuCalibration() {
 				
 				if (t_calibrateAccel > 2000000) {
 					// turn on LED to indicate calibration
-					//updateLED(LED_PIN, 2);
+					updateLED(LED_PIN, 2);
 					imu.calibrate_accel(imuInterrupt, 5.0, 16);
 					t_calibrateAccel = 0;
 					return true;
@@ -592,7 +596,7 @@ bool imuCalibration() {
 				
 				if (t_calibrateMag > 2000000) {
 					// turn on LED to indicate calibration
-					//updateLED(LED_PIN, 2);
+					updateLED(LED_PIN, 2);
 					imu.calibrate_mag(imuInterrupt, 60, 0, data_eeprom.offset_mx, data_eeprom.offset_my, data_eeprom.offset_mz, data_eeprom.scale_mx, data_eeprom.scale_my, data_eeprom.scale_mz);
 					EEPROM.put(ADDRESS_EEPROM, data_eeprom);
 					t_calibrateMag = 0;
@@ -610,7 +614,7 @@ bool imuCalibration() {
 	t_calibrateMag = 0;
 	
 	// turn off LED
-	//updateLED(LED_PIN, 0);
+	updateLED(LED_PIN, 0);
 	
 	return false;
 }
