@@ -99,6 +99,10 @@ const float P_pitch = 1,	I_pitch = 0,	D_pitch = 0;
 const float P_yaw = 1,		I_yaw = 0,		D_yaw = 0;
 //const float P_level = 1,	I_level = 0,	D_level = 0;
 
+// Minimum throttle setpoint to enter started state in which motors and PID calculation start.
+// To ensure a smooth start this value should be close to the throttle necessary for take off.
+const float MIN_THROTTLE_SP = 1300;
+
 // failsafe configuration
 const uint8_t FS_IMU			= 0b00000001;
 const uint8_t FS_MOTION		= 0b00000010;
@@ -120,6 +124,12 @@ const uint8_t FS_CONFIG		= 0b00000011;
 // failsafe control limits
 #define FS_CONTROL_ANGLE_DIFF 25
 #define FS_CONTROL_ANGULAR_VELOCITY_DIFF 150
+
+// list of error codes
+const uint8_t ERROR_MAG = 0b00000001;
+// Stores the errors which occured and disables arming.
+// The flight controller needs to be restarted to reset the error and enable arming again.
+uint8_t error_code = 0;
 
 // configuration data structure
 typedef struct {
@@ -215,6 +225,9 @@ float angular_velocity_z;
 
 // armed state - motors can only run when armed
 bool armed = false;
+
+// started state is set when minimum throttle setpoint was reached in armed state - motors and PID calculations can only run when started
+bool started = false;
 
 // imu interrupt
 volatile bool imuInterrupt = false;
@@ -329,9 +342,22 @@ void loop() {
 
 	t0 = t;
 	
-	// read imu measurements
+	// read accel and gyro measurements
 	imu.read_accel_gyro_rps(ax, ay, az, gx_rps, gy_rps, gz_rps);
-	imu.read_mag(mx, my, mz);
+	
+	// read magnetometer measurements and check when the last ones were read
+	static uint32_t dt_mag;
+	if (imu.read_mag(mx, my, mz)) {
+		dt_mag = 0;
+	}
+	else {
+		dt_mag += dt;
+		if ((dt_mag > FS_IMU_DT_LIMIT) && (error_code & ERROR_MAG != ERROR_MAG)) {
+			// Limit for magnetometer update time exceeded. Set error value, which will disable arming.
+			error_code = error_code | ERROR_MAG;
+			DEBUG_PRINTLN("Magnetometer error!");
+		}
+	}
 	
 	madgwickFilter.get_euler(dt_s, ax, ay, az, gx_rps, gy_rps, gz_rps, mx, my, mz, angle_x, angle_y, angle_z);
 
@@ -354,23 +380,32 @@ void loop() {
 		// calculate flight setpoints
 		flightSetpoints(roll_sp, pitch_sp, yaw_velocity_sp, throttle_sp);
 		
-		// get manipulated variables
-		static float roll_mv, pitch_mv, yaw_mv;
-		
-		roll_mv = roll_pid.get_mv(roll_sp, angle_x, dt_s);
-		pitch_mv = pitch_pid.get_mv(pitch_sp, angle_y, dt_s);
-		yaw_mv = yaw_pid.get_mv(yaw_velocity_sp, angular_velocity_z, dt_s);
-		
-		// TODO: Check motor mixing logic carefully
-		/*motor_1 = throttle_sp + roll_mv - pitch_mv + yaw_mv;
-		motor_2 = throttle_sp - roll_mv - pitch_mv - yaw_mv;
-		motor_3 = throttle_sp + roll_mv + pitch_mv + yaw_mv;
-		motor_4 = throttle_sp - roll_mv + pitch_mv - yaw_mv;*/
-		
-		motor_1.write(rc_channelValue[THROTTLE]);
-		/*motor_2.write(rc_channelValue[THROTTLE]);
-		motor_3.write(rc_channelValue[THROTTLE]);
-		motor_4.write(rc_channelValue[THROTTLE]);*/
+		// In order to ensure a smooth start, delay running motors as well as PID calculations until a minimum throttle value is applied
+		if (started) {
+			// get manipulated variables
+			static float roll_mv, pitch_mv, yaw_mv;
+			roll_mv = roll_pid.get_mv(roll_sp, angle_x, dt_s);
+			pitch_mv = pitch_pid.get_mv(pitch_sp, angle_y, dt_s);
+			yaw_mv = yaw_pid.get_mv(yaw_velocity_sp, angular_velocity_z, dt_s);
+			
+			// TODO: Check motor mixing logic carefully
+			/*motor_1.write(throttle_sp + roll_mv - pitch_mv + yaw_mv);
+			motor_2.write(throttle_sp - roll_mv - pitch_mv - yaw_mv);
+			motor_3.write(throttle_sp + roll_mv + pitch_mv + yaw_mv);
+			motor_4.write(throttle_sp - roll_mv + pitch_mv - yaw_mv);*/
+
+			// TODO: Remove this test code
+			/*motor_1.write(rc_channelValue[THROTTLE]);
+			motor_2.write(rc_channelValue[THROTTLE]);
+			motor_3.write(rc_channelValue[THROTTLE]);
+			motor_4.write(rc_channelValue[THROTTLE]);*/
+		}
+		else{
+			if (throttle_sp > MIN_THROTTLE_SP) {
+				started = true;
+				DEBUG_PRINTLN("Started!");
+			}
+		}
 	}
 	else {
 		// for safety reasons repeat disarm and reset, even when it was already done
@@ -528,6 +563,9 @@ bool imuCalibration() {
 					t_calibrateGyro = 0;
 					return true;
 				}
+				else {
+					return false;
+				}
 			}
 			else if ((rc_channelValue[THROTTLE] > 1950) && (rc_channelValue[YAW] < 1050)) {
 				// hold right stick bottom center and left stick top-left to start accel calibration	(2s)
@@ -541,6 +579,9 @@ bool imuCalibration() {
 					imu.calibrate_accel(imuInterrupt, 5.0, 16);
 					t_calibrateAccel = 0;
 					return true;
+				}
+				else {
+					return false;
 				}
 			}
 			else if ((rc_channelValue[THROTTLE] > 1950) && (rc_channelValue[YAW] > 1950)) {
@@ -557,24 +598,16 @@ bool imuCalibration() {
 					t_calibrateMag = 0;
 					return true;
 				}
-			}
-			else {
-				t_calibrateGyro = 0;
-				t_calibrateAccel = 0;
-				t_calibrateMag = 0;
+				else {
+					return false;
+				}
 			}
 		}
-		else {
-			t_calibrateGyro = 0;
-			t_calibrateAccel = 0;
-			t_calibrateMag = 0;
-		}
 	}
-	else {
-		t_calibrateGyro = 0;
-		t_calibrateAccel = 0;
-		t_calibrateMag = 0;
-	}
+	
+	t_calibrateGyro = 0;
+	t_calibrateAccel = 0;
+	t_calibrateMag = 0;
 	
 	// turn off LED
 	//updateLED(LED_PIN, 0);
@@ -603,8 +636,8 @@ void disarmAndResetQuad() {
 
 		// set armed state to false - armed state can only change to false here, to make sure the motors are really disarmed in this state
 		armed = false;
-		
-		//DEBUG_PRINTLN("Disarmed!");
+		// set started state to false - minimum throttle is required again to start the motors and PID calculations
+		started = false;
 }
 
 // arm/disarm on rc command or disarm on failsafe conditions
@@ -612,9 +645,9 @@ void arm_failsafe(uint8_t fs_config) {
 	// ---------- arm and disarm on rc command ----------
 	static uint32_t t_arm;
 	static uint32_t t_disarm;
-	if (rc_channelValue[ARM] == 2000) {		// arm switch needs to be set to enable arming
+	if (rc_channelValue[ARM] == 2000) {		// arm switch needs to be set to enable arming, else disarm and reset
 		if (rc_channelValue[THROTTLE] < 1050) {
-			if (rc_channelValue[YAW] > 1950) {
+			if ((rc_channelValue[YAW] > 1950) && (error_code == 0)) {	// arming is only allowed when no error occured
 			  // hold left stick bottom-right	(2s) to complete arming
 				t_arm += dt;
 				t_disarm = 0;
@@ -624,7 +657,7 @@ void arm_failsafe(uint8_t fs_config) {
 					t_arm = 0;
 					DEBUG_PRINTLN("Armed!");
 				}
-			} 
+			}
 			else if (rc_channelValue[YAW] < 1050) {
 				// hold left stick bottom-left (2s) to complete disarming
 				t_arm = 0;
@@ -633,6 +666,7 @@ void arm_failsafe(uint8_t fs_config) {
 				if (t_disarm > 2000000) {
 					disarmAndResetQuad();
 					t_disarm = 0;
+					DEBUG_PRINTLN("Disarmed!");
 				}
 			}
 			else {
@@ -656,20 +690,23 @@ void arm_failsafe(uint8_t fs_config) {
 	static uint32_t t_fs_control;
 	
 	// imu failsafe
-	if ((FS_CONFIG && FS_IMU) == FS_IMU) {
+	if ((FS_CONFIG & FS_IMU) == FS_IMU) {
 		if (dt > FS_IMU_DT_LIMIT) {
 			// limit for imu update time exceeded
 			disarmAndResetQuad();
+			DEBUG_PRINTLN("IMU failsafe!");
 		}
 	}
 	
 	// quadcopter motion failsafe
-	if ((FS_CONFIG && FS_MOTION) == FS_MOTION) {
+	if ((FS_CONFIG & FS_MOTION) == FS_MOTION) {
 		if ((abs(angle_x) > FS_MOTION_ANGLE_LIMIT) || (abs(angle_y) > FS_MOTION_ANGLE_LIMIT) || (abs(angular_velocity_z) > FS_MOTION_ANGULAR_VELOCITY_LIMIT)) {
 			// angle or angular velocity limit exceeded
 			t_fs_motion += dt;
 			if (t_fs_motion >= FS_TIME) {
 				disarmAndResetQuad();
+				t_fs_motion = 0;
+				DEBUG_PRINTLN("Motion failsafe!");
 			}
 		}
 		else {
@@ -680,21 +717,26 @@ void arm_failsafe(uint8_t fs_config) {
 		t_fs_motion = 0;
 	}
 	
-	// quadcopter control failsafe
-	if ((FS_CONFIG && FS_CONTROL) == FS_CONTROL) {
-		if ((abs(roll_sp - angle_x) > FS_CONTROL_ANGLE_DIFF) || (abs(pitch_sp - angle_y) > FS_CONTROL_ANGLE_DIFF) || (abs(yaw_velocity_sp - angular_velocity_z) > FS_CONTROL_ANGULAR_VELOCITY_DIFF)) {
-			// difference to control values for angle and angular velocity exceeded
-			t_fs_control += dt;
-			if (t_fs_motion >= FS_TIME) {
-				disarmAndResetQuad();
+	// failsafes for when quadcopter has started
+	if (started) {
+		// quadcopter control failsafe
+		if ((FS_CONFIG & FS_CONTROL) == FS_CONTROL) {
+			if ((abs(roll_sp - angle_x) > FS_CONTROL_ANGLE_DIFF) || (abs(pitch_sp - angle_y) > FS_CONTROL_ANGLE_DIFF) || (abs(yaw_velocity_sp - angular_velocity_z) > FS_CONTROL_ANGULAR_VELOCITY_DIFF)) {
+				// difference to control values for angle and angular velocity exceeded
+				t_fs_control += dt;
+				if (t_fs_control >= FS_TIME) {
+					disarmAndResetQuad();
+					t_fs_control = 0;
+					DEBUG_PRINTLN("Control failsafe!");
+				}
+			}
+			else {
+				t_fs_control = 0;
 			}
 		}
 		else {
 			t_fs_control = 0;
 		}
-	}
-	else {
-		t_fs_control = 0;
 	}
 	
 	// TODO: Add additional failsafe conditions
