@@ -17,7 +17,7 @@
 #include "sendSerial.h"
 
 // TODO: integrate telemetry (MAVLink?)
-// TODO: LED notification
+// TODO: Uncomment and test LED notification
 
 // print debug outputs through serial
 #define DEBUG
@@ -77,16 +77,20 @@
 #define INIT_ANGULAR_VELOCITY 0.05	// Maximum angular velocity of filtered angle (z-axis) after initialisation
 
 // limits for flight setpoints
-#define ROLL_LIMIT		33		// deg
-#define PITCH_LIMIT		33		// deg
+#define ROLL_LIMIT		30		// deg
+#define PITCH_LIMIT		30		// deg
 #define YAW_LIMIT		180			// deg/s
 #define THROTTLE_LIMIT	1750	// < 2000 because there is some headroom needed for pid control, so the quadcopter stays stable during full throttle
 
 // moving average filter configuration for the flight setpoints
-#define EMA_ROLL_SP			0.0002
-#define EMA_PITCH_SP		0.0002
-#define EMA_YAW_SP			0.0002
+// TODO: optimize these filter values
+#define EMA_ROLL_SP				0.0002
+#define EMA_PITCH_SP			0.0002
 #define EMA_THROTTLE_SP		0.0002
+#define EMA_YAW_VELOCITY_SP		0.0010
+
+// moving average filter configuration for the yaw velocity
+#define EMA_YAW_VELOCITY			0.0020	// TODO: optimize this filter value
 
 //TODO: Check if it is better to use a cascaded PID loop controlling rotational rate and angle
 // PID values for pose controller
@@ -94,6 +98,28 @@ const float P_roll = 1,		I_roll = 0,		D_roll = 0;
 const float P_pitch = 1,	I_pitch = 0,	D_pitch = 0;
 const float P_yaw = 1,		I_yaw = 0,		D_yaw = 0;
 //const float P_level = 1,	I_level = 0,	D_level = 0;
+
+// failsafe configuration
+const uint8_t FS_IMU			= 0b00000001;
+const uint8_t FS_MOTION		= 0b00000010;
+const uint8_t FS_CONTROL	= 0b00000100;
+
+// use imu and motion failsafe
+const uint8_t FS_CONFIG		= 0b00000011;
+
+// minimum time in microseconds a failsafe condition needs to be met, in order to activate it (except for FS_IMU)
+#define FS_TIME 500000
+
+// failsafe imu update time limit
+#define FS_IMU_DT_LIMIT 2000000
+
+// failsafe motion limits
+#define FS_MOTION_ANGLE_LIMIT 40
+#define FS_MOTION_ANGULAR_VELOCITY_LIMIT 240
+
+// failsafe control limits
+#define FS_CONTROL_ANGLE_DIFF 25
+#define FS_CONTROL_ANGULAR_VELOCITY_DIFF 150
 
 // configuration data structure
 typedef struct {
@@ -112,8 +138,8 @@ IBUS rc;
 // ICM-20948 imu object
 ICM20948_SPI imu(IMU_CS_PIN, IMU_SPI_PORT);
 	
-// initial quadcopter z-axis angle - this has to be initialise with an implausible value (> 360)
-float angle_z_0 = 1000;
+// initial quadcopter z-axis angle - this should be initialised with an implausible value (> 360)
+float angle_z_init = 1000;
 
 // motor class
 class PWMServoMotor
@@ -164,7 +190,7 @@ PID_controller yaw_pid(P_yaw, I_yaw, D_yaw, 0, 0, 2000);
 uint16_t *rc_channelValue;
 
 // flight setpoints
-float roll_sp, pitch_sp, yaw_sp, throttle_sp;
+float roll_sp, pitch_sp, yaw_velocity_sp, throttle_sp;
 
 // variables to measure imu update time
 uint32_t t0 = 0, t = 0;
@@ -183,6 +209,9 @@ float angle_x, angle_y, angle_z;
 
 // z-axis pose offset to compensate for the sensor mounting orientation relative to the quadcopter frame
 float angle_z_offset = 90;
+
+// quadcopter z-axis (yaw) velocity
+float angular_velocity_z;
 
 // armed state - motors can only run when armed
 bool armed = false;
@@ -212,10 +241,10 @@ bool imuCalibration();
 void disarmAndResetQuad();
 
 // arm/disarm on rc command and disarm on failsafe conditions
-void arm_failsafe();
+void arm_failsafe(uint8_t fs_config);
 
 // calculate flight setpoints from rc input for stable flightmode without and with tilt compensated thrust
-void flightSetpoints(float& roll_sp, float& pitch_sp, float& yaw_sp, float& throttle_sp);
+void flightSetpoints(float& roll_sp, float& pitch_sp, float& yaw_velocity_sp, float& throttle_sp);
 
 void setup() {
 	// turn off LED
@@ -260,9 +289,6 @@ void loop() {
 	
 	// update rc
 	rc.update();
-
-	// arm/disarm on rc command and disarm on failsafe conditions
-	arm_failsafe();
 	
 	static bool initialise = false;
 	if (!initialise) {
@@ -285,8 +311,15 @@ void loop() {
 		initialise = false;
 		return;
 	}
+
+	// arm/disarm on rc command or disarm on failsafe conditions
+	arm_failsafe(FS_CONFIG);
+
+	// update time
+	t = micros();
+	dt = (t - t0);  // in us
+	dt_s = (float) (dt) * 1.e-6;	// in s
 	
-	// TODO: Implement failsafe in case of no imuInterrupt
 	while (!imuInterrupt) {
 		// wait for next imu interrupt
 	}
@@ -294,10 +327,6 @@ void loop() {
 	// reset imu interrupt flag
 	imuInterrupt = false;
 
-	// update time
-	t = micros();
-	dt = (t - t0);  // in us
-	dt_s = (float) (dt) * 1.e-6;	// in s
 	t0 = t;
 	
 	// read imu measurements
@@ -305,6 +334,11 @@ void loop() {
 	imu.read_mag(mx, my, mz);
 	
 	madgwickFilter.get_euler(dt_s, ax, ay, az, gx_rps, gy_rps, gz_rps, mx, my, mz, angle_x, angle_y, angle_z);
+
+	// calculate filtered z-angle (yaw) velocity, since it is used as a control variable instead of the already filtered angle
+	static float angle_z0;
+	angular_velocity_z = ema_filter((angle_z - angle_z0) / dt_s, angular_velocity_z, EMA_YAW_VELOCITY);
+	angle_z0 = angle_z;
 	
 	// apply offset to z-axis pose in order to compensate for the sensor mounting orientation relative to the quadcopter frame
 	angle_z += angle_z_offset;
@@ -318,16 +352,15 @@ void loop() {
 	// when armed, calculate flight setpoints, manipulated variables and control motors
 	if (armed) {
 		// calculate flight setpoints
-		flightSetpoints(roll_sp, pitch_sp, yaw_sp, throttle_sp);
+		flightSetpoints(roll_sp, pitch_sp, yaw_velocity_sp, throttle_sp);
 		
 		// get manipulated variables
 		static float roll_mv, pitch_mv, yaw_mv;
 		
 		roll_mv = roll_pid.get_mv(roll_sp, angle_x, dt_s);
 		pitch_mv = pitch_pid.get_mv(pitch_sp, angle_y, dt_s);
-		yaw_mv = yaw_pid.get_mv(yaw_sp, angle_z, dt_s);
+		yaw_mv = yaw_pid.get_mv(yaw_velocity_sp, angular_velocity_z, dt_s);
 		
-		// TODO: Throttle necessary hold altitude depends on roll and pitch angle, so it might be useful to compensate for this
 		// TODO: Check motor mixing logic carefully
 		/*motor_1 = throttle_sp + roll_mv - pitch_mv + yaw_mv;
 		motor_2 = throttle_sp - roll_mv - pitch_mv - yaw_mv;
@@ -442,18 +475,18 @@ void estimatePose(float beta_init, float beta, float init_angleDifference, float
 		
 		// pose is estimated if filtered x- and y-axis angles, as well as z-axis angular velocity, converged
 		if ((abs(angle_x_accel - angle_x) < init_angleDifference) && (abs(angle_y_accel - angle_y) < init_angleDifference)
-		&& ((abs(angle_z - angle_z_0) / dt_s) < init_angularVelocity)) {
+		&& ((abs(angle_z - angle_z_init) / dt_s) < init_angularVelocity)) {
 			// reduce beta value, since filtered angles have stabilized during initialisation
 			madgwickFilter.set_beta(beta);
 			
 			DEBUG_PRINTLN(F("Initial pose estimated."));
 			DEBUG_PRINTLN2(abs(angle_x_accel - angle_x), 6);
 			DEBUG_PRINTLN2(abs(angle_y_accel - angle_y), 6);
-			DEBUG_PRINTLN2(abs(angle_z - angle_z_0) / dt_s, 6);
+			DEBUG_PRINTLN2(abs(angle_z - angle_z_init) / dt_s, 6);
 			
 			break;
 		}
-		angle_z_0 = angle_z;
+		angle_z_init = angle_z;
 		
 		// run serial print at a rate independent of the main loop
 		static uint32_t t0_serial = micros();
@@ -554,7 +587,7 @@ void disarmAndResetQuad() {
 		// set flight setpoints to zero
 		roll_sp = 0;
 		pitch_sp = 0;
-		yaw_sp = 0;
+		yaw_velocity_sp = 0;
 		throttle_sp = 0;
 		
 		// reset PIDs
@@ -574,14 +607,12 @@ void disarmAndResetQuad() {
 		//DEBUG_PRINTLN("Disarmed!");
 }
 
-// arm/disarm on rc command and disarm on failsafe conditions
-void arm_failsafe() {
-	// arm and disarm on rc command
+// arm/disarm on rc command or disarm on failsafe conditions
+void arm_failsafe(uint8_t fs_config) {
+	// ---------- arm and disarm on rc command ----------
 	static uint32_t t_arm;
 	static uint32_t t_disarm;
-	
-	// Arm switch needs to be set to enable arming
-	if (rc_channelValue[ARM] == 2000) {
+	if (rc_channelValue[ARM] == 2000) {		// arm switch needs to be set to enable arming
 		if (rc_channelValue[THROTTLE] < 1050) {
 			if (rc_channelValue[YAW] > 1950) {
 			  // hold left stick bottom-right	(2s) to complete arming
@@ -620,11 +651,57 @@ void arm_failsafe() {
 		t_disarm = 0;
 	}
 	
-	// TODO: disarm on failsafe conditions
+	// ---------- Disarm on failsafe conditions ----------
+	static uint32_t t_fs_motion;
+	static uint32_t t_fs_control;
+	
+	// imu failsafe
+	if ((FS_CONFIG && FS_IMU) == FS_IMU) {
+		if (dt > FS_IMU_DT_LIMIT) {
+			// limit for imu update time exceeded
+			disarmAndResetQuad();
+		}
+	}
+	
+	// quadcopter motion failsafe
+	if ((FS_CONFIG && FS_MOTION) == FS_MOTION) {
+		if ((abs(angle_x) > FS_MOTION_ANGLE_LIMIT) || (abs(angle_y) > FS_MOTION_ANGLE_LIMIT) || (abs(angular_velocity_z) > FS_MOTION_ANGULAR_VELOCITY_LIMIT)) {
+			// angle or angular velocity limit exceeded
+			t_fs_motion += dt;
+			if (t_fs_motion >= FS_TIME) {
+				disarmAndResetQuad();
+			}
+		}
+		else {
+			t_fs_motion = 0;
+		}
+	}
+	else {
+		t_fs_motion = 0;
+	}
+	
+	// quadcopter control failsafe
+	if ((FS_CONFIG && FS_CONTROL) == FS_CONTROL) {
+		if ((abs(roll_sp - angle_x) > FS_CONTROL_ANGLE_DIFF) || (abs(pitch_sp - angle_y) > FS_CONTROL_ANGLE_DIFF) || (abs(yaw_velocity_sp - angular_velocity_z) > FS_CONTROL_ANGULAR_VELOCITY_DIFF)) {
+			// difference to control values for angle and angular velocity exceeded
+			t_fs_control += dt;
+			if (t_fs_motion >= FS_TIME) {
+				disarmAndResetQuad();
+			}
+		}
+		else {
+			t_fs_control = 0;
+		}
+	}
+	else {
+		t_fs_control = 0;
+	}
+	
+	// TODO: Add additional failsafe conditions
 }
 
 // calculate flight setpoints from rc input for stable flightmode without and with tilt compensated thrust
-void flightSetpoints(float& roll_sp, float& pitch_sp, float& yaw_sp, float& throttle_sp) {
+void flightSetpoints(float& roll_sp, float& pitch_sp, float& yaw_velocity_sp, float& throttle_sp) {
 	static const float DEG2RAD = 71 / 4068;
 	static float roll_mapped, pitch_mapped, yaw_mapped, throttle_mapped;
 	
@@ -645,6 +722,6 @@ void flightSetpoints(float& roll_sp, float& pitch_sp, float& yaw_sp, float& thro
 	// calculate flight setpoints by filtering the mapped rc channel values
 	roll_sp = ema_filter(roll_mapped, roll_sp, EMA_ROLL_SP);
 	pitch_sp = ema_filter(pitch_mapped, pitch_sp, EMA_PITCH_SP);
-	yaw_sp = ema_filter(yaw_mapped, roll_sp, EMA_YAW_SP);
+	yaw_velocity_sp = ema_filter(yaw_mapped, roll_sp, EMA_YAW_VELOCITY_SP);
 	throttle_sp = ema_filter(throttle_mapped, throttle_sp, EMA_THROTTLE_SP);
 }
