@@ -226,7 +226,7 @@ float angular_velocity_z;
 // armed state - motors can only run when armed
 bool armed = false;
 
-// started state is set when minimum throttle setpoint was reached in armed state - motors and PID calculations can only run when started
+// started state is set when minimum throttle setpoint was reached in armed state - PID calculations can only run when started
 bool started = false;
 
 // imu interrupt
@@ -384,32 +384,30 @@ void loop() {
 		// calculate flight setpoints
 		flightSetpoints(roll_sp, pitch_sp, yaw_velocity_sp, throttle_sp);
 		
-		// In order to ensure a smooth start, delay running motors as well as PID calculations until a minimum throttle value is applied
+		// In order to ensure a smooth start, PID calculations are delayed until a minimum throttle value is applied
+		// get manipulated variables
+		static float roll_mv, pitch_mv, yaw_mv;
 		if (started) {
-			// get manipulated variables
-			static float roll_mv, pitch_mv, yaw_mv;
 			roll_mv = roll_pid.get_mv(roll_sp, angle_x, dt_s);
 			pitch_mv = pitch_pid.get_mv(pitch_sp, angle_y, dt_s);
 			yaw_mv = yaw_pid.get_mv(yaw_velocity_sp, angular_velocity_z, dt_s);
-			
-			// TODO: Check motor mixing logic carefully
-			/*motor_1.write(throttle_sp + roll_mv - pitch_mv + yaw_mv);
-			motor_2.write(throttle_sp - roll_mv - pitch_mv - yaw_mv);
-			motor_3.write(throttle_sp + roll_mv + pitch_mv + yaw_mv);
-			motor_4.write(throttle_sp - roll_mv + pitch_mv - yaw_mv);*/
+		}
+		else if (throttle_sp > MIN_THROTTLE_SP) {
+			started = true;
+			DEBUG_PRINTLN("Started!");
+		}
+		
+		// TODO: Check motor mixing logic carefully
+		/*motor_1.write(throttle_sp + roll_mv - pitch_mv + yaw_mv);
+		motor_2.write(throttle_sp - roll_mv - pitch_mv - yaw_mv);
+		motor_3.write(throttle_sp + roll_mv + pitch_mv + yaw_mv);
+		motor_4.write(throttle_sp - roll_mv + pitch_mv - yaw_mv);*/
 
-			// TODO: Remove this test code
-			/*motor_1.write(rc_channelValue[THROTTLE]);
-			motor_2.write(rc_channelValue[THROTTLE]);
-			motor_3.write(rc_channelValue[THROTTLE]);
-			motor_4.write(rc_channelValue[THROTTLE]);*/
-		}
-		else{
-			if (throttle_sp > MIN_THROTTLE_SP) {
-				started = true;
-				DEBUG_PRINTLN("Started!");
-			}
-		}
+		// TODO: Remove this test code
+		/*motor_1.write(rc_channelValue[THROTTLE]);
+		motor_2.write(rc_channelValue[THROTTLE]);
+		motor_3.write(rc_channelValue[THROTTLE]);
+		motor_4.write(rc_channelValue[THROTTLE]);*/
 	}
 	else {
 		// for safety reasons repeat disarm and reset, even when it was already done
@@ -646,7 +644,10 @@ void disarmAndResetQuad() {
 
 // arm/disarm on rc command or disarm on failsafe conditions
 void arm_failsafe(uint8_t fs_config) {
-	// ---------- arm and disarm on rc command ----------
+	// -------------------- auto disarm
+	// TODO
+	
+	// -------------------- arm and disarm on rc command
 	static uint32_t t_arm;
 	static uint32_t t_disarm;
 	if (rc_channelValue[ARM] == 2000) {		// arm switch needs to be set to enable arming, else disarm and reset
@@ -689,7 +690,7 @@ void arm_failsafe(uint8_t fs_config) {
 		t_disarm = 0;
 	}
 	
-	// ---------- Disarm on failsafe conditions ----------
+	// -------------------- Disarm on failsafe conditions
 	static uint32_t t_fs_motion;
 	static uint32_t t_fs_control;
 	
