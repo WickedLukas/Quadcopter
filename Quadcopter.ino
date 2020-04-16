@@ -88,7 +88,7 @@
 #define EMA_YAW_VELOCITY_SP		0.0007
 
 // moving average filter configuration for the yaw velocity
-#define EMA_YAW_VELOCITY			0.0020	// TODO: optimize this filter value
+#define EMA_YAW_VELOCITY			0.0020
 
 //TODO: Check if it is better to use a cascaded PID loop controlling rotational rate and angle
 // PID values for pose controller
@@ -364,7 +364,7 @@ void loop() {
 	madgwickFilter.get_euler(dt_s, ax, ay, az, gx_rps, gy_rps, gz_rps, mx, my, mz, angle_x, angle_y, angle_z);
 
 	// calculate filtered z-angle (yaw) velocity, since it is used as a control variable instead of the already filtered angle
-	static float angle_z0;
+	static float angle_z0 = angle_z_init;
 	angular_velocity_z = ema_filter((angle_z - angle_z0) / dt_s, angular_velocity_z, EMA_YAW_VELOCITY);
 	angle_z0 = angle_z;
 	
