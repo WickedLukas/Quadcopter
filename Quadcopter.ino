@@ -124,9 +124,10 @@ const uint8_t FS_CONFIG		= 0b00000011;
 #define FS_CONTROL_ANGULAR_VELOCITY_DIFF 90
 
 // list of error codes
-const uint8_t ERROR_MAG = 0b00000001;
+const uint8_t ERROR_IMU = 0b00000001;
+const uint8_t ERROR_MAG = 0b00000010;
 // Stores the errors which occured and disables arming.
-// The flight controller needs to be restarted to reset the error and enable arming again.
+// The flight controller needs to be restarted to reset the error and enable arming.
 uint8_t error_code = 0;
 
 // configuration data structure
@@ -286,11 +287,21 @@ void setup() {
 	// setup interrupt pin for imu
 	pinMode(IMU_INTERRUPT_PIN, INPUT);
 	attachInterrupt(digitalPinToInterrupt(IMU_INTERRUPT_PIN), imuReady, FALLING);
+	
+	// get configuration data from EEPROM
+	EEPROM.get(ADDRESS_EEPROM, data_eeprom);
+	
+	// initialise imu
+	if (!imu.init(data_eeprom.offset_mx, data_eeprom.offset_my, data_eeprom.offset_mz, data_eeprom.scale_mx, data_eeprom.scale_my, data_eeprom.scale_mz)) {
+		// IMU could not be initialized. Set error value, which will disable arming.
+		error_code = error_code | ERROR_IMU;
+		DEBUG_PRINTLN("IMU error: Initialisation failed!");
+	}
 }
 
 void loop() {
 	if (error_code != 0) {
-		// blink LED very fast to indicate the error occurence
+		// blink LED very fast to indicate an error occurrence
 		updateLED(LED_PIN, 2, 250);
 	}
 	else if (armed) {
@@ -305,25 +316,18 @@ void loop() {
 	// update rc
 	rc.update();
 	
-	static bool initialise = false;
-	if (!initialise) {
-		// get configuration data from EEPROM
-		EEPROM.get(ADDRESS_EEPROM, data_eeprom);
-		
-		// initialise imu
-		initialise = imu.init(data_eeprom.offset_mx, data_eeprom.offset_my, data_eeprom.offset_mz, data_eeprom.scale_mx, data_eeprom.scale_my, data_eeprom.scale_mz);
-		if (!initialise) {
-			DEBUG_PRINTLN(F("IMU initialisation failed."));
-		}
-		
+	static bool poseEstimated = false;
+	if (!poseEstimated) {
 		// estimate initial pose
 		estimatePose(BETA_INIT, BETA, INIT_ANGLE_DIFFERENCE, INIT_ANGULAR_VELOCITY);
+		
+		poseEstimated = true;
 	}
 
 	// if disarmed, check for calibration request from rc and executed it
 	if (imuCalibration()) {
-		// after calibration was performed, imu needs to be initalised again
-		initialise = false;
+		// calibration was performed, initial pose needs to be estimated again
+		poseEstimated = false;
 		return;
 	}
 
@@ -340,7 +344,7 @@ void loop() {
 		return;
 	}
 	
-	// reset imu interrupt flag
+	// reset imu interrupt
 	imuInterrupt = false;
 
 	t0 = t;
@@ -554,8 +558,6 @@ void accelAngles(float& angle_x_accel, float& angle_y_accel) {
 bool imuCalibration() {
 	static uint32_t t_imuCalibration;
 	t_imuCalibration = micros();
-
-	// TODO: Fix a bug that magnetometer can only be succesfully reinitialised ones. After that it will not be updated anymore.
 	
 	static uint32_t t_calibrateGyro = 0, t_calibrateAccel = 0, t_calibrateMag = 0;
 	if (!armed) {
