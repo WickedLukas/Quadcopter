@@ -335,8 +335,9 @@ void loop() {
 	dt = (t - t0);  // in us
 	dt_s = (float) (dt) * 1.e-6;	// in s
 	
-	while (!imuInterrupt) {
-		// wait for next imu interrupt
+	// continue if imu interrupt has fired
+	if (!imuInterrupt) {
+		return;
 	}
 	
 	// reset imu interrupt flag
@@ -361,6 +362,7 @@ void loop() {
 		}
 	}
 	
+	// perform sensor fusion with Madgwick filter to calculate pose
 	madgwickFilter.get_euler(dt_s, ax, ay, az, gx_rps, gy_rps, gz_rps, mx, my, mz, angle_x, angle_y, angle_z);
 
 	// calculate filtered z-angle (yaw) velocity, since it is used as a control variable instead of the already filtered angle
@@ -550,19 +552,23 @@ void accelAngles(float& angle_x_accel, float& angle_y_accel) {
 
 // calibrate gyroscope, accelerometer or magnetometer on rc command and return true if any calibration was performed
 bool imuCalibration() {
-	static uint32_t t_calibrateGyro;
-	static uint32_t t_calibrateAccel;
-	static uint32_t t_calibrateMag;
+	static uint32_t t_imuCalibration;
+	t_imuCalibration = micros();
+
+	// TODO: Fix a bug that magnetometer can only be succesfully reinitialised ones. After that it will not be updated anymore.
 	
+	static uint32_t t_calibrateGyro = 0, t_calibrateAccel = 0, t_calibrateMag = 0;
 	if (!armed) {
 		if ((rc_channelValue[PITCH] < 1100) && (rc_channelValue[ROLL] > 1400) && (rc_channelValue[ROLL] < 1600)) {
 			if ((rc_channelValue[THROTTLE] < 1100) && (rc_channelValue[YAW] < 1100)) {
 				// hold right stick bottom center and left stick bottom-left to start gyro calibration	(2s)
-				t_calibrateGyro += dt;
 				t_calibrateAccel = 0;
 				t_calibrateMag = 0;
-				
-				if (t_calibrateGyro > 2000000) {
+				if (t_calibrateGyro == 0) {
+					t_calibrateGyro = t_imuCalibration;
+					return false;
+				}
+				else if ((t_imuCalibration - t_calibrateGyro) > 2000000) {
 					// turn on LED to indicate calibration
 					updateLED(LED_PIN, 2);
 					imu.calibrate_gyro(imuInterrupt, 5.0, 1);
@@ -576,10 +582,12 @@ bool imuCalibration() {
 			else if ((rc_channelValue[THROTTLE] > 1900) && (rc_channelValue[YAW] < 1100)) {
 				// hold right stick bottom center and left stick top-left to start accel calibration	(2s)
 				t_calibrateGyro = 0;
-				t_calibrateAccel += dt;
 				t_calibrateMag = 0;
-				
-				if (t_calibrateAccel > 2000000) {
+				if (t_calibrateAccel == 0) {
+					t_calibrateAccel = t_imuCalibration;
+					return false;
+				}
+				else if ((t_imuCalibration - t_calibrateAccel) > 2000000) {
 					// turn on LED to indicate calibration
 					updateLED(LED_PIN, 2);
 					imu.calibrate_accel(imuInterrupt, 5.0, 16);
@@ -594,9 +602,11 @@ bool imuCalibration() {
 				// hold right stick bottom center and left stick top-right to start mag calibration	(2s)
 				t_calibrateGyro = 0;
 				t_calibrateAccel = 0;
-				t_calibrateMag += dt;
-				
-				if (t_calibrateMag > 2000000) {
+				if (t_calibrateMag == 0) {
+					t_calibrateMag = t_imuCalibration;
+					return false;
+				}
+				else if ((t_imuCalibration - t_calibrateMag) > 2000000) {
 					// turn on LED to indicate calibration
 					updateLED(LED_PIN, 2);
 					imu.calibrate_mag(imuInterrupt, 60, 500, data_eeprom.offset_mx, data_eeprom.offset_my, data_eeprom.offset_mz, data_eeprom.scale_mx, data_eeprom.scale_my, data_eeprom.scale_mz);
@@ -648,20 +658,23 @@ void disarmAndResetQuad() {
 
 // arm/disarm on rc command or disarm on failsafe conditions
 void arm_failsafe(uint8_t fs_config) {
+	static uint32_t t_arm_failsafe;
+	t_arm_failsafe = micros();
+	
 	// -------------------- auto disarm
 	// TODO
 	
 	// -------------------- arm and disarm on rc command
-	static uint32_t t_arm;
-	static uint32_t t_disarm;
-	if (rc_channelValue[ARM] == 2000) {		// arm switch needs to be set to enable arming, else disarm and reset
+	static uint32_t t_arm = 0, t_disarm = 0;
+	if (rc_channelValue[ARM] == 2000) {	// arm switch needs to be set to enable arming, else disarm and reset
 		if ((rc_channelValue[THROTTLE] < 1100) && (((rc_channelValue[ROLL] > 1400) && (rc_channelValue[ROLL] < 1600)) && ((rc_channelValue[PITCH] > 1400) && (rc_channelValue[PITCH] < 1600)))) {
 			if ((rc_channelValue[YAW] > 1900) && (error_code == 0) && (!armed)) {	// arming is only allowed when no error occured
-			  // hold left stick bottom-right and keep right stick centered (2s) to complete arming
-				t_arm += dt;
+				// hold left stick bottom-right and keep right stick centered (2s) to complete arming
 				t_disarm = 0;
-				
-				if (t_arm > 2000000) {
+				if (t_arm == 0) {
+					t_arm = t_arm_failsafe;
+				}
+				else if ((t_arm_failsafe - t_arm) > 2000000) {
 					armed = true;
 					t_arm = 0;
 					DEBUG_PRINTLN("Armed!");
@@ -670,9 +683,10 @@ void arm_failsafe(uint8_t fs_config) {
 			else if ((rc_channelValue[YAW] < 1100) && (armed)) {
 				// hold left stick bottom-left and keep right stick centered (2s) to complete disarming
 				t_arm = 0;
-				t_disarm += dt;
-				
-				if (t_disarm > 2000000) {
+				if (t_disarm == 0) {
+					t_disarm = t_arm_failsafe;
+				}
+				else if ((t_arm_failsafe - t_disarm) > 2000000) {
 					disarmAndResetQuad();
 					t_disarm = 0;
 					DEBUG_PRINTLN("Disarmed!");
@@ -700,60 +714,66 @@ void arm_failsafe(uint8_t fs_config) {
 	}
 	
 	// -------------------- Disarm on failsafe conditions
-	static uint32_t t_fs_motion;
-	static uint32_t t_fs_control;
-	
-	// imu failsafe
-	if ((FS_CONFIG & FS_IMU) == FS_IMU) {
-		if (dt > FS_IMU_DT_LIMIT) {
-			// limit for imu update time exceeded
-			disarmAndResetQuad();
-			DEBUG_PRINTLN("IMU failsafe!");
-		}
-	}
-	
-	// quadcopter motion failsafe
-	if ((FS_CONFIG & FS_MOTION) == FS_MOTION) {
-		if ((abs(angle_x) > FS_MOTION_ANGLE_LIMIT) || (abs(angle_y) > FS_MOTION_ANGLE_LIMIT) || (abs(angular_velocity_z) > FS_MOTION_ANGULAR_VELOCITY_LIMIT)) {
-			// angle or angular velocity limit exceeded
-			t_fs_motion += dt;
-			if (t_fs_motion >= FS_TIME) {
+	if (armed) {
+		// imu failsafe
+		if ((FS_CONFIG & FS_IMU) == FS_IMU) {
+			if (dt > FS_IMU_DT_LIMIT) {
+				// limit for imu update time exceeded
 				disarmAndResetQuad();
+				DEBUG_PRINTLN("IMU failsafe!");
+			}
+		}
+		
+		// quadcopter motion failsafe
+		static uint32_t t_fs_motion = 0;
+		if ((FS_CONFIG & FS_MOTION) == FS_MOTION) {
+			if ((abs(angle_x) > FS_MOTION_ANGLE_LIMIT) || (abs(angle_y) > FS_MOTION_ANGLE_LIMIT) || (abs(angular_velocity_z) > FS_MOTION_ANGULAR_VELOCITY_LIMIT)) {
+				// angle or angular velocity limit exceeded
+				if (t_fs_motion == 0) {
+					t_fs_motion = t_arm_failsafe;
+				}
+				else if ((t_arm_failsafe - t_fs_motion) > FS_TIME) {
+					disarmAndResetQuad();
+					t_fs_motion = 0;
+					DEBUG_PRINTLN("Motion failsafe!");
+				}
+			}
+			else {
 				t_fs_motion = 0;
-				DEBUG_PRINTLN("Motion failsafe!");
 			}
 		}
 		else {
 			t_fs_motion = 0;
 		}
-	}
-	else {
-		t_fs_motion = 0;
-	}
-	
-	// failsafes for when quadcopter has started
-	if (started) {
-		// quadcopter control failsafe
-		if ((FS_CONFIG & FS_CONTROL) == FS_CONTROL) {
-			if ((abs(roll_sp - angle_x) > FS_CONTROL_ANGLE_DIFF) || (abs(pitch_sp - angle_y) > FS_CONTROL_ANGLE_DIFF) || (abs(yaw_velocity_sp - angular_velocity_z) > FS_CONTROL_ANGULAR_VELOCITY_DIFF)) {
-				// difference to control values for angle and angular velocity exceeded
-				t_fs_control += dt;
-				if (t_fs_control >= FS_TIME) {
-					disarmAndResetQuad();
+		
+		// failsafes for when quadcopter has started
+		if (started) {
+			// quadcopter control failsafe
+			static uint32_t t_fs_control = 0;
+			if ((FS_CONFIG & FS_CONTROL) == FS_CONTROL) {
+				if ((abs(roll_sp - angle_x) > FS_CONTROL_ANGLE_DIFF) || (abs(pitch_sp - angle_y) > FS_CONTROL_ANGLE_DIFF) || (abs(yaw_velocity_sp - angular_velocity_z) > FS_CONTROL_ANGULAR_VELOCITY_DIFF)) {
+					// difference to control values for angle and angular velocity exceeded
+					if (t_fs_control == 0) {
+						t_fs_control = t_arm_failsafe;
+					}
+					else if ((t_arm_failsafe - t_fs_control) > FS_TIME) {
+						disarmAndResetQuad();
+						t_fs_control = 0;
+						DEBUG_PRINTLN("Control failsafe!");
+					}
+				}
+				else {
 					t_fs_control = 0;
-					DEBUG_PRINTLN("Control failsafe!");
 				}
 			}
 			else {
 				t_fs_control = 0;
 			}
 		}
-		else {
-			t_fs_control = 0;
-		}
+		
+		// TODO: add additional failsafes here
+		
 	}
-	
-	// TODO: Add additional failsafe conditions
 }
 
 // calculate flight setpoints from rc input for stable flightmode without and with tilt compensated thrust
