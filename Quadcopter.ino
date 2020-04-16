@@ -595,7 +595,7 @@ bool imuCalibration() {
 				if (t_calibrateMag > 2000000) {
 					// turn on LED to indicate calibration
 					updateLED(LED_PIN, 2);
-					imu.calibrate_mag(imuInterrupt, 60, 0, data_eeprom.offset_mx, data_eeprom.offset_my, data_eeprom.offset_mz, data_eeprom.scale_mx, data_eeprom.scale_my, data_eeprom.scale_mz);
+					imu.calibrate_mag(imuInterrupt, 60, 500, data_eeprom.offset_mx, data_eeprom.offset_my, data_eeprom.offset_mz, data_eeprom.scale_mx, data_eeprom.scale_my, data_eeprom.scale_mz);
 					EEPROM.put(ADDRESS_EEPROM, data_eeprom);
 					t_calibrateMag = 0;
 					return true;
@@ -652,7 +652,7 @@ void arm_failsafe(uint8_t fs_config) {
 	static uint32_t t_disarm;
 	if (rc_channelValue[ARM] == 2000) {		// arm switch needs to be set to enable arming, else disarm and reset
 		if (rc_channelValue[THROTTLE] < 1050) {
-			if ((rc_channelValue[YAW] > 1950) && (error_code == 0)) {	// arming is only allowed when no error occured
+			if ((rc_channelValue[YAW] > 1950) && (error_code == 0) && (!armed)) {	// arming is only allowed when no error occured
 			  // hold left stick bottom-right	(2s) to complete arming
 				t_arm += dt;
 				t_disarm = 0;
@@ -663,7 +663,7 @@ void arm_failsafe(uint8_t fs_config) {
 					DEBUG_PRINTLN("Armed!");
 				}
 			}
-			else if (rc_channelValue[YAW] < 1050) {
+			else if ((rc_channelValue[YAW] < 1050) && (armed)) {
 				// hold left stick bottom-left (2s) to complete disarming
 				t_arm = 0;
 				t_disarm += dt;
@@ -684,8 +684,13 @@ void arm_failsafe(uint8_t fs_config) {
 			t_disarm = 0;
 		}
 	}
-	else {
+	else if (armed) {
 		disarmAndResetQuad();
+		t_arm = 0;
+		t_disarm = 0;
+		DEBUG_PRINTLN("Disarmed!");
+	}
+	else {
 		t_arm = 0;
 		t_disarm = 0;
 	}
