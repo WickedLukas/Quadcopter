@@ -17,7 +17,6 @@
 #include "sendSerial.h"
 
 // TODO: integrate telemetry (MAVLink?)
-// TODO: Uncomment and test LED notification
 
 // print debug outputs through serial
 #define DEBUG
@@ -77,17 +76,16 @@
 #define INIT_ANGULAR_VELOCITY 0.05	// Maximum angular velocity of filtered angle (z-axis) after initialisation
 
 // limits for flight setpoints
-#define ROLL_LIMIT		30		// deg
-#define PITCH_LIMIT		30		// deg
-#define YAW_LIMIT		180			// deg/s
-#define THROTTLE_LIMIT	1750	// < 2000 because there is some headroom needed for pid control, so the quadcopter stays stable during full throttle
+#define ROLL_LIMIT		30	// deg
+#define PITCH_LIMIT		30	// deg
+#define YAW_VELOCITY_LIMIT	90	// deg/s
+#define THROTTLE_LIMIT	1700	// < 2000 because there is some headroom needed for pid control, so the quadcopter stays stable during full throttle
 
 // moving average filter configuration for the flight setpoints
-// TODO: optimize these filter values
-#define EMA_ROLL_SP				0.0002
-#define EMA_PITCH_SP			0.0002
-#define EMA_THROTTLE_SP		0.0002
-#define EMA_YAW_VELOCITY_SP		0.0010
+#define EMA_ROLL_SP				0.0007
+#define EMA_PITCH_SP			0.0007
+#define EMA_THROTTLE_SP		0.0007
+#define EMA_YAW_VELOCITY_SP		0.0007
 
 // moving average filter configuration for the yaw velocity
 #define EMA_YAW_VELOCITY			0.0020	// TODO: optimize this filter value
@@ -119,11 +117,11 @@ const uint8_t FS_CONFIG		= 0b00000011;
 
 // failsafe motion limits
 #define FS_MOTION_ANGLE_LIMIT 40
-#define FS_MOTION_ANGULAR_VELOCITY_LIMIT 240
+#define FS_MOTION_ANGULAR_VELOCITY_LIMIT 180
 
 // failsafe control limits
 #define FS_CONTROL_ANGLE_DIFF 25
-#define FS_CONTROL_ANGULAR_VELOCITY_DIFF 150
+#define FS_CONTROL_ANGULAR_VELOCITY_DIFF 90
 
 // list of error codes
 const uint8_t ERROR_MAG = 0b00000001;
@@ -428,6 +426,12 @@ void loop() {
 		//DEBUG_PRINT(angle_x_accel); DEBUG_PRINT("\t"); DEBUG_PRINTLN(angle_y_accel);
 		//DEBUG_PRINT(angle_x); DEBUG_PRINT("\t"); DEBUG_PRINT(angle_y); DEBUG_PRINT("\t"); DEBUG_PRINTLN(angle_z);
 		
+		//DEBUG_PRINT(map((float) rc_channelValue[ROLL], 1000, 2000, -ROLL_LIMIT, ROLL_LIMIT)); DEBUG_PRINT("\t"); DEBUG_PRINTLN(roll_sp);
+		//DEBUG_PRINT(map((float) rc_channelValue[YAW], 1000, 2000, -YAW_VELOCITY_LIMIT, YAW_VELOCITY_LIMIT)); DEBUG_PRINT("\t"); DEBUG_PRINTLN(yaw_velocity_sp);
+		//DEBUG_PRINT(map((float) rc_channelValue[THROTTLE], 1000, 2000, 1000, THROTTLE_LIMIT)); DEBUG_PRINT("\t"); DEBUG_PRINTLN(throttle_sp);
+		//static const float DEG2RAD = (float) 71 / 4068;
+		//DEBUG_PRINT(map((float) (rc_channelValue[THROTTLE] - 1000) / (cos(angle_x * DEG2RAD) * cos(angle_y * DEG2RAD)) + 1000, 1000, 2000, 1000, THROTTLE_LIMIT)); DEBUG_PRINT("\t"); DEBUG_PRINTLN(throttle_sp);
+		
 		//DEBUG_PRINTLN(dt);
 		//DEBUG_PRINTLN();
 		
@@ -623,7 +627,7 @@ void disarmAndResetQuad() {
 		roll_sp = 0;
 		pitch_sp = 0;
 		yaw_velocity_sp = 0;
-		throttle_sp = 0;
+		throttle_sp = 1000;
 		
 		// reset PIDs
 		roll_pid.reset();
@@ -754,17 +758,17 @@ void arm_failsafe(uint8_t fs_config) {
 
 // calculate flight setpoints from rc input for stable flightmode without and with tilt compensated thrust
 void flightSetpoints(float& roll_sp, float& pitch_sp, float& yaw_velocity_sp, float& throttle_sp) {
-	static const float DEG2RAD = 71 / 4068;
+	static const float DEG2RAD = (float) 71 / 4068;
 	static float roll_mapped, pitch_mapped, yaw_mapped, throttle_mapped;
 	
 	// map rc channel values
 	roll_mapped = map((float) rc_channelValue[ROLL], 1000, 2000, -ROLL_LIMIT, ROLL_LIMIT);
 	pitch_mapped = map((float) rc_channelValue[PITCH], 1000, 2000, -PITCH_LIMIT, PITCH_LIMIT);
-	yaw_mapped = map((float) rc_channelValue[YAW], 1000, 2000, -YAW_LIMIT, YAW_LIMIT);
-
+	yaw_mapped = map((float) rc_channelValue[YAW], 1000, 2000, -YAW_VELOCITY_LIMIT, YAW_VELOCITY_LIMIT);
+	
 	if (rc_channelValue[FMODE] == 1500) {
 		// stable with tilt compensated thrust: increase thrust when quadcopter is tilted, to compensate for height loss during horizontal movement
-		throttle_mapped = map((float) rc_channelValue[THROTTLE] / (cos(angle_x * DEG2RAD) * cos(angle_y * DEG2RAD)), 1000, 2000, 1000, THROTTLE_LIMIT);
+		throttle_mapped = map((float) (rc_channelValue[THROTTLE] - 1000) / (cos(angle_x * DEG2RAD) * cos(angle_y * DEG2RAD)) + 1000, 1000, 2000, 1000, THROTTLE_LIMIT);
 	}
 	else {
 		// stable
@@ -774,6 +778,6 @@ void flightSetpoints(float& roll_sp, float& pitch_sp, float& yaw_velocity_sp, fl
 	// calculate flight setpoints by filtering the mapped rc channel values
 	roll_sp = ema_filter(roll_mapped, roll_sp, EMA_ROLL_SP);
 	pitch_sp = ema_filter(pitch_mapped, pitch_sp, EMA_PITCH_SP);
-	yaw_velocity_sp = ema_filter(yaw_mapped, roll_sp, EMA_YAW_VELOCITY_SP);
+	yaw_velocity_sp = ema_filter(yaw_mapped, yaw_velocity_sp, EMA_YAW_VELOCITY_SP);
 	throttle_sp = ema_filter(throttle_mapped, throttle_sp, EMA_THROTTLE_SP);
 }
