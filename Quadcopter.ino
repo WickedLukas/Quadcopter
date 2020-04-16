@@ -101,7 +101,7 @@ const float P_yaw = 1,		I_yaw = 0,		D_yaw = 0;
 
 // Minimum throttle setpoint to enter started state in which motors and PID calculation start.
 // To ensure a smooth start this value should be close to the throttle necessary for take off.
-const float MIN_THROTTLE_SP = 1300;
+const float MIN_THROTTLE_SP = 1200;
 
 // failsafe configuration
 const uint8_t FS_IMU			= 0b00000001;
@@ -551,8 +551,8 @@ bool imuCalibration() {
 	static uint32_t t_calibrateMag;
 	
 	if (!armed) {
-		if ((rc_channelValue[PITCH] < 1050) && (rc_channelValue[ROLL] > 1450) && (rc_channelValue[ROLL] < 1550)) {
-			if ((rc_channelValue[THROTTLE] < 1050) && (rc_channelValue[YAW] < 1050)) {
+		if ((rc_channelValue[PITCH] < 1100) && (rc_channelValue[ROLL] > 1400) && (rc_channelValue[ROLL] < 1600)) {
+			if ((rc_channelValue[THROTTLE] < 1100) && (rc_channelValue[YAW] < 1100)) {
 				// hold right stick bottom center and left stick bottom-left to start gyro calibration	(2s)
 				t_calibrateGyro += dt;
 				t_calibrateAccel = 0;
@@ -569,7 +569,7 @@ bool imuCalibration() {
 					return false;
 				}
 			}
-			else if ((rc_channelValue[THROTTLE] > 1950) && (rc_channelValue[YAW] < 1050)) {
+			else if ((rc_channelValue[THROTTLE] > 1900) && (rc_channelValue[YAW] < 1100)) {
 				// hold right stick bottom center and left stick top-left to start accel calibration	(2s)
 				t_calibrateGyro = 0;
 				t_calibrateAccel += dt;
@@ -586,7 +586,7 @@ bool imuCalibration() {
 					return false;
 				}
 			}
-			else if ((rc_channelValue[THROTTLE] > 1950) && (rc_channelValue[YAW] > 1950)) {
+			else if ((rc_channelValue[THROTTLE] > 1900) && (rc_channelValue[YAW] > 1900)) {
 				// hold right stick bottom center and left stick top-right to start mag calibration	(2s)
 				t_calibrateGyro = 0;
 				t_calibrateAccel = 0;
@@ -651,9 +651,9 @@ void arm_failsafe(uint8_t fs_config) {
 	static uint32_t t_arm;
 	static uint32_t t_disarm;
 	if (rc_channelValue[ARM] == 2000) {		// arm switch needs to be set to enable arming, else disarm and reset
-		if (rc_channelValue[THROTTLE] < 1050) {
-			if ((rc_channelValue[YAW] > 1950) && (error_code == 0) && (!armed)) {	// arming is only allowed when no error occured
-			  // hold left stick bottom-right	(2s) to complete arming
+		if ((rc_channelValue[THROTTLE] < 1100) && (((rc_channelValue[ROLL] > 1400) && (rc_channelValue[ROLL] < 1600)) && ((rc_channelValue[PITCH] > 1400) && (rc_channelValue[PITCH] < 1600)))) {
+			if ((rc_channelValue[YAW] > 1900) && (error_code == 0) && (!armed)) {	// arming is only allowed when no error occured
+			  // hold left stick bottom-right and keep right stick centered (2s) to complete arming
 				t_arm += dt;
 				t_disarm = 0;
 				
@@ -663,8 +663,8 @@ void arm_failsafe(uint8_t fs_config) {
 					DEBUG_PRINTLN("Armed!");
 				}
 			}
-			else if ((rc_channelValue[YAW] < 1050) && (armed)) {
-				// hold left stick bottom-left (2s) to complete disarming
+			else if ((rc_channelValue[YAW] < 1100) && (armed)) {
+				// hold left stick bottom-left and keep right stick centered (2s) to complete disarming
 				t_arm = 0;
 				t_disarm += dt;
 				
