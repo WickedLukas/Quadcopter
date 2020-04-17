@@ -37,7 +37,7 @@
 #endif
 
 // address for eeprom data
-#define ADDRESS_EEPROM 0
+#define ADDRESS_EEPROM 128
 
 // LED pin
 #define LED_PIN 23
@@ -102,7 +102,7 @@ const float P_yaw = 1,		I_yaw = 0,		D_yaw = 0;
 const float MIN_THROTTLE_SP = 1200;
 
 // failsafe configuration
-const uint8_t FS_IMU			= 0b00000001;
+const uint8_t FS_IMU		= 0b00000001;
 const uint8_t FS_MOTION		= 0b00000010;
 const uint8_t FS_CONTROL	= 0b00000100;
 
@@ -120,14 +120,14 @@ const uint8_t FS_CONFIG		= 0b00000011;
 #define FS_MOTION_ANGULAR_VELOCITY_LIMIT 180
 
 // failsafe control limits
-#define FS_CONTROL_ANGLE_DIFF 25
+#define FS_CONTROL_ANGLE_DIFF 30
 #define FS_CONTROL_ANGULAR_VELOCITY_DIFF 90
 
 // list of error codes
 const uint8_t ERROR_IMU = 0b00000001;
 const uint8_t ERROR_MAG = 0b00000010;
 // Stores the errors which occured and disables arming.
-// The flight controller needs to be restarted to reset the error and enable arming.
+// A restart is required to reset the error and enable arming.
 uint8_t error_code = 0;
 
 // configuration data structure
@@ -195,18 +195,18 @@ PID_controller roll_pid(P_roll, I_roll, D_roll, 0, 0, 2000);
 PID_controller pitch_pid(P_pitch, I_pitch, D_yaw, 0, 0, 2000);
 PID_controller yaw_pid(P_yaw, I_yaw, D_yaw, 0, 0, 2000);
 
-// pointer on an array of 10 received rc channel values [1000; 2000]
-uint16_t *rc_channelValue;
-
-// flight setpoints
-float roll_sp, pitch_sp, yaw_velocity_sp, throttle_sp;
-
 // variables to measure imu update time
 uint32_t t0 = 0, t = 0;
 // measured imu update time in microseconds
 int32_t dt = 0;
 // measured imu update time in seconds
 float dt_s = 0;
+
+// pointer on an array of 10 received rc channel values [1000; 2000]
+uint16_t *rc_channelValue;
+
+// flight setpoints
+float roll_sp, pitch_sp, yaw_velocity_sp, throttle_sp;
 
 // imu measurements
 int16_t ax, ay, az;
@@ -548,7 +548,7 @@ void estimatePose(float beta_init, float beta, float init_angleDifference, float
 
 // calculate accelerometer x and y angles in degrees
 void accelAngles(float& angle_x_accel, float& angle_y_accel) {
-	static const float RAD2DEG = 4068 / 71;
+	static const float RAD2DEG = (float) 4068 / 71;
 	
 	angle_x_accel = atan2(ay, az) * RAD2DEG;
 	angle_y_accel = atan2(-ax, sqrt(pow(ay,2) + pow(az,2))) * RAD2DEG;
@@ -722,7 +722,8 @@ void arm_failsafe(uint8_t fs_config) {
 			if (dt > FS_IMU_DT_LIMIT) {
 				// limit for imu update time exceeded
 				disarmAndResetQuad();
-				DEBUG_PRINTLN("IMU failsafe!");
+				error_code = error_code | ERROR_IMU;
+				DEBUG_PRINTLN("IMU failsafe caused by major IMU error!");
 			}
 		}
 		
