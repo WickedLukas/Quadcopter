@@ -302,11 +302,11 @@ void setup() {
 void loop() {
 	if (error_code != 0) {
 		// blink LED very fast to indicate an error occurrence
-		updateLED(LED_PIN, 2, 250);
+		updateLED(LED_PIN, 1, 250);
 	}
 	else if (armed) {
 		// blink LED normally to indicate armed status
-		updateLED(LED_PIN, 2);
+		updateLED(LED_PIN, 1, 1000);
 	}
 	else {
 		// turn off LED to indicate disarmed status
@@ -575,6 +575,8 @@ bool imuCalibration() {
 					updateLED(LED_PIN, 2);
 					imu.calibrate_gyro(imuInterrupt, 5.0, 1);
 					t_calibrateGyro = 0;
+					// turn off LED
+					updateLED(LED_PIN, 0);
 					return true;
 				}
 				else {
@@ -594,6 +596,8 @@ bool imuCalibration() {
 					updateLED(LED_PIN, 2);
 					imu.calibrate_accel(imuInterrupt, 5.0, 16);
 					t_calibrateAccel = 0;
+					// turn off LED
+					updateLED(LED_PIN, 0);
 					return true;
 				}
 				else {
@@ -614,6 +618,8 @@ bool imuCalibration() {
 					imu.calibrate_mag(imuInterrupt, 60, 500, data_eeprom.offset_mx, data_eeprom.offset_my, data_eeprom.offset_mz, data_eeprom.scale_mx, data_eeprom.scale_my, data_eeprom.scale_mz);
 					EEPROM.put(ADDRESS_EEPROM, data_eeprom);
 					t_calibrateMag = 0;
+					// turn off LED
+					updateLED(LED_PIN, 0);
 					return true;
 				}
 				else {
@@ -626,9 +632,6 @@ bool imuCalibration() {
 	t_calibrateGyro = 0;
 	t_calibrateAccel = 0;
 	t_calibrateMag = 0;
-	
-	// turn off LED
-	updateLED(LED_PIN, 0);
 	
 	return false;
 }
