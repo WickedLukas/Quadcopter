@@ -92,9 +92,10 @@
 #define EMA_YAW_RATE_SP			0.0007
 
 // moving average filter configuration for the angular rates (gyro)
-#define EMA_ROLL_RATE	0.0020
-#define EMA_PITCH_RATE	0.0020
-#define EMA_YAW_RATE	0.0020
+// TODO: Maybe unnecessary or use notch filter instead
+//#define EMA_ROLL_RATE	0.0020
+//#define EMA_PITCH_RATE	0.0020
+//#define EMA_YAW_RATE	0.0020
 
 // PID values for the angular rate controller (inner loop)
 const float P_ROLL_RATE = 1,	I_ROLL_RATE = 0,	D_ROLL_RATE = 0;
@@ -398,10 +399,14 @@ void loop() {
 		yaw_angle += 360;
 	}
 	
-	// filter gyro rates (TODO: use notch filter instead?)
-	roll_rate = ema_filter(gx_rps * RAD2DEG, roll_rate, EMA_ROLL_RATE);
-	pitch_rate = ema_filter(gy_rps * RAD2DEG, pitch_rate, EMA_PITCH_RATE);
-	yaw_rate = ema_filter(gz_rps * RAD2DEG, yaw_rate, EMA_YAW_RATE);
+	// gyro rates
+	roll_rate = gx_rps * RAD2DEG;
+	pitch_rate = gy_rps * RAD2DEG;
+	yaw_rate = gz_rps * RAD2DEG;
+	// TODO: Maybe unnecessary or use notch filter instead
+	//roll_rate = ema_filter(gx_rps * RAD2DEG, roll_rate, EMA_ROLL_RATE);
+	//pitch_rate = ema_filter(gy_rps * RAD2DEG, pitch_rate, EMA_PITCH_RATE);
+	//yaw_rate = ema_filter(gz_rps * RAD2DEG, yaw_rate, EMA_YAW_RATE);
 
 	// when armed, calculate flight setpoints, manipulated variables and control motors
 	if (armed) {
@@ -433,12 +438,13 @@ void loop() {
 		motor_2.write(throttle_sp - roll_mv - pitch_mv - yaw_mv);
 		motor_3.write(throttle_sp + roll_mv + pitch_mv + yaw_mv);
 		motor_4.write(throttle_sp - roll_mv + pitch_mv - yaw_mv);*/
-
+		
 		// TODO: Remove this test code
-		motor_1.write(rc_channelValue[THROTTLE]);
-		motor_2.write(rc_channelValue[THROTTLE]);
-		motor_3.write(rc_channelValue[THROTTLE]);
-		motor_4.write(rc_channelValue[THROTTLE]);
+		/*roll_rate_pid.set_K_p(map((float) rc_channelValue[4], 1000, 2000, 0, 5));
+		motor_1.write(throttle_sp + roll_mv);
+		motor_2.write(0);
+		motor_3.write(throttle_sp- roll_mv);
+		motor_4.write(0);*/
 	}
 	else {
 		// for safety reasons repeat disarm and reset, even when it was already done
