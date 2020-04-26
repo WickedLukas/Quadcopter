@@ -19,7 +19,7 @@
 // TODO: integrate telemetry (MAVLink?)
 
 // print debug outputs through serial
-//#define DEBUG
+#define DEBUG
 
 // send imu data through serial (for example to visualize it in "Processing")
 //#define SEND_SERIAL
@@ -69,7 +69,7 @@
 #define FMODE			8	// stable: 1000/2000, stable with tilt compensated thrust: 1500, acro (not implemented)
 
 #define BETA_INIT 10		// Madgwick algorithm gain (2 * proportional gain (Kp)) during initial pose estimation
-#define BETA 			0.041	// Madgwick algorithm gain (2 * proportional gain (Kp))
+#define BETA 			0.041	// Madgwick algorithm gain (2 * proportional gain (Kp)) - 0.041
 
 // parameters to check if filtered angles converged during initialisation
 #define INIT_ANGLE_DIFFERENCE 0.5		// maximum angle difference between filtered angles and accelerometer angles (x- and y-axis) after initialisation
@@ -85,31 +85,26 @@
 
 #define THROTTLE_LIMIT		1700	// < 2000 because there is some headroom needed for pid control, so the quadcopter stays stable during full throttle
 
-// moving average filter configuration for the flight setpoints
-#define EMA_ROLL_ANGLE_SP		0.0007
-#define EMA_PITCH_ANGLE_SP	0.0007
-#define EMA_THROTTLE_SP			0.0007
-#define EMA_YAW_RATE_SP			0.0007
-
-// moving average filter configuration for the angular rates (gyro)
-// TODO: Maybe unnecessary or use notch filter instead
-//#define EMA_ROLL_RATE	0.0020
-//#define EMA_PITCH_RATE	0.0020
-//#define EMA_YAW_RATE	0.0020
-
 // PID values for the angular rate controller (inner loop)
 const float P_ROLL_RATE = 1,	I_ROLL_RATE = 0,	D_ROLL_RATE = 0;
 const float P_PITCH_RATE = 1,	I_PITCH_RATE = 0,	D_PITCH_RATE = 0;
 const float P_YAW_RATE = 1,		I_YAW_RATE = 0,		D_YAW_RATE = 0;
 
 // PID values for the angle controller (outer loop)
-const float P_ROLL_ANGLE = 1,		I_ROLL_ANGLE = 0,		D_ROLL_ANGLE = 0;
-const float P_PITCH_ANGLE = 1,	I_PITCH_ANGLE = 0,	D_PITCH_ANGLE = 0;
-const float P_YAW_ANGLE = 1,		I_YAW_ANGLE = 0,		D_YAW_ANGLE = 0;
+const float P_ROLL_ANGLE = 5,		I_ROLL_ANGLE = 0,		D_ROLL_ANGLE = 0;
+const float P_PITCH_ANGLE = 5,	I_PITCH_ANGLE = 0,	D_PITCH_ANGLE = 0;
 
-// Factors for forwarding setpoint angles into the angular rate controller. Higher values improve the quadcopter response to inputs.
-const float FF_ROLL = 0;
-const float FF_PITCH = 0;
+// moving average filter configuration for the flight setpoints
+const float EMA_ROLL_ANGLE_SP		= 0.00025 / P_ROLL_ANGLE;
+const float EMA_PITCH_ANGLE_SP	= 0.00025 / P_PITCH_ANGLE;
+const float EMA_THROTTLE_SP			= 0.00025;
+const float EMA_YAW_RATE_SP			= 0.00025;
+
+// moving average filter configuration for the angular rates (gyro)
+// TODO: Maybe use notch filter instead
+const float EMA_ROLL_RATE		= 0.05;
+const float EMA_PITCH_RATE	= 0.05;
+const float EMA_YAW_RATE		= 0.05;
 
 // Minimum throttle setpoint to enter started state in which PID calculation start.
 // To ensure a smooth start this value should be close to the throttle necessary for take off.
@@ -137,8 +132,9 @@ const uint8_t FS_CONFIG		= 0b00000011;
 #define FS_CONTROL_ANGLE_DIFF 30
 #define FS_CONTROL_RATE_DIFF 120
 
-// factor for converting a radian number to an equivalent number in degrees
+// factors for converting bettween radians and degrees
 const float RAD2DEG = (float) 4068 / 71;
+const float DEG2RAD = (float) 71 / 4068;
 
 // list of error codes
 const uint8_t ERROR_IMU = 0b00000001;
@@ -214,7 +210,7 @@ PID_controller yaw_rate_pid(P_YAW_RATE, I_YAW_RATE, D_YAW_RATE, 0, 0, YAW_RATE_L
 
 // angle PID controller (outer loop)
 PID_controller roll_angle_pid(P_ROLL_ANGLE, I_ROLL_ANGLE, D_ROLL_ANGLE, 0, 0, ROLL_ANGLE_LIMIT);
-PID_controller pitch_angle_pid(P_PITCH_ANGLE, I_PITCH_ANGLE, D_YAW_ANGLE, 0, 0, PITCH_ANGLE_LIMIT);
+PID_controller pitch_angle_pid(P_PITCH_ANGLE, I_PITCH_ANGLE, D_PITCH_ANGLE, 0, 0, PITCH_ANGLE_LIMIT);
 
 // variables to measure imu update time
 uint32_t t0 = 0, t = 0;
@@ -399,14 +395,11 @@ void loop() {
 		yaw_angle += 360;
 	}
 	
-	// gyro rates
-	roll_rate = gx_rps * RAD2DEG;
-	pitch_rate = gy_rps * RAD2DEG;
-	yaw_rate = gz_rps * RAD2DEG;
-	// TODO: Maybe unnecessary or use notch filter instead
-	//roll_rate = ema_filter(gx_rps * RAD2DEG, roll_rate, EMA_ROLL_RATE);
-	//pitch_rate = ema_filter(gy_rps * RAD2DEG, pitch_rate, EMA_PITCH_RATE);
-	//yaw_rate = ema_filter(gz_rps * RAD2DEG, yaw_rate, EMA_YAW_RATE);
+	// filter gyro rates
+	// TODO: Maybe use notch filter instead
+	roll_rate = ema_filter(gx_rps * RAD2DEG, roll_rate, EMA_ROLL_RATE);
+	pitch_rate = ema_filter(gy_rps * RAD2DEG, pitch_rate, EMA_PITCH_RATE);
+	yaw_rate = ema_filter(gz_rps * RAD2DEG, yaw_rate, EMA_YAW_RATE);
 
 	// when armed, calculate flight setpoints, manipulated variables and control motors
 	if (armed) {
@@ -420,13 +413,13 @@ void loop() {
 			// calculate manipulated variables
 			
 			// outer PID angle controller
-			roll_angle_mv = roll_angle_pid.get_mv(roll_angle_sp - roll_angle, roll_angle_mv, dt_s);
-			pitch_angle_mv = pitch_angle_pid.get_mv(pitch_angle_sp - pitch_angle, pitch_angle_mv, dt_s);
-
-			// inner PID rate controller with feed forward element
-			roll_rate_mv = roll_rate_pid.get_mv(roll_angle_mv - roll_rate + FF_ROLL * roll_angle_sp, roll_rate_mv, dt_s);
-			pitch_rate_mv = pitch_rate_pid.get_mv(pitch_angle_mv - pitch_rate + FF_PITCH * pitch_angle_sp, pitch_rate_mv, dt_s);
-			yaw_rate_mv = yaw_rate_pid.get_mv(yaw_rate_sp - yaw_rate, yaw_rate_mv, dt_s);
+			roll_angle_mv = roll_angle_pid.get_mv(roll_angle_sp, roll_angle, dt_s);
+			pitch_angle_mv = pitch_angle_pid.get_mv(pitch_angle_sp, pitch_angle, dt_s);
+			
+			// inner PID rate controller
+			roll_rate_mv = roll_rate_pid.get_mv(roll_angle_mv, roll_rate, dt_s);
+			pitch_rate_mv = pitch_rate_pid.get_mv(pitch_angle_mv, pitch_rate, dt_s);
+			yaw_rate_mv = yaw_rate_pid.get_mv(yaw_rate_sp, yaw_rate, dt_s);
 		}
 		else if (throttle_sp > MIN_THROTTLE_SP) {
 			started = true;
@@ -434,22 +427,28 @@ void loop() {
 		}
 		
 		// TODO: Check motor mixing logic carefully
-		/*motor_1.write(throttle_sp + roll_mv - pitch_mv + yaw_mv);
-		motor_2.write(throttle_sp - roll_mv - pitch_mv - yaw_mv);
-		motor_3.write(throttle_sp + roll_mv + pitch_mv + yaw_mv);
-		motor_4.write(throttle_sp - roll_mv + pitch_mv - yaw_mv);*/
+		/*motor_1.write(constrain(throttle_sp + roll_rate_mv - pitch_rate_mv + yaw_rate_mv, 1000, 2000));
+		motor_2.write(constrain(throttle_sp - roll_rate_mv - pitch_rate_mv - yaw_rate_mv, 1000, 2000));
+		motor_3.write(constrain(throttle_sp + roll_rate_mv + pitch_rate_mv + yaw_rate_mv, 1000, 2000));
+		motor_4.write(constrain(throttle_sp - roll_rate_mv + pitch_rate_mv - yaw_rate_mv, 1000, 2000));*/
 		
 		// TODO: Remove this test code
 		/*roll_rate_pid.set_K_p(map((float) rc_channelValue[4], 1000, 2000, 0, 5));
-		motor_1.write(throttle_sp + roll_mv);
+		motor_1.write(constrain(throttle_sp + roll_rate_mv, 1000, 2000));
 		motor_2.write(0);
-		motor_3.write(throttle_sp- roll_mv);
+		motor_3.write(constrain(throttle_sp - roll_rate_mv, 1000, 2000));
 		motor_4.write(0);*/
 	}
 	else {
 		// for safety reasons repeat disarm and reset, even when it was already done
 		disarmAndResetQuad();
 	}
+
+	// TODO: Remove this test code.
+	static float roll_angle_sp0;
+	static float roll_rate_sp;
+	roll_rate_sp = P_ROLL_ANGLE * (roll_angle_sp - roll_angle_sp0) / dt_s;
+	roll_angle_sp0 = roll_angle_sp;
 	
 	// run serial print at a rate independent of the main loop (t0_serial = 16666 for 60 Hz update rate)
 	static uint32_t t0_serial = micros();
@@ -468,8 +467,9 @@ void loop() {
 		//DEBUG_PRINT(map((float) rc_channelValue[ROLL], 1000, 2000, -ROLL_ANGLE_LIMIT, ROLL_ANGLE_LIMIT)); DEBUG_PRINT("\t"); DEBUG_PRINTLN(roll_angle_sp);
 		//DEBUG_PRINT(map((float) rc_channelValue[YAW], 1000, 2000, -YAW_RATE_LIMIT, YAW_RATE_LIMIT)); DEBUG_PRINT("\t"); DEBUG_PRINTLN(yaw_rate_sp);
 		//DEBUG_PRINT(map((float) rc_channelValue[THROTTLE], 1000, 2000, 1000, THROTTLE_LIMIT)); DEBUG_PRINT("\t"); DEBUG_PRINTLN(throttle_sp);
-		//static const float DEG2RAD = (float) 71 / 4068;
 		//DEBUG_PRINT(map((float) (rc_channelValue[THROTTLE] - 1000) / (cos(roll_angle * DEG2RAD) * cos(pitch_angle * DEG2RAD)) + 1000, 1000, 2000, 1000, THROTTLE_LIMIT)); DEBUG_PRINT("\t"); DEBUG_PRINTLN(throttle_sp);
+		
+		DEBUG_PRINTLN(roll_rate_sp);
 		
 		//DEBUG_PRINTLN(dt);
 		//DEBUG_PRINTLN();
@@ -818,7 +818,6 @@ void arm_failsafe(uint8_t fs_config) {
 
 // calculate flight setpoints from rc input for stable flightmode without and with tilt compensated thrust
 void flightSetpoints(float& roll_angle_sp, float& pitch_angle_sp, float& yaw_rate_sp, float& throttle_sp) {
-	static const float DEG2RAD = (float) 71 / 4068;
 	static float roll_angle_mapped, pitch_angle_mapped, yaw_rate_mapped, throttle_mapped;
 	
 	// map rc channel values
