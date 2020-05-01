@@ -85,20 +85,22 @@
 
 #define THROTTLE_LIMIT		1700	// < 2000 because there is some headroom needed for pid control, so the quadcopter stays stable during full throttle
 
-// PID values for the angular rate controller (inner loop)
-const float P_ROLL_RATE = 1,	I_ROLL_RATE = 0,	D_ROLL_RATE = 0;
-const float P_PITCH_RATE = 1,	I_PITCH_RATE = 0,	D_PITCH_RATE = 0;
-const float P_YAW_RATE = 1,		I_YAW_RATE = 0,		D_YAW_RATE = 0;
+// angle controller P value (proportional square root)
+const float P_ROLL_PITCH_ANGLE = 4.5;
 
-// PID values for the angle controller (outer loop)
-const float P_ROLL_ANGLE = 5,		I_ROLL_ANGLE = 0,		D_ROLL_ANGLE = 0;
-const float P_PITCH_ANGLE = 5,	I_PITCH_ANGLE = 0,	D_PITCH_ANGLE = 0;
+// angle controller acceleration limits (deg/ss)
+//const float ACCEL_MIN_ROLL_PITCH = 40;
+const float ACCEL_MAX_ROLL_PITCH = 720;
+//const float ACCEL_MIN_YAW = 10;
+const float ACCEL_MAX_YAW = 120;
 
-// moving average filter configuration for the flight setpoints
-const float EMA_ROLL_ANGLE_SP		= 0.00025 / P_ROLL_ANGLE;
-const float EMA_PITCH_ANGLE_SP	= 0.00025 / P_PITCH_ANGLE;
-const float EMA_THROTTLE_SP			= 0.00025;
-const float EMA_YAW_RATE_SP			= 0.00025;
+// angle controller time constant
+const float TIME_CONSTANT = 1;      
+
+// angular rate PID values
+const float P_ROLL_RATE = 0.15,	I_ROLL_RATE = 0.1,	D_ROLL_RATE = 0.004;
+const float P_PITCH_RATE = 0.15,	I_PITCH_RATE = 0.1,	D_PITCH_RATE = 0.004;
+const float P_YAW_RATE = 0.2,		I_YAW_RATE = 0.02,		D_YAW_RATE = 0;
 
 // moving average filter configuration for the angular rates (gyro)
 // TODO: Maybe use notch filter instead
@@ -203,14 +205,10 @@ PWMServoMotor motor_4(MOTOR_PIN_4, MOTOR_PWM_RESOLUTION, MOTOR_PWM_FREQENCY);
 // Madgwick filter object
 MADGWICK_AHRS madgwickFilter(BETA_INIT);
 
-// rate PID controller (inner loop)
+// rate PID controller
 PID_controller roll_rate_pid(P_ROLL_RATE, I_ROLL_RATE, D_ROLL_RATE, 0, 0, ROLL_RATE_LIMIT);
 PID_controller pitch_rate_pid(P_PITCH_RATE, I_PITCH_RATE, D_YAW_RATE, 0, 0, PITCH_RATE_LIMIT);
 PID_controller yaw_rate_pid(P_YAW_RATE, I_YAW_RATE, D_YAW_RATE, 0, 0, YAW_RATE_LIMIT);
-
-// angle PID controller (outer loop)
-PID_controller roll_angle_pid(P_ROLL_ANGLE, I_ROLL_ANGLE, D_ROLL_ANGLE, 0, 0, ROLL_ANGLE_LIMIT);
-PID_controller pitch_angle_pid(P_PITCH_ANGLE, I_PITCH_ANGLE, D_PITCH_ANGLE, 0, 0, PITCH_ANGLE_LIMIT);
 
 // variables to measure imu update time
 uint32_t t0 = 0, t = 0;
@@ -223,7 +221,9 @@ float dt_s = 0;
 uint16_t *rc_channelValue;
 
 // flight setpoints
-float roll_angle_sp, pitch_angle_sp, yaw_rate_sp, throttle_sp;
+float throttle_sp;
+float roll_angle_sp, pitch_angle_sp;
+float roll_rate_sp, pitch_rate_sp, yaw_rate_sp;
 
 // imu measurements
 int16_t ax, ay, az;
@@ -272,8 +272,14 @@ void disarmAndResetQuad();
 // arm/disarm on rc command and disarm on failsafe conditions
 void arm_failsafe(uint8_t fs_config);
 
-// calculate flight setpoints from rc input for stable flightmode without and with tilt compensated thrust
-void flightSetpoints(float& roll_angle_sp, float& pitch_angle_sp, float& yaw_rate_sp, float& throttle_sp);
+// Calculate the rate correction from the angle error. The rate has acceleration and deceleration limits including a basic jerk limit using timeConstant.
+float shape_angle(float error_angle, float timeConstant, float accel_max, float target_rate);
+
+// proportional controller with sqrt sections to constrain the angular acceleration
+float sqrtController(float error_angle, float p, float accel_limit);
+
+// limit the acceleration/deceleration of a rate request
+float shape_rate(float target_rate, float requested_rate, float accel_max);
 
 void setup() {
 	// setup built in LED
@@ -403,22 +409,33 @@ void loop() {
 
 	// when armed, calculate flight setpoints, manipulated variables and control motors
 	if (armed) {
-		// calculate flight setpoints
-		flightSetpoints(roll_angle_sp, pitch_angle_sp, yaw_rate_sp, throttle_sp);
+		// throttle setpoint
+		if (rc_channelValue[FMODE] == 1500) {
+			// stable with tilt compensated thrust: increase thrust when quadcopter is tilted, to compensate for height loss during horizontal movement
+			throttle_sp = map((float) (rc_channelValue[THROTTLE] - 1000) / (cos(roll_angle * DEG2RAD) * cos(pitch_angle * DEG2RAD)) + 1000, 1000, 2000, 1000, THROTTLE_LIMIT);
+		}
+		else {
+			// stable
+			throttle_sp = map((float) rc_channelValue[THROTTLE], 1000, 2000, 1000, THROTTLE_LIMIT);
+		}
+		
+		// angle setpoints
+		roll_angle_sp = map((float) rc_channelValue[ROLL], 1000, 2000, -ROLL_ANGLE_LIMIT, ROLL_ANGLE_LIMIT);
+		pitch_angle_sp = map((float) rc_channelValue[PITCH], 1000, 2000, -PITCH_ANGLE_LIMIT, PITCH_ANGLE_LIMIT);
+
+		// rate setpoints
+		roll_rate_sp = shape_angle(roll_angle_sp - roll_angle, TIME_CONSTANT, ACCEL_MAX_ROLL_PITCH, roll_rate_sp);
+		pitch_rate_sp = shape_angle(pitch_angle_sp - pitch_angle, TIME_CONSTANT, ACCEL_MAX_ROLL_PITCH, pitch_rate_sp);
+		yaw_rate_sp = shape_rate(yaw_rate, map((float) rc_channelValue[YAW], 1000, 2000, -YAW_RATE_LIMIT, YAW_RATE_LIMIT), yaw_rate_sp);
+		
+		// TODO
 		
 		// In order to ensure a smooth start, PID calculations are delayed until a minimum throttle value is applied.
 		static float roll_rate_mv, pitch_rate_mv, yaw_rate_mv;
-		static float roll_angle_mv, pitch_angle_mv;
 		if (started) {
 			// calculate manipulated variables
-			
-			// outer PID angle controller
-			roll_angle_mv = roll_angle_pid.get_mv(roll_angle_sp, roll_angle, dt_s);
-			pitch_angle_mv = pitch_angle_pid.get_mv(pitch_angle_sp, pitch_angle, dt_s);
-			
-			// inner PID rate controller
-			roll_rate_mv = roll_rate_pid.get_mv(roll_angle_mv, roll_rate, dt_s);
-			pitch_rate_mv = pitch_rate_pid.get_mv(pitch_angle_mv, pitch_rate, dt_s);
+			roll_rate_mv = roll_rate_pid.get_mv(roll_rate_sp, roll_rate, dt_s);
+			pitch_rate_mv = pitch_rate_pid.get_mv(pitch_rate_sp, pitch_rate, dt_s);
 			yaw_rate_mv = yaw_rate_pid.get_mv(yaw_rate_sp, yaw_rate, dt_s);
 		}
 		else if (throttle_sp > MIN_THROTTLE_SP) {
@@ -447,7 +464,7 @@ void loop() {
 	// TODO: Remove this test code.
 	static float roll_angle_sp0;
 	static float roll_rate_sp;
-	roll_rate_sp = P_ROLL_ANGLE * (roll_angle_sp - roll_angle_sp0) / dt_s;
+	roll_rate_sp = (roll_angle_sp - roll_angle_sp0) / dt_s;
 	roll_angle_sp0 = roll_angle_sp;
 	
 	// run serial print at a rate independent of the main loop (t0_serial = 16666 for 60 Hz update rate)
@@ -672,16 +689,17 @@ void disarmAndResetQuad() {
 		// set flight setpoints to zero
 		roll_angle_sp = 0;
 		pitch_angle_sp = 0;
+		
+		roll_rate_sp = 0;
+		pitch_rate_sp = 0;
 		yaw_rate_sp = 0;
+		
 		throttle_sp = 1000;
 		
 		// reset PID controller
 		roll_rate_pid.reset();
 		pitch_rate_pid.reset();
 		yaw_rate_pid.reset();
-		
-		roll_angle_pid.reset();
-		pitch_angle_pid.reset();
 		
 		// turn off motors
 		motor_1.write(0);
@@ -816,27 +834,45 @@ void arm_failsafe(uint8_t fs_config) {
 	}
 }
 
-// calculate flight setpoints from rc input for stable flightmode without and with tilt compensated thrust
-void flightSetpoints(float& roll_angle_sp, float& pitch_angle_sp, float& yaw_rate_sp, float& throttle_sp) {
-	static float roll_angle_mapped, pitch_angle_mapped, yaw_rate_mapped, throttle_mapped;
+// Calculate the rate correction from the angle error. The rate has acceleration and deceleration limits including a basic jerk limit using timeConstant.
+float shape_angle(float error_angle, float timeConstant, float accel_max, float target_rate) {
+	// calculate the rate as error_angle approaches zero with acceleration limited by accel_max (Ardupilot uses rad/ss but we use deg/ss here)
+	float requested_rate = sqrtController(error_angle, 1.0 / max(timeConstant, 0.01), accel_max);
 	
-	// map rc channel values
-	roll_angle_mapped = map((float) rc_channelValue[ROLL], 1000, 2000, -ROLL_ANGLE_LIMIT, ROLL_ANGLE_LIMIT);
-	pitch_angle_mapped = map((float) rc_channelValue[PITCH], 1000, 2000, -PITCH_ANGLE_LIMIT, PITCH_ANGLE_LIMIT);
-	yaw_rate_mapped = map((float) rc_channelValue[YAW], 1000, 2000, -YAW_RATE_LIMIT, YAW_RATE_LIMIT);
+	// acceleration is limited directly to smooth the beginning of the curve
+	return shape_rate(target_rate, requested_rate, accel_max);
+}
+
+// proportional controller with sqrt sections to constrain the angular acceleration
+float sqrtController(float error_angle, float p, float accel_limit) {
+	static float correction_rate;
+	static float linear_dist;
 	
-	if (rc_channelValue[FMODE] == 1500) {
-		// stable with tilt compensated thrust: increase thrust when quadcopter is tilted, to compensate for height loss during horizontal movement
-		throttle_mapped = map((float) (rc_channelValue[THROTTLE] - 1000) / (cos(roll_angle * DEG2RAD) * cos(pitch_angle * DEG2RAD)) + 1000, 1000, 2000, 1000, THROTTLE_LIMIT);
+	linear_dist = accel_limit / sq(p);
+	
+	if (error_angle > linear_dist) {
+		correction_rate = sqrt(2 * accel_limit * (error_angle - (linear_dist / 2)));
+	}
+	else if (error_angle < -linear_dist) {
+		correction_rate = -sqrt(2 * accel_limit * (-error_angle - (linear_dist / 2)));
 	}
 	else {
-		// stable
-		throttle_mapped = map((float) rc_channelValue[THROTTLE], 1000, 2000, 1000, THROTTLE_LIMIT);
+		correction_rate = error_angle * p;
 	}
 	
-	// calculate flight setpoints by filtering the mapped rc channel values
-	roll_angle_sp = ema_filter(roll_angle_mapped, roll_angle_sp, EMA_ROLL_ANGLE_SP);
-	pitch_angle_sp = ema_filter(pitch_angle_mapped, pitch_angle_sp, EMA_PITCH_ANGLE_SP);
-	yaw_rate_sp = ema_filter(yaw_rate_mapped, yaw_rate_sp, EMA_YAW_RATE_SP);
-	throttle_sp = ema_filter(throttle_mapped, throttle_sp, EMA_THROTTLE_SP);
+	if (dt_s > 0.000010) {
+		// this ensures we do not get small oscillations by over shooting the error correction in the last time step
+		return constrain(correction_rate, -abs(error_angle) / dt_s, abs(error_angle) / dt_s);
+	}
+	else {
+		return correction_rate;
+	}
+}
+
+// limit the acceleration/deceleration of a rate request
+float shape_rate(float target_rate, float requested_rate, float accel_max) {
+	static float delta_rate;
+	
+	delta_rate	= accel_max * dt_s;
+	return constrain(requested_rate, target_rate - delta_rate, target_rate + delta_rate);
 }
