@@ -460,12 +460,6 @@ void loop() {
 		// for safety reasons repeat disarm and reset, even when it was already done
 		disarmAndResetQuad();
 	}
-
-	// TODO: Remove this test code.
-	static float roll_angle_sp0;
-	static float roll_rate_sp;
-	roll_rate_sp = (roll_angle_sp - roll_angle_sp0) / dt_s;
-	roll_angle_sp0 = roll_angle_sp;
 	
 	// run serial print at a rate independent of the main loop (t0_serial = 16666 for 60 Hz update rate)
 	static uint32_t t0_serial = micros();
