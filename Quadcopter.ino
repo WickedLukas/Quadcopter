@@ -80,8 +80,8 @@
 #define PITCH_RATE_LIMIT	180		// deg/s
 #define YAW_RATE_LIMIT		180		// deg/s
 
-#define ROLL_ANGLE_LIMIT	45		// deg
-#define PITCH_ANGLE_LIMIT	45		// deg
+#define ROLL_ANGLE_LIMIT	30		// deg
+#define PITCH_ANGLE_LIMIT	30		// deg
 
 #define THROTTLE_LIMIT		1700	// < 2000 because there is some headroom needed for pid control, so the quadcopter stays stable during full throttle
 
@@ -95,7 +95,7 @@ const float ACCEL_MAX_ROLL_PITCH = 720;
 const float ACCEL_MAX_YAW = 120;
 
 // angle controller time constant
-const float TIME_CONSTANT = 1;      
+const float TIME_CONSTANT = 0.15;
 
 // angular rate PID values
 const float P_ROLL_RATE = 0.15,	I_ROLL_RATE = 0.1,	D_ROLL_RATE = 0.004;
@@ -273,13 +273,13 @@ void disarmAndResetQuad();
 void arm_failsafe(uint8_t fs_config);
 
 // Calculate the rate correction from the angle error. The rate has acceleration and deceleration limits including a basic jerk limit using timeConstant.
-float shape_angle(float error_angle, float timeConstant, float accel_max, float target_rate);
+float shape_angle(float error_angle, float timeConstant, float accel_max, float last_rate_sp);
 
 // proportional controller with sqrt sections to constrain the angular acceleration
 float sqrtController(float error_angle, float p, float accel_limit);
 
 // limit the acceleration/deceleration of a rate request
-float shape_rate(float target_rate, float requested_rate, float accel_max);
+float shape_rate(float last_rate_sp, float desired_rate_sp, float accel_max);
 
 void setup() {
 	// setup built in LED
@@ -428,8 +428,6 @@ void loop() {
 		pitch_rate_sp = shape_angle(pitch_angle_sp - pitch_angle, TIME_CONSTANT, ACCEL_MAX_ROLL_PITCH, pitch_rate_sp);
 		yaw_rate_sp = shape_rate(yaw_rate, map((float) rc_channelValue[YAW], 1000, 2000, -YAW_RATE_LIMIT, YAW_RATE_LIMIT), yaw_rate_sp);
 		
-		// TODO
-		
 		// In order to ensure a smooth start, PID calculations are delayed until a minimum throttle value is applied.
 		static float roll_rate_mv, pitch_rate_mv, yaw_rate_mv;
 		if (started) {
@@ -480,7 +478,7 @@ void loop() {
 		//DEBUG_PRINT(map((float) rc_channelValue[THROTTLE], 1000, 2000, 1000, THROTTLE_LIMIT)); DEBUG_PRINT("\t"); DEBUG_PRINTLN(throttle_sp);
 		//DEBUG_PRINT(map((float) (rc_channelValue[THROTTLE] - 1000) / (cos(roll_angle * DEG2RAD) * cos(pitch_angle * DEG2RAD)) + 1000, 1000, 2000, 1000, THROTTLE_LIMIT)); DEBUG_PRINT("\t"); DEBUG_PRINTLN(throttle_sp);
 		
-		DEBUG_PRINTLN(roll_rate_sp);
+		//DEBUG_PRINT(roll_rate_sp); DEBUG_PRINT("\t"); DEBUG_PRINTLN(roll_rate_sp_temp);
 		
 		//DEBUG_PRINTLN(dt);
 		//DEBUG_PRINTLN();
@@ -829,26 +827,29 @@ void arm_failsafe(uint8_t fs_config) {
 }
 
 // Calculate the rate correction from the angle error. The rate has acceleration and deceleration limits including a basic jerk limit using timeConstant.
-float shape_angle(float error_angle, float timeConstant, float accel_max, float target_rate) {
+float shape_angle(float error_angle, float timeConstant, float accel_max, float last_rate_sp) {
+	static float desired_rate_sp;
+	
 	// calculate the rate as error_angle approaches zero with acceleration limited by accel_max (Ardupilot uses rad/ss but we use deg/ss here)
-	float requested_rate = sqrtController(error_angle, 1.0 / max(timeConstant, 0.01), accel_max);
+	desired_rate_sp = sqrtController(error_angle, 1.0 / max(timeConstant, 0.01), accel_max, mode);
 	
 	// acceleration is limited directly to smooth the beginning of the curve
-	return shape_rate(target_rate, requested_rate, accel_max);
+	return shape_rate(last_rate_sp, desired_rate_sp, accel_max, mode);
 }
 
 // proportional controller with sqrt sections to constrain the angular acceleration
-float sqrtController(float error_angle, float p, float accel_limit) {
+float sqrtController(float error_angle, float p, float accel_max) {
 	static float correction_rate;
 	static float linear_dist;
 	
-	linear_dist = accel_limit / sq(p);
+	linear_dist = accel_max / sq(p);
+
 	
 	if (error_angle > linear_dist) {
-		correction_rate = sqrt(2 * accel_limit * (error_angle - (linear_dist / 2)));
+		correction_rate = sqrt(2 * accel_max * (error_angle - (linear_dist / 2)));
 	}
 	else if (error_angle < -linear_dist) {
-		correction_rate = -sqrt(2 * accel_limit * (-error_angle - (linear_dist / 2)));
+		correction_rate = -sqrt(2 * accel_max * (-error_angle - (linear_dist / 2)));
 	}
 	else {
 		correction_rate = error_angle * p;
@@ -864,9 +865,9 @@ float sqrtController(float error_angle, float p, float accel_limit) {
 }
 
 // limit the acceleration/deceleration of a rate request
-float shape_rate(float target_rate, float requested_rate, float accel_max) {
+float shape_rate(float last_rate_sp, float desired_rate_sp, float accel_max) {
 	static float delta_rate;
 	
 	delta_rate	= accel_max * dt_s;
-	return constrain(requested_rate, target_rate - delta_rate, target_rate + delta_rate);
+	return constrain(desired_rate_sp, last_rate_sp - delta_rate, last_rate_sp + delta_rate);
 }
