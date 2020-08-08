@@ -76,8 +76,6 @@
 #define INIT_RATE 0.05	// maximum angular rate of Madgwick-filtered angle (z-axis) after initialisation
 
 // limits for the flight setpoints
-#define ROLL_RATE_LIMIT		180		// deg/s
-#define PITCH_RATE_LIMIT	180		// deg/s
 #define YAW_RATE_LIMIT		180		// deg/s
 
 #define ROLL_ANGLE_LIMIT	30		// deg
@@ -203,9 +201,9 @@ PWMServoMotor motor_4(MOTOR_PIN_4, MOTOR_PWM_RESOLUTION, MOTOR_PWM_FREQENCY);
 MADGWICK_AHRS madgwickFilter(BETA_INIT);
 
 // rate PID controller
-PID_controller roll_rate_pid(P_ROLL_RATE, I_ROLL_RATE, D_ROLL_RATE, 0, 0, ROLL_RATE_LIMIT);
-PID_controller pitch_rate_pid(P_PITCH_RATE, I_PITCH_RATE, D_YAW_RATE, 0, 0, PITCH_RATE_LIMIT);
-PID_controller yaw_rate_pid(P_YAW_RATE, I_YAW_RATE, D_YAW_RATE, 0, 0, YAW_RATE_LIMIT);
+PID_controller roll_rate_pid(P_ROLL_RATE, I_ROLL_RATE, D_ROLL_RATE, 0, 0, 2000);
+PID_controller pitch_rate_pid(P_PITCH_RATE, I_PITCH_RATE, D_YAW_RATE, 0, 0, 2000);
+PID_controller yaw_rate_pid(P_YAW_RATE, I_YAW_RATE, D_YAW_RATE, 0, 0, 2000);
 
 // variables to measure imu update time
 uint32_t t0 = 0, t = 0;
@@ -475,7 +473,7 @@ void loop() {
 		//DEBUG_PRINT(map((float) rc_channelValue[THROTTLE], 1000, 2000, 1000, THROTTLE_LIMIT)); DEBUG_PRINT("\t"); DEBUG_PRINTLN(throttle_sp);
 		//DEBUG_PRINT(map((float) (rc_channelValue[THROTTLE] - 1000) / (cos(roll_angle * DEG2RAD) * cos(pitch_angle * DEG2RAD)) + 1000, 1000, 2000, 1000, THROTTLE_LIMIT)); DEBUG_PRINT("\t"); DEBUG_PRINTLN(throttle_sp);
 		
-		//DEBUG_PRINT(roll_rate_sp); DEBUG_PRINT("\t"); DEBUG_PRINTLN(roll_rate_sp_temp);
+		//DEBUG_PRINTLN(roll_rate_sp);
 		
 		//DEBUG_PRINTLN(dt);
 		//DEBUG_PRINTLN();
