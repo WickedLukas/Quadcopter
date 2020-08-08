@@ -19,7 +19,7 @@
 // TODO: integrate telemetry (MAVLink?)
 
 // print debug outputs through serial
-#define DEBUG
+//#define DEBUG
 
 // send imu data through serial (for example to visualize it in "Processing")
 //#define SEND_SERIAL
@@ -85,9 +85,6 @@
 
 #define THROTTLE_LIMIT		1700	// < 2000 because there is some headroom needed for pid control, so the quadcopter stays stable during full throttle
 
-// angle controller P value (proportional square root)
-const float P_ROLL_PITCH_ANGLE = 4.5;
-
 // angle controller acceleration limits (deg/ss)
 //const float ACCEL_MIN_ROLL_PITCH = 40;
 const float ACCEL_MAX_ROLL_PITCH = 720;
@@ -98,9 +95,9 @@ const float ACCEL_MAX_YAW = 120;
 const float TIME_CONSTANT = 0.15;
 
 // angular rate PID values
-const float P_ROLL_RATE = 0.15,	I_ROLL_RATE = 0.1,	D_ROLL_RATE = 0.004;
-const float P_PITCH_RATE = 0.15,	I_PITCH_RATE = 0.1,	D_PITCH_RATE = 0.004;
-const float P_YAW_RATE = 0.2,		I_YAW_RATE = 0.02,		D_YAW_RATE = 0;
+const float P_ROLL_RATE = 0.000,	I_ROLL_RATE = 0.000,	D_ROLL_RATE = 0.000; 	// 0.150, 0.100, 0.004
+const float P_PITCH_RATE = 0.000,	I_PITCH_RATE = 0.000,	D_PITCH_RATE = 0.000;
+const float P_YAW_RATE = 0.000,		I_YAW_RATE = 0.000,		D_YAW_RATE = 0.000;		// 0.200, 0.020, 0.000
 
 // moving average filter configuration for the angular rates (gyro)
 // TODO: Maybe use notch filter instead
@@ -831,10 +828,10 @@ float shape_angle(float error_angle, float timeConstant, float accel_max, float 
 	static float desired_rate_sp;
 	
 	// calculate the rate as error_angle approaches zero with acceleration limited by accel_max (Ardupilot uses rad/ss but we use deg/ss here)
-	desired_rate_sp = sqrtController(error_angle, 1.0 / max(timeConstant, 0.01), accel_max, mode);
+	desired_rate_sp = sqrtController(error_angle, 1.0 / max(timeConstant, 0.01), accel_max);
 	
 	// acceleration is limited directly to smooth the beginning of the curve
-	return shape_rate(last_rate_sp, desired_rate_sp, accel_max, mode);
+	return shape_rate(last_rate_sp, desired_rate_sp, accel_max);
 }
 
 // proportional controller with sqrt sections to constrain the angular acceleration
