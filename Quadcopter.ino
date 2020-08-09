@@ -220,6 +220,9 @@ float throttle_sp;
 float roll_angle_sp, pitch_angle_sp;
 float roll_rate_sp, pitch_rate_sp, yaw_rate_sp;
 
+// manipulated variables
+float roll_rate_mv, pitch_rate_mv, yaw_rate_mv;
+
 // imu measurements
 int16_t ax, ay, az;
 float gx_rps, gy_rps, gz_rps;
@@ -424,7 +427,6 @@ void loop() {
 		yaw_rate_sp = shape_rate(yaw_rate, map((float) rc_channelValue[YAW], 1000, 2000, -YAW_RATE_LIMIT, YAW_RATE_LIMIT), yaw_rate_sp);
 		
 		// In order to ensure a smooth start, PID calculations are delayed until a minimum throttle value is applied.
-		static float roll_rate_mv, pitch_rate_mv, yaw_rate_mv;
 		if (started) {
 			// calculate manipulated variables
 			roll_rate_mv = roll_rate_pid.get_mv(roll_rate_sp, roll_rate, dt_s);
@@ -434,12 +436,6 @@ void loop() {
 		else if (throttle_sp > MIN_THROTTLE_SP) {
 			started = true;
 			DEBUG_PRINTLN("Started!");
-		}
-		else {
-			roll_rate_mv = 0;
-			pitch_rate_mv = 0;
-			pitch_rate_mv = 0;
-			yaw_rate_mv = 0;
 		}
 		
 		// TODO: Remove this test code
@@ -705,6 +701,10 @@ void disarmAndResetQuad() {
 		roll_rate_pid.reset();
 		pitch_rate_pid.reset();
 		yaw_rate_pid.reset();
+
+		roll_rate_mv = 0;
+		pitch_rate_mv = 0;
+		yaw_rate_mv = 0;
 		
 		// turn off motors
 		motor_1.write(0);
