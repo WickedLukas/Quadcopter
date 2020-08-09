@@ -93,15 +93,15 @@ const float ACCEL_MAX_YAW = 120;
 const float TIME_CONSTANT = 0.15;
 
 // angular rate PID values
-const float P_ROLL_RATE = 0.000,	I_ROLL_RATE = 0.000,	D_ROLL_RATE = 0.000; 	// 0.150, 0.100, 0.004
-const float P_PITCH_RATE = 0.000,	I_PITCH_RATE = 0.000,	D_PITCH_RATE = 0.000;
-const float P_YAW_RATE = 0.000,		I_YAW_RATE = 0.000,		D_YAW_RATE = 0.000;		// 0.200, 0.020, 0.000
+const float P_ROLL_RATE = 2.500,	I_ROLL_RATE = 0.250,	D_ROLL_RATE = 0.023; 	// 2.500, 0.250, 0.023 @ 0.008 EMA_RATE 
+const float P_PITCH_RATE = 2.500,	I_PITCH_RATE = 0.250,	D_PITCH_RATE = 0.023;
+const float P_YAW_RATE = 1.000,		I_YAW_RATE = 0.100,		D_YAW_RATE = 0.000;		// 0.200, 0.020, 0.000
 
 // moving average filter configuration for the angular rates (gyro)
 // TODO: Maybe use notch filter instead
-const float EMA_ROLL_RATE		= 0.05;
-const float EMA_PITCH_RATE	= 0.05;
-const float EMA_YAW_RATE		= 0.05;
+const float EMA_ROLL_RATE		= 0.008;
+const float EMA_PITCH_RATE	= 0.008;
+const float EMA_YAW_RATE		= 0.008;
 
 // Minimum throttle setpoint to enter started state in which PID calculation start.
 // To ensure a smooth start this value should be close to the throttle necessary for take off.
@@ -202,7 +202,7 @@ MADGWICK_AHRS madgwickFilter(BETA_INIT);
 
 // rate PID controller
 PID_controller roll_rate_pid(P_ROLL_RATE, I_ROLL_RATE, D_ROLL_RATE, 0, 0, 2000);
-PID_controller pitch_rate_pid(P_PITCH_RATE, I_PITCH_RATE, D_YAW_RATE, 0, 0, 2000);
+PID_controller pitch_rate_pid(P_PITCH_RATE, I_PITCH_RATE, D_PITCH_RATE, 0, 0, 2000);
 PID_controller yaw_rate_pid(P_YAW_RATE, I_YAW_RATE, D_YAW_RATE, 0, 0, 2000);
 
 // variables to measure imu update time
@@ -435,19 +435,37 @@ void loop() {
 			started = true;
 			DEBUG_PRINTLN("Started!");
 		}
-		
-		// TODO: Check motor mixing logic carefully
-		/*motor_1.write(constrain(throttle_sp + roll_rate_mv - pitch_rate_mv + yaw_rate_mv, 1000, 2000));
-		motor_2.write(constrain(throttle_sp - roll_rate_mv - pitch_rate_mv - yaw_rate_mv, 1000, 2000));
-		motor_3.write(constrain(throttle_sp + roll_rate_mv + pitch_rate_mv + yaw_rate_mv, 1000, 2000));
-		motor_4.write(constrain(throttle_sp - roll_rate_mv + pitch_rate_mv - yaw_rate_mv, 1000, 2000));*/
+		else {
+			roll_rate_mv = 0;
+			pitch_rate_mv = 0;
+			pitch_rate_mv = 0;
+			yaw_rate_mv = 0;
+		}
 		
 		// TODO: Remove this test code
-		/*roll_rate_pid.set_K_p(map((float) rc_channelValue[4], 1000, 2000, 0, 5));
-		motor_1.write(constrain(throttle_sp + roll_rate_mv, 1000, 2000));
+		static float p_rate, i_rate, d_rate;
+		p_rate = map((float) rc_channelValue[4], 1000, 2000, 2.5, 5);
+		//i_rate = map((float) rc_channelValue[5], 1000, 2000, 0.250, 1);
+		d_rate = map((float) rc_channelValue[4], 1000, 2000, 0.023, 0.05);
+
+		roll_rate_pid.set_K_p(p_rate);
+		//roll_rate_pid.set_K_i(i_rate);
+		roll_rate_pid.set_K_d(d_rate);
+		
+		pitch_rate_pid.set_K_p(p_rate);
+		//pitch_rate_pid.set_K_i(i_rate);
+		pitch_rate_pid.set_K_d(d_rate);
+		
+		/*motor_1.write(constrain(throttle_sp + roll_rate_mv, 1000, 2000));
 		motor_2.write(0);
 		motor_3.write(constrain(throttle_sp - roll_rate_mv, 1000, 2000));
 		motor_4.write(0);*/
+
+		motor_1.write(constrain(throttle_sp + roll_rate_mv - pitch_rate_mv + yaw_rate_mv, 1000, 2000));
+		motor_2.write(constrain(throttle_sp - roll_rate_mv - pitch_rate_mv - yaw_rate_mv, 1000, 2000));
+		motor_3.write(constrain(throttle_sp - roll_rate_mv + pitch_rate_mv + yaw_rate_mv, 1000, 2000));
+		motor_4.write(constrain(throttle_sp + roll_rate_mv + pitch_rate_mv - yaw_rate_mv, 1000, 2000));
+		
 	}
 	else {
 		// for safety reasons repeat disarm and reset, even when it was already done
@@ -479,10 +497,10 @@ void loop() {
 		//DEBUG_PRINTLN();
 		
 		// print channel values
-		/*for (int i=0; i<10 ; i++) {
+		for (int i=0; i<10 ; i++) {
 			DEBUG_PRINT(rc_channelValue[i]); DEBUG_PRINT("\t");
 		}
-		DEBUG_PRINTLN();*/
+		DEBUG_PRINTLN();
 		
 		#ifdef SEND_SERIAL
 			// Send data to "Processing" for visualization
