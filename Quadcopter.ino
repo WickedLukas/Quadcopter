@@ -277,7 +277,7 @@ float shape_angle(float error_angle, float timeConstant, float accel_max, float 
 float sqrtController(float error_angle, float p, float accel_limit);
 
 // limit the acceleration/deceleration of a rate request
-float shape_rate(float last_rate_sp, float desired_rate_sp, float accel_max);
+float shape_rate(float desired_rate_sp, float accel_max, float last_rate_sp);
 
 void setup() {
 	// setup built in LED
@@ -424,7 +424,7 @@ void loop() {
 		// rate setpoints
 		roll_rate_sp = shape_angle(roll_angle_sp - roll_angle, TIME_CONSTANT, ACCEL_MAX_ROLL_PITCH, roll_rate_sp);
 		pitch_rate_sp = shape_angle(pitch_angle_sp - pitch_angle, TIME_CONSTANT, ACCEL_MAX_ROLL_PITCH, pitch_rate_sp);
-		yaw_rate_sp = shape_rate(yaw_rate, map((float) rc_channelValue[YAW], 1000, 2000, -YAW_RATE_LIMIT, YAW_RATE_LIMIT), yaw_rate_sp);
+		yaw_rate_sp = shape_rate(map((float) rc_channelValue[YAW], 1000, 2000, -YAW_RATE_LIMIT, YAW_RATE_LIMIT), ACCEL_MAX_YAW, yaw_rate_sp);
 		
 		// In order to ensure a smooth start, PID calculations are delayed until a minimum throttle value is applied.
 		if (started) {
@@ -847,7 +847,7 @@ float shape_angle(float error_angle, float timeConstant, float accel_max, float 
 	desired_rate_sp = sqrtController(error_angle, 1.0 / max(timeConstant, 0.01), accel_max);
 	
 	// acceleration is limited directly to smooth the beginning of the curve
-	return shape_rate(last_rate_sp, desired_rate_sp, accel_max);
+	return shape_rate(desired_rate_sp, accel_max, last_rate_sp);
 }
 
 // proportional controller with sqrt sections to constrain the angular acceleration
@@ -878,7 +878,7 @@ float sqrtController(float error_angle, float p, float accel_max) {
 }
 
 // limit the acceleration/deceleration of a rate request
-float shape_rate(float last_rate_sp, float desired_rate_sp, float accel_max) {
+float shape_rate(float desired_rate_sp, float accel_max, float last_rate_sp) {
 	static float delta_rate;
 	
 	delta_rate	= accel_max * dt_s;
