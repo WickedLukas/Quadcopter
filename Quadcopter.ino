@@ -1,4 +1,4 @@
-/*
+ /*
 * Quadcopter.ino
 *
 * Created:	26.04.2019
@@ -19,7 +19,7 @@
 // TODO: integrate telemetry (MAVLink?)
 
 // print debug outputs through serial
-//#define DEBUG
+#define DEBUG
 
 // send imu data through serial (for example to visualize it in "Processing")
 //#define SEND_SERIAL
@@ -68,8 +68,8 @@
 #define ARM				6	// disarmed: 1000, armed: 2000
 #define FMODE			8	// stable: 1000/2000, stable with tilt compensated thrust: 1500, acro (not implemented)
 
-#define BETA_INIT 10		// Madgwick algorithm gain (2 * proportional gain (Kp)) during initial pose estimation
-#define BETA 			0.041	// Madgwick algorithm gain (2 * proportional gain (Kp)) - 0.041
+#define BETA_INIT 10		// Madgwick algorithm gain (2 * proportional gain (Kp)) during initial pose estimation - 10
+#define BETA 			0.041	// Madgwick algorithm gain (2 * proportional gain (Kp)) - 0.041 MARG, 0.033 IMU
 
 // parameters to check if filtered angles converged during initialisation
 #define INIT_ANGLE_DIFFERENCE 0.5		// maximum angle difference between filtered angles and accelerometer angles (x- and y-axis) after initialisation
@@ -93,15 +93,15 @@ const float ACCEL_MAX_YAW = 120;
 const float TIME_CONSTANT = 0.15;
 
 // angular rate PID values
-const float P_ROLL_RATE = 2.500,	I_ROLL_RATE = 0.250,	D_ROLL_RATE = 0.023; 	// 2.500, 0.250, 0.023 @ 0.008 EMA_RATE 
-const float P_PITCH_RATE = 2.500,	I_PITCH_RATE = 0.250,	D_PITCH_RATE = 0.023;
-const float P_YAW_RATE = 1.000,		I_YAW_RATE = 0.100,		D_YAW_RATE = 0.000;		// 0.200, 0.020, 0.000
+const float P_ROLL_RATE = 2.500,	I_ROLL_RATE = 0.000,	D_ROLL_RATE = 0.023; 	// 2.500, 0.000, 0.023 @ 0.006 EMA_RATE 
+const float P_PITCH_RATE = 2.500,	I_PITCH_RATE = 0.000,	D_PITCH_RATE = 0.023;
+const float P_YAW_RATE = 1.000,		I_YAW_RATE = 0.000,		D_YAW_RATE = 0.000;		// 0.200, 0.000, 0.000
 
 // moving average filter configuration for the angular rates (gyro)
 // TODO: Maybe use notch filter instead
-const float EMA_ROLL_RATE		= 0.008;
-const float EMA_PITCH_RATE	= 0.008;
-const float EMA_YAW_RATE		= 0.008;
+const float EMA_ROLL_RATE		= 0.006;
+const float EMA_PITCH_RATE	= 0.006;
+const float EMA_YAW_RATE		= 0.006;
 
 // Minimum throttle setpoint to enter started state in which PID calculation start.
 // To ensure a smooth start this value should be close to the throttle necessary for take off.
@@ -142,6 +142,10 @@ uint8_t error_code = 0;
 
 // configuration data structure
 typedef struct {
+	// gyroscope offsets in full scale format
+	int16_t offset_gx_1000dps, offset_gy_1000dps, offset_gz_1000dps;
+	// accelerometer offsets in full scale format
+	int16_t offset_ax_32g, offset_ay_32g, offset_az_32g;
 	// magnetometer hard iron distortion correction
 	float offset_mx, offset_my, offset_mz;
 	// magnetometer soft iron distortion correction
@@ -156,7 +160,7 @@ IBUS rc;
 
 // ICM-20948 imu object
 ICM20948_SPI imu(IMU_CS_PIN, IMU_SPI_PORT);
-	
+
 // initial quadcopter z-axis angle - this should be initialised with an implausible value (> 360)
 float yaw_angle_init = 1000;
 
@@ -313,7 +317,7 @@ void setup() {
 	EEPROM.get(ADDRESS_EEPROM, data_eeprom);
 	
 	// initialise imu
-	if (!imu.init(data_eeprom.offset_mx, data_eeprom.offset_my, data_eeprom.offset_mz, data_eeprom.scale_mx, data_eeprom.scale_my, data_eeprom.scale_mz)) {
+	if (!imu.init(data_eeprom.offset_gx_1000dps, data_eeprom.offset_gy_1000dps, data_eeprom.offset_gz_1000dps, data_eeprom.offset_ax_32g, data_eeprom.offset_ay_32g, data_eeprom.offset_az_32g, data_eeprom.offset_mx, data_eeprom.offset_my, data_eeprom.offset_mz, data_eeprom.scale_mx, data_eeprom.scale_my, data_eeprom.scale_mz)) {
 		// IMU could not be initialized. Set error value, which will disable arming.
 		error_code = error_code | ERROR_IMU;
 		DEBUG_PRINTLN("IMU error: Initialisation failed!");
@@ -380,7 +384,7 @@ void loop() {
 	}
 	else {
 		dt_mag += dt;
-		if ((dt_mag > FS_IMU_DT_LIMIT) && (error_code & ERROR_MAG != ERROR_MAG)) {
+		if ((dt_mag > FS_IMU_DT_LIMIT) && ((error_code & ERROR_MAG) != ERROR_MAG)) {
 			// Limit for magnetometer update time exceeded. Set error value, which will disable arming.
 			error_code = error_code | ERROR_MAG;
 			DEBUG_PRINTLN("Magnetometer error!");
@@ -440,28 +444,32 @@ void loop() {
 		
 		// TODO: Remove this test code
 		static float p_rate, i_rate, d_rate;
-		p_rate = map((float) rc_channelValue[4], 1000, 2000, 2.5, 5);
-		//i_rate = map((float) rc_channelValue[5], 1000, 2000, 0.250, 1);
-		d_rate = map((float) rc_channelValue[4], 1000, 2000, 0.023, 0.05);
+		//p_rate = map((float) rc_channelValue[4], 1000, 2000, 2.5, 5);
+		//i_rate = map((float) rc_channelValue[5], 1000, 2000, 0, 1);
+		//d_rate = map((float) rc_channelValue[5], 1000, 2000, 0.023, 0.05);
 
-		roll_rate_pid.set_K_p(p_rate);
+		//roll_rate_pid.set_K_p(p_rate);
 		//roll_rate_pid.set_K_i(i_rate);
-		roll_rate_pid.set_K_d(d_rate);
+		//roll_rate_pid.set_K_d(d_rate);
 		
-		pitch_rate_pid.set_K_p(p_rate);
+		//pitch_rate_pid.set_K_p(p_rate);
 		//pitch_rate_pid.set_K_i(i_rate);
-		pitch_rate_pid.set_K_d(d_rate);
+		//pitch_rate_pid.set_K_d(d_rate);
 		
 		/*motor_1.write(constrain(throttle_sp + roll_rate_mv, 1000, 2000));
 		motor_2.write(0);
 		motor_3.write(constrain(throttle_sp - roll_rate_mv, 1000, 2000));
 		motor_4.write(0);*/
 
-		motor_1.write(constrain(throttle_sp + roll_rate_mv - pitch_rate_mv + yaw_rate_mv, 1000, 2000));
+		motor_1.write(constrain(throttle_sp + roll_rate_mv - pitch_rate_mv, 1000, 2000));
+		motor_2.write(constrain(throttle_sp - roll_rate_mv - pitch_rate_mv, 1000, 2000));
+		motor_3.write(constrain(throttle_sp - roll_rate_mv + pitch_rate_mv, 1000, 2000));
+		motor_4.write(constrain(throttle_sp + roll_rate_mv + pitch_rate_mv, 1000, 2000));
+
+		/*motor_1.write(constrain(throttle_sp + roll_rate_mv - pitch_rate_mv + yaw_rate_mv, 1000, 2000));
 		motor_2.write(constrain(throttle_sp - roll_rate_mv - pitch_rate_mv - yaw_rate_mv, 1000, 2000));
 		motor_3.write(constrain(throttle_sp - roll_rate_mv + pitch_rate_mv + yaw_rate_mv, 1000, 2000));
-		motor_4.write(constrain(throttle_sp + roll_rate_mv + pitch_rate_mv - yaw_rate_mv, 1000, 2000));
-		
+		motor_4.write(constrain(throttle_sp + roll_rate_mv + pitch_rate_mv - yaw_rate_mv, 1000, 2000));*/
 	}
 	else {
 		// for safety reasons repeat disarm and reset, even when it was already done
@@ -480,7 +488,6 @@ void loop() {
 		//static float roll_angle_accel, pitch_angle_accel;
 		//accelAngles(roll_angle_accel, pitch_angle_accel);
 		//DEBUG_PRINT(roll_angle_accel); DEBUG_PRINT("\t"); DEBUG_PRINTLN(pitch_angle_accel);
-		//DEBUG_PRINT(roll_angle); DEBUG_PRINT("\t"); DEBUG_PRINT(pitch_angle); DEBUG_PRINT("\t"); DEBUG_PRINTLN(yaw_angle);
 		
 		//DEBUG_PRINT(map((float) rc_channelValue[ROLL], 1000, 2000, -ROLL_ANGLE_LIMIT, ROLL_ANGLE_LIMIT)); DEBUG_PRINT("\t"); DEBUG_PRINTLN(roll_angle_sp);
 		//DEBUG_PRINT(map((float) rc_channelValue[YAW], 1000, 2000, -YAW_RATE_LIMIT, YAW_RATE_LIMIT)); DEBUG_PRINT("\t"); DEBUG_PRINTLN(yaw_rate_sp);
@@ -488,15 +495,23 @@ void loop() {
 		//DEBUG_PRINT(map((float) (rc_channelValue[THROTTLE] - 1000) / (cos(roll_angle * DEG2RAD) * cos(pitch_angle * DEG2RAD)) + 1000, 1000, 2000, 1000, THROTTLE_LIMIT)); DEBUG_PRINT("\t"); DEBUG_PRINTLN(throttle_sp);
 		
 		//DEBUG_PRINTLN(roll_rate_sp);
+
+		/*DEBUG_PRINT(constrain(throttle_sp + roll_rate_mv - pitch_rate_mv, 1000, 2000)); DEBUG_PRINT("\t");
+		DEBUG_PRINT(constrain(throttle_sp - roll_rate_mv - pitch_rate_mv, 1000, 2000)); DEBUG_PRINT("\t");
+		DEBUG_PRINT(constrain(throttle_sp - roll_rate_mv + pitch_rate_mv, 1000, 2000)); DEBUG_PRINT("\t");
+		DEBUG_PRINTLN(constrain(throttle_sp + roll_rate_mv + pitch_rate_mv, 1000, 2000));*/
+
+		//DEBUG_PRINT(roll_angle); DEBUG_PRINT("\t"); DEBUG_PRINT(pitch_angle); DEBUG_PRINT("\t"); DEBUG_PRINT(yaw_angle); DEBUG_PRINT("\t");
+		//DEBUG_PRINT(roll_rate); DEBUG_PRINT("\t"); DEBUG_PRINT(pitch_rate); DEBUG_PRINT("\t"); DEBUG_PRINTLN(yaw_rate);
 		
 		//DEBUG_PRINTLN(dt);
 		//DEBUG_PRINTLN();
 		
 		// print channel values
-		for (int i=0; i<10 ; i++) {
+		/*for (int i=0; i<10 ; i++) {
 			DEBUG_PRINT(rc_channelValue[i]); DEBUG_PRINT("\t");
 		}
-		DEBUG_PRINTLN();
+		DEBUG_PRINTLN();*/
 		
 		#ifdef SEND_SERIAL
 			// Send data to "Processing" for visualization
@@ -622,7 +637,8 @@ bool imuCalibration() {
 				else if ((t_imuCalibration - t_calibrateGyro) > 2000000) {
 					// turn on LED to indicate calibration
 					updateLED(LED_PIN, 2);
-					imu.calibrate_gyro(imuInterrupt, 5.0, 1);
+					imu.calibrate_gyro(imuInterrupt, 5.0, 1, data_eeprom.offset_gx_1000dps, data_eeprom.offset_gy_1000dps, data_eeprom.offset_gz_1000dps);
+					EEPROM.put(ADDRESS_EEPROM, data_eeprom);
 					t_calibrateGyro = 0;
 					// turn off LED
 					updateLED(LED_PIN, 0);
@@ -643,7 +659,8 @@ bool imuCalibration() {
 				else if ((t_imuCalibration - t_calibrateAccel) > 2000000) {
 					// turn on LED to indicate calibration
 					updateLED(LED_PIN, 2);
-					imu.calibrate_accel(imuInterrupt, 5.0, 16);
+					imu.calibrate_accel(imuInterrupt, 5.0, 16, data_eeprom.offset_ax_32g, data_eeprom.offset_ay_32g, data_eeprom.offset_az_32g);
+					EEPROM.put(ADDRESS_EEPROM, data_eeprom);
 					t_calibrateAccel = 0;
 					// turn off LED
 					updateLED(LED_PIN, 0);
