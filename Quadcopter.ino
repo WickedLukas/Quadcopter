@@ -19,7 +19,7 @@
 // TODO: integrate telemetry (MAVLink?)
 
 // print debug outputs through serial
-#define DEBUG
+//#define DEBUG
 
 // send imu data through serial (for example to visualize it in "Processing")
 //#define SEND_SERIAL
@@ -81,13 +81,18 @@
 #define ROLL_ANGLE_LIMIT	30		// deg
 #define PITCH_ANGLE_LIMIT	30		// deg
 
-#define THROTTLE_LIMIT		1700	// < 2000 because there is some headroom needed for pid control, so the quadcopter stays stable during full throttle
+// Throttle to enter started state and begin PID calculations.
+// The trottle stick position is centered arround this value.
+// To ensure a smooth start, this value should be close to the throttle necessary for take off.
+#define THROTTLE_HOVER	1400
+// Set throttle limit (< 2000), so there is some headroom for pid control in order to keep the quadcopter stable during full throttle.
+#define THROTTLE_LIMIT	1750
 
 // angle controller acceleration limits (deg/ss)
 //const float ACCEL_MIN_ROLL_PITCH = 40;
-const float ACCEL_MAX_ROLL_PITCH = 720;
+const float ACCEL_MAX_ROLL_PITCH = 1100;	// 720
 //const float ACCEL_MIN_YAW = 10;
-const float ACCEL_MAX_YAW = 120;
+const float ACCEL_MAX_YAW = 270;	// 120
 
 // angle controller time constant
 const float TIME_CONSTANT = 0.15;
@@ -102,10 +107,6 @@ const float P_YAW_RATE = 1.000,		I_YAW_RATE = 0.000,		D_YAW_RATE = 0.000;		// 0.
 const float EMA_ROLL_RATE		= 0.006;
 const float EMA_PITCH_RATE	= 0.006;
 const float EMA_YAW_RATE		= 0.006;
-
-// Minimum throttle setpoint to enter started state in which PID calculation start.
-// To ensure a smooth start this value should be close to the throttle necessary for take off.
-const float MIN_THROTTLE_SP = 1200;
 
 // failsafe configuration
 const uint8_t FS_IMU			= 0b00000001;
@@ -412,13 +413,17 @@ void loop() {
 	// when armed, calculate flight setpoints, manipulated variables and control motors
 	if (armed) {
 		// throttle setpoint
-		if (rc_channelValue[FMODE] == 1500) {
-			// stable with tilt compensated thrust: increase thrust when quadcopter is tilted, to compensate for height loss during horizontal movement
-			throttle_sp = map((float) (rc_channelValue[THROTTLE] - 1000) / (cos(roll_angle * DEG2RAD) * cos(pitch_angle * DEG2RAD)) + 1000, 1000, 2000, 1000, THROTTLE_LIMIT);
+		if (rc_channelValue[THROTTLE] < 1500) {
+			throttle_sp = map((float) rc_channelValue[THROTTLE], 1000, 1500, 1000, THROTTLE_HOVER);
 		}
 		else {
-			// stable
-			throttle_sp = map((float) rc_channelValue[THROTTLE], 1000, 2000, 1000, THROTTLE_LIMIT);
+			throttle_sp = map((float) rc_channelValue[THROTTLE], 1500, 2000, THROTTLE_HOVER, THROTTLE_LIMIT);
+		}
+		
+		if (rc_channelValue[FMODE] == 1500) {
+			// Stable flightmode with tilt compensated thrust: Increase thrust when quadcopter is tilted, to compensate for height loss during horizontal movement.
+			// Note: In order to maintain stability, tilt compensated thrust is limited to the throttle limit.
+			throttle_sp = constrain((float) (throttle_sp - 1000) / (cos(roll_angle * DEG2RAD) * cos(pitch_angle * DEG2RAD)) + 1000, 1000, THROTTLE_LIMIT);
 		}
 		
 		// angle setpoints
@@ -429,21 +434,10 @@ void loop() {
 		roll_rate_sp = shape_angle(roll_angle_sp - roll_angle, TIME_CONSTANT, ACCEL_MAX_ROLL_PITCH, roll_rate_sp);
 		pitch_rate_sp = shape_angle(pitch_angle_sp - pitch_angle, TIME_CONSTANT, ACCEL_MAX_ROLL_PITCH, pitch_rate_sp);
 		yaw_rate_sp = shape_rate(map((float) rc_channelValue[YAW], 1000, 2000, -YAW_RATE_LIMIT, YAW_RATE_LIMIT), ACCEL_MAX_YAW, yaw_rate_sp);
-		
-		// In order to ensure a smooth start, PID calculations are delayed until a minimum throttle value is applied.
-		if (started) {
-			// calculate manipulated variables
-			roll_rate_mv = roll_rate_pid.get_mv(roll_rate_sp, roll_rate, dt_s);
-			pitch_rate_mv = pitch_rate_pid.get_mv(pitch_rate_sp, pitch_rate, dt_s);
-			yaw_rate_mv = yaw_rate_pid.get_mv(yaw_rate_sp, yaw_rate, dt_s);
-		}
-		else if (throttle_sp > MIN_THROTTLE_SP) {
-			started = true;
-			DEBUG_PRINTLN("Started!");
-		}
-		
+
+
 		// TODO: Remove this test code
-		static float p_rate, i_rate, d_rate;
+		//static float p_rate, i_rate, d_rate;
 		//p_rate = map((float) rc_channelValue[4], 1000, 2000, 2.5, 5);
 		//i_rate = map((float) rc_channelValue[5], 1000, 2000, 0, 1);
 		//d_rate = map((float) rc_channelValue[5], 1000, 2000, 0.023, 0.05);
@@ -456,20 +450,28 @@ void loop() {
 		//pitch_rate_pid.set_K_i(i_rate);
 		//pitch_rate_pid.set_K_d(d_rate);
 		
-		/*motor_1.write(constrain(throttle_sp + roll_rate_mv, 1000, 2000));
-		motor_2.write(0);
-		motor_3.write(constrain(throttle_sp - roll_rate_mv, 1000, 2000));
-		motor_4.write(0);*/
+		// In order to ensure a smooth start, PID calculations are delayed until a minimum throttle value is applied.
+		if (started) {
+			// calculate manipulated variables
+			roll_rate_mv = roll_rate_pid.get_mv(roll_rate_sp, roll_rate, dt_s);
+			pitch_rate_mv = pitch_rate_pid.get_mv(pitch_rate_sp, pitch_rate, dt_s);
+			yaw_rate_mv = yaw_rate_pid.get_mv(yaw_rate_sp, yaw_rate, dt_s);
 
-		motor_1.write(constrain(throttle_sp + roll_rate_mv - pitch_rate_mv, 1000, 2000));
-		motor_2.write(constrain(throttle_sp - roll_rate_mv - pitch_rate_mv, 1000, 2000));
-		motor_3.write(constrain(throttle_sp - roll_rate_mv + pitch_rate_mv, 1000, 2000));
-		motor_4.write(constrain(throttle_sp + roll_rate_mv + pitch_rate_mv, 1000, 2000));
-
-		/*motor_1.write(constrain(throttle_sp + roll_rate_mv - pitch_rate_mv + yaw_rate_mv, 1000, 2000));
-		motor_2.write(constrain(throttle_sp - roll_rate_mv - pitch_rate_mv - yaw_rate_mv, 1000, 2000));
-		motor_3.write(constrain(throttle_sp - roll_rate_mv + pitch_rate_mv + yaw_rate_mv, 1000, 2000));
-		motor_4.write(constrain(throttle_sp + roll_rate_mv + pitch_rate_mv - yaw_rate_mv, 1000, 2000));*/
+			motor_1.write(constrain(throttle_sp + roll_rate_mv - pitch_rate_mv + yaw_rate_mv, 1000, 2000));
+			motor_2.write(constrain(throttle_sp - roll_rate_mv - pitch_rate_mv - yaw_rate_mv, 1000, 2000));
+			motor_3.write(constrain(throttle_sp - roll_rate_mv + pitch_rate_mv + yaw_rate_mv, 1000, 2000));
+			motor_4.write(constrain(throttle_sp + roll_rate_mv + pitch_rate_mv - yaw_rate_mv, 1000, 2000));
+		}
+		else if (throttle_sp > THROTTLE_HOVER) {
+			started = true;
+			DEBUG_PRINTLN("Started!");
+		}
+		else {
+			motor_1.write(1000);
+			motor_2.write(1000);
+			motor_3.write(1000);
+			motor_4.write(1000);
+		}
 	}
 	else {
 		// for safety reasons repeat disarm and reset, even when it was already done
@@ -495,11 +497,6 @@ void loop() {
 		//DEBUG_PRINT(map((float) (rc_channelValue[THROTTLE] - 1000) / (cos(roll_angle * DEG2RAD) * cos(pitch_angle * DEG2RAD)) + 1000, 1000, 2000, 1000, THROTTLE_LIMIT)); DEBUG_PRINT("\t"); DEBUG_PRINTLN(throttle_sp);
 		
 		//DEBUG_PRINTLN(roll_rate_sp);
-
-		/*DEBUG_PRINT(constrain(throttle_sp + roll_rate_mv - pitch_rate_mv, 1000, 2000)); DEBUG_PRINT("\t");
-		DEBUG_PRINT(constrain(throttle_sp - roll_rate_mv - pitch_rate_mv, 1000, 2000)); DEBUG_PRINT("\t");
-		DEBUG_PRINT(constrain(throttle_sp - roll_rate_mv + pitch_rate_mv, 1000, 2000)); DEBUG_PRINT("\t");
-		DEBUG_PRINTLN(constrain(throttle_sp + roll_rate_mv + pitch_rate_mv, 1000, 2000));*/
 
 		//DEBUG_PRINT(roll_angle); DEBUG_PRINT("\t"); DEBUG_PRINT(pitch_angle); DEBUG_PRINT("\t"); DEBUG_PRINT(yaw_angle); DEBUG_PRINT("\t");
 		//DEBUG_PRINT(roll_rate); DEBUG_PRINT("\t"); DEBUG_PRINT(pitch_rate); DEBUG_PRINT("\t"); DEBUG_PRINTLN(yaw_rate);
