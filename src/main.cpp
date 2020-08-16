@@ -83,7 +83,7 @@
 #define PITCH_ANGLE_LIMIT	30		// deg
 
 // Throttle to enter started state and begin PID calculations.
-// The trottle stick position is centered arround this value.
+// The throttle stick position is centered around this value.
 // To ensure a smooth start, this value should be close to the throttle necessary for take off.
 #define THROTTLE_HOVER	1400
 // Set throttle limit (< 2000), so there is some headroom for pid control in order to keep the quadcopter stable during full throttle.
