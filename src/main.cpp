@@ -1,10 +1,3 @@
- /*
-* Quadcopter.ino
-*
-* Created:	26.04.2019
-* Author:	Lukas
-*
-*/
 #include <Arduino.h>
 #include <EEPROM.h>
 
@@ -14,12 +7,16 @@
 #include "ema_filter.h"
 #include "PID_controller.h"
 
+#include "Plotter.h"
 #include "sendSerial.h"
 
 // TODO: integrate telemetry (MAVLink?)
 
 // print debug outputs through serial
 //#define DEBUG
+
+// plot through Processing
+#define PLOT
 
 // send imu data through serial (for example to visualize it in "Processing")
 //#define SEND_SERIAL
@@ -34,6 +31,10 @@
 	#define DEBUG_PRINTLN(x)
 	#define DEBUG_PRINT2(x,y)
 	#define DEBUG_PRINTLN2(x,y)
+#endif
+
+#ifdef PLOT
+	Plotter p;
 #endif
 
 // address for eeprom data
@@ -61,15 +62,15 @@
 #define MOTOR_PWM_FREQENCY 12000
 
 // rc channel assignment
-#define ROLL			0
-#define PITCH			1
-#define YAW				3
+#define ROLL		0
+#define PITCH		1
+#define YAW			3
 #define THROTTLE	2
-#define ARM				6	// disarmed: 1000, armed: 2000
-#define FMODE			8	// stable: 1000/2000, stable with tilt compensated thrust: 1500, acro (not implemented)
+#define ARM			6	// disarmed: 1000, armed: 2000
+#define FMODE		8	// stable: 1000/2000, stable with tilt compensated thrust: 1500, acro (not implemented)
 
-#define BETA_INIT 10		// Madgwick algorithm gain (2 * proportional gain (Kp)) during initial pose estimation - 10
-#define BETA 			0.041	// Madgwick algorithm gain (2 * proportional gain (Kp)) - 0.041 MARG, 0.033 IMU
+#define BETA_INIT	10		// Madgwick algorithm gain (2 * proportional gain (Kp)) during initial pose estimation - 10
+#define BETA		0.041	// Madgwick algorithm gain (2 * proportional gain (Kp)) - 0.041 MARG, 0.033 IMU
 
 // parameters to check if filtered angles converged during initialisation
 #define INIT_ANGLE_DIFFERENCE 0.5		// maximum angle difference between filtered angles and accelerometer angles (x- and y-axis) after initialisation
@@ -104,12 +105,12 @@ const float P_YAW_RATE = 1.000,		I_YAW_RATE = 0.000,		D_YAW_RATE = 0.000;		// 0.
 
 // moving average filter configuration for the angular rates (gyro)
 // TODO: Maybe use notch filter instead
-const float EMA_ROLL_RATE		= 0.006;
+const float EMA_ROLL_RATE	= 0.006;
 const float EMA_PITCH_RATE	= 0.006;
-const float EMA_YAW_RATE		= 0.006;
+const float EMA_YAW_RATE	= 0.006;
 
 // failsafe configuration
-const uint8_t FS_IMU			= 0b00000001;
+const uint8_t FS_IMU		= 0b00000001;
 const uint8_t FS_MOTION		= 0b00000010;
 const uint8_t FS_CONTROL	= 0b00000100;
 
@@ -294,7 +295,7 @@ void setup() {
 	// set default resolution for analog write, in order to go back to it after running motors with different resolution
 	analogWriteResolution(8);
 	
-	#if defined(DEBUG) || defined(SEND_SERIAL)
+	#if defined(DEBUG) || defined(SEND_SERIAL) || defined(PLOT)
 		// initialise serial for monitoring
 		Serial.begin(115200);
 		while (!Serial);
@@ -323,6 +324,14 @@ void setup() {
 		error_code = error_code | ERROR_IMU;
 		DEBUG_PRINTLN("IMU error: Initialisation failed!");
 	}
+	
+	#ifdef PLOT
+		// Start plotter
+    	p.Begin();
+
+    	// Add time graphs. Notice the effect of points displayed on the time scale
+    	p.AddTimeGraph("Angles", 1000, "roll_angle", roll_angle, "pitch_angle", pitch_angle, "yaw_angle", yaw_angle);
+	#endif
 }
 
 void loop() {
@@ -509,9 +518,14 @@ void loop() {
 			DEBUG_PRINT(rc_channelValue[i]); DEBUG_PRINT("\t");
 		}
 		DEBUG_PRINTLN();*/
+
+		#ifdef PLOT
+			// Plot data with "Processing"
+			p.Plot();
+		#endif
 		
 		#ifdef SEND_SERIAL
-			// Send data to "Processing" for visualization
+			// Visualize data with "Processing"
 			sendSerial(dt, roll_angle, pitch_angle, yaw_angle);
 		#endif
 	}
