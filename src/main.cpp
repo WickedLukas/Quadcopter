@@ -104,7 +104,7 @@ const float P_PITCH_RATE = 2.500,	I_PITCH_RATE = 0.000,	D_PITCH_RATE = 0.023;
 const float P_YAW_RATE = 1.000,		I_YAW_RATE = 0.000,		D_YAW_RATE = 0.000;		// 0.200, 0.000, 0.000
 
 // moving average filter configuration for the angular rates (gyro)
-// TODO: Maybe use notch filter instead
+// TODO: Use notch filter or a band stop filter from two EMA filters with specified cut off frequencies.
 const float EMA_ROLL_RATE	= 0.006;
 const float EMA_PITCH_RATE	= 0.006;
 const float EMA_YAW_RATE	= 0.006;
@@ -138,7 +138,7 @@ const float DEG2RAD = (float) 71 / 4068;
 // list of error codes
 const uint8_t ERROR_IMU = 0b00000001;
 const uint8_t ERROR_MAG = 0b00000010;
-// Stores the errors which occured and disables arming.
+// Stores the errors which occurred and disables arming.
 // A restart is required to reset the error and enable arming.
 uint8_t error_code = 0;
 
