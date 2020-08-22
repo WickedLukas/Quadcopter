@@ -3,6 +3,7 @@
 
 #include "iBus.h"
 #include "ICM20948.h"
+#include "BMP388_DEV.h"
 #include "MadgwickAHRS.h"
 #include "ema_filter.h"
 #include "PID_controller.h"
@@ -47,6 +48,9 @@
 #define IMU_SPI_PORT SPI
 #define IMU_CS_PIN 10
 #define IMU_INTERRUPT_PIN 9
+
+// barometer pin
+#define BAROMETER_INTERRUPT_PIN 20
 
 // pwm pins to control motors
 // 1: top-left (CW); 2: top-right (CCW); 3: bottom-left (CW); 4: bottom-right (CCW);
@@ -138,6 +142,7 @@ const float DEG2RAD = (float) 71 / 4068;
 // list of error codes
 const uint8_t ERROR_IMU = 0b00000001;
 const uint8_t ERROR_MAG = 0b00000010;
+const uint8_t ERROR_BAR = 0b00000100;
 // Stores the errors which occurred and disables arming.
 // A restart is required to reset the error and enable arming.
 uint8_t error_code = 0;
@@ -162,6 +167,9 @@ IBUS rc;
 
 // ICM-20948 imu object
 ICM20948_SPI imu(IMU_CS_PIN, IMU_SPI_PORT);
+
+// BMP388 object
+BMP388_DEV bmp388;
 
 // initial quadcopter z-axis angle - this should be initialised with an implausible value (> 360)
 float yaw_angle_init = 1000;
@@ -234,6 +242,9 @@ int16_t ax, ay, az;
 float gx_rps, gy_rps, gz_rps;
 int16_t mx = 0, my = 0, mz = 0;
 
+// barometer measurement
+float altitude;
+
 // quadcopter pose
 float roll_angle, pitch_angle, yaw_angle;
 
@@ -253,6 +264,12 @@ bool started = false;
 volatile bool imuInterrupt = false;
 void imuReady() {
 	imuInterrupt = true;
+}
+
+// barometer interrupt
+volatile bool barometerInterrupt = false;
+void barometerReady() {
+	barometerInterrupt = true;
 }
 
 // update LED
@@ -325,12 +342,25 @@ void setup() {
 		DEBUG_PRINTLN("IMU error: Initialisation failed!");
 	}
 	
+	// initialise BMP388 mode, pressure oversampling, temperature oversampling, IIR-Filter and standby time
+	if (!bmp388.begin(NORMAL_MODE, OVERSAMPLING_X8, OVERSAMPLING_X1, IIR_FILTER_2, TIME_STANDBY_20MS)) {
+		// barometer could not be initialized. Set error value, which will disable arming.
+		error_code = error_code | ERROR_BAR;
+		DEBUG_PRINTLN("BAR error: Initialisation failed!");
+	}
+	
+	// setup interrupt pin for BMP388
+	pinMode(BAROMETER_INTERRUPT_PIN, INPUT);
+	bmp388.enableInterrupt();
+	attachInterrupt(digitalPinToInterrupt(BAROMETER_INTERRUPT_PIN), barometerReady, RISING);
+	
 	#ifdef PLOT
 		// Start plotter
-    	p.Begin();
-
-    	// Add time graphs. Notice the effect of points displayed on the time scale
-    	p.AddTimeGraph("Angles", 1000, "roll_angle", roll_angle, "pitch_angle", pitch_angle, "yaw_angle", yaw_angle);
+		p.Begin();
+		
+		// Add time graphs. Notice the effect of points displayed on the time scale
+		//p.AddTimeGraph("Angles", 1000, "roll_angle", roll_angle, "pitch_angle", pitch_angle, "yaw_angle", yaw_angle);
+		p.AddTimeGraph("Altitude", 1000, "altitude", altitude);
 	#endif
 }
 
@@ -401,9 +431,14 @@ void loop() {
 		}
 	}
 	
+	if (barometerInterrupt) {  
+		barometerInterrupt = false;
+		bmp388.getAltitude(altitude);
+	}
+	
 	// perform sensor fusion with Madgwick filter to calculate pose
 	madgwickFilter.get_euler(dt_s, ax, ay, az, gx_rps, gy_rps, gz_rps, mx, my, mz, roll_angle, pitch_angle, yaw_angle);
-
+	
 	// apply offset to z-axis pose in order to compensate for the sensor mounting orientation relative to the quadcopter frame
 	yaw_angle += yaw_angle_offset;
 	if (yaw_angle > 180) {
@@ -418,7 +453,7 @@ void loop() {
 	roll_rate = ema_filter(gx_rps * RAD2DEG, roll_rate, EMA_ROLL_RATE);
 	pitch_rate = ema_filter(gy_rps * RAD2DEG, pitch_rate, EMA_PITCH_RATE);
 	yaw_rate = ema_filter(gz_rps * RAD2DEG, yaw_rate, EMA_YAW_RATE);
-
+	
 	// when armed, calculate flight setpoints, manipulated variables and control motors
 	if (armed) {
 		// throttle setpoint
@@ -438,19 +473,19 @@ void loop() {
 		// angle setpoints
 		roll_angle_sp = map((float) rc_channelValue[ROLL], 1000, 2000, -ROLL_ANGLE_LIMIT, ROLL_ANGLE_LIMIT);
 		pitch_angle_sp = map((float) rc_channelValue[PITCH], 1000, 2000, -PITCH_ANGLE_LIMIT, PITCH_ANGLE_LIMIT);
-
+		
 		// rate setpoints
 		roll_rate_sp = shape_angle(roll_angle_sp - roll_angle, TIME_CONSTANT, ACCEL_MAX_ROLL_PITCH, roll_rate_sp);
 		pitch_rate_sp = shape_angle(pitch_angle_sp - pitch_angle, TIME_CONSTANT, ACCEL_MAX_ROLL_PITCH, pitch_rate_sp);
 		yaw_rate_sp = shape_rate(map((float) rc_channelValue[YAW], 1000, 2000, -YAW_RATE_LIMIT, YAW_RATE_LIMIT), ACCEL_MAX_YAW, yaw_rate_sp);
-
-
+		
+		
 		// TODO: Remove this test code
 		//static float p_rate, i_rate, d_rate;
 		//p_rate = map((float) rc_channelValue[4], 1000, 2000, 2.5, 5);
 		//i_rate = map((float) rc_channelValue[5], 1000, 2000, 0, 1);
 		//d_rate = map((float) rc_channelValue[5], 1000, 2000, 0.023, 0.05);
-
+		
 		//roll_rate_pid.set_K_p(p_rate);
 		//roll_rate_pid.set_K_i(i_rate);
 		//roll_rate_pid.set_K_d(d_rate);
@@ -465,7 +500,7 @@ void loop() {
 			roll_rate_mv = roll_rate_pid.get_mv(roll_rate_sp, roll_rate, dt_s);
 			pitch_rate_mv = pitch_rate_pid.get_mv(pitch_rate_sp, pitch_rate, dt_s);
 			yaw_rate_mv = yaw_rate_pid.get_mv(yaw_rate_sp, yaw_rate, dt_s);
-
+			
 			motor_1.write(constrain(throttle_sp + roll_rate_mv - pitch_rate_mv + yaw_rate_mv, 1000, 2000));
 			motor_2.write(constrain(throttle_sp - roll_rate_mv - pitch_rate_mv - yaw_rate_mv, 1000, 2000));
 			motor_3.write(constrain(throttle_sp - roll_rate_mv + pitch_rate_mv + yaw_rate_mv, 1000, 2000));
@@ -487,7 +522,7 @@ void loop() {
 		disarmAndResetQuad();
 	}
 	
-	// run serial print at a rate independent of the main loop (t0_serial = 16666 for 60 Hz update rate)
+	// run serial print at a rate independent of the main loop (t0_serial = 5000 for 200 Hz update rate)
 	static uint32_t t0_serial = micros();
 	if (micros() - t0_serial > 16666) {
 		t0_serial = micros();
@@ -506,7 +541,7 @@ void loop() {
 		//DEBUG_PRINT(map((float) (rc_channelValue[THROTTLE] - 1000) / (cos(roll_angle * DEG2RAD) * cos(pitch_angle * DEG2RAD)) + 1000, 1000, 2000, 1000, THROTTLE_LIMIT)); DEBUG_PRINT("\t"); DEBUG_PRINTLN(throttle_sp);
 		
 		//DEBUG_PRINTLN(roll_rate_sp);
-
+		
 		//DEBUG_PRINT(roll_angle); DEBUG_PRINT("\t"); DEBUG_PRINT(pitch_angle); DEBUG_PRINT("\t"); DEBUG_PRINT(yaw_angle); DEBUG_PRINT("\t");
 		//DEBUG_PRINT(roll_rate); DEBUG_PRINT("\t"); DEBUG_PRINT(pitch_rate); DEBUG_PRINT("\t"); DEBUG_PRINTLN(yaw_rate);
 		
@@ -518,7 +553,7 @@ void loop() {
 			DEBUG_PRINT(rc_channelValue[i]); DEBUG_PRINT("\t");
 		}
 		DEBUG_PRINTLN();*/
-
+		
 		#ifdef PLOT
 			// Plot data with "Processing"
 			p.Plot();
@@ -729,7 +764,7 @@ void disarmAndResetQuad() {
 		roll_rate_pid.reset();
 		pitch_rate_pid.reset();
 		yaw_rate_pid.reset();
-
+		
 		roll_rate_mv = 0;
 		pitch_rate_mv = 0;
 		yaw_rate_mv = 0;
@@ -739,7 +774,7 @@ void disarmAndResetQuad() {
 		motor_2.write(0);
 		motor_3.write(0);
 		motor_4.write(0);
-
+		
 		// set armed state to false - armed state can only change to false here, to make sure the motors are really disarmed in this state
 		armed = false;
 		// set started state to false - minimum throttle is required again to start the motors and PID calculations
@@ -884,7 +919,6 @@ float sqrtController(float error_angle, float p, float accel_max) {
 	static float linear_dist;
 	
 	linear_dist = accel_max / sq(p);
-
 	
 	if (error_angle > linear_dist) {
 		correction_rate = sqrt(2 * accel_max * (error_angle - (linear_dist / 2)));
