@@ -237,16 +237,26 @@ float roll_rate_sp, pitch_rate_sp, yaw_rate_sp;
 // manipulated variables
 float roll_rate_mv, pitch_rate_mv, yaw_rate_mv;
 
+// accelerometer resolution
+float accelRes;
+
 // imu measurements
 int16_t ax, ay, az;
 float gx_rps, gy_rps, gz_rps;
 int16_t mx = 0, my = 0, mz = 0;
 
-// barometer measurement
-float altitude;
+// barometer altitude measurement
+float baroAltitude;
 
 // quadcopter pose
-float roll_angle, pitch_angle, yaw_angle;
+float roll_angle, pitch_angle, yaw_angle;	// euler angles
+float pose_q[4];							// quaternion
+
+// quadcopter altitude
+float altitude;
+
+// TODO: Remove this later
+float a_g_ned_q0, a_g_ned_q1, a_g_ned_q2, a_g_ned_q3;
 
 // z-axis pose offset to compensate for the sensor mounting orientation relative to the quadcopter frame
 float yaw_angle_offset = 90;
@@ -283,6 +293,12 @@ void estimatePose(float beta_init, float beta, float init_angleDifference, float
 
 // calculate accelerometer x and y angles in degrees
 void accelAngles(float& roll_angle_accel, float& pitch_angle_accel);
+
+// multiply two quaternions (Hamilton product)
+void qMultiply(float* q1, float* q2, float* result_q);
+
+// calculate altitude in m from acceleration, barometer altitude and pose
+void calcAltitude();
 
 // calibrate gyroscope, accelerometer or magnetometer on rc command and return true if any calibration was performed
 bool imuCalibration();
@@ -342,6 +358,9 @@ void setup() {
 		DEBUG_PRINTLN("IMU error: Initialisation failed!");
 	}
 	
+	// read accelerometer resolution in g/bit
+	imu.read_accelRes(accelRes);
+	
 	// initialise BMP388 mode, pressure oversampling, temperature oversampling, IIR-Filter and standby time
 	if (!bmp388.begin(NORMAL_MODE, OVERSAMPLING_X8, OVERSAMPLING_X1, IIR_FILTER_2, TIME_STANDBY_20MS)) {
 		// barometer could not be initialized. Set error value, which will disable arming.
@@ -360,7 +379,9 @@ void setup() {
 		
 		// Add time graphs. Notice the effect of points displayed on the time scale
 		//p.AddTimeGraph("Angles", 1000, "roll_angle", roll_angle, "pitch_angle", pitch_angle, "yaw_angle", yaw_angle);
-		p.AddTimeGraph("Altitude", 1000, "altitude", altitude);
+		//p.AddTimeGraph("Barometer altitude", 1000, "baroAltitude", baroAltitude);
+		//p.AddTimeGraph("Quadcopter altitude", 1000, "altitude", altitude);
+		p.AddTimeGraph("Acceleration in ned-frame", 1000, "a_g_ned_q0", a_g_ned_q0, "a_g_ned_q1", a_g_ned_q1, "a_g_ned_q2", a_g_ned_q2, "a_g_ned_q3", a_g_ned_q3);
 	#endif
 }
 
@@ -433,11 +454,11 @@ void loop() {
 	
 	if (barometerInterrupt) {  
 		barometerInterrupt = false;
-		bmp388.getAltitude(altitude);
+		bmp388.getAltitude(baroAltitude);
 	}
 	
 	// perform sensor fusion with Madgwick filter to calculate pose
-	madgwickFilter.get_euler(dt_s, ax, ay, az, gx_rps, gy_rps, gz_rps, mx, my, mz, roll_angle, pitch_angle, yaw_angle);
+	madgwickFilter.get_euler_quaternion(dt_s, ax, ay, az, gx_rps, gy_rps, gz_rps, mx, my, mz, roll_angle, pitch_angle, yaw_angle, pose_q);
 	
 	// apply offset to z-axis pose in order to compensate for the sensor mounting orientation relative to the quadcopter frame
 	yaw_angle += yaw_angle_offset;
@@ -447,6 +468,9 @@ void loop() {
 	else if (yaw_angle < -180) {
 		yaw_angle += 360;
 	}
+	
+	// calculate altitude in m from acceleration, barometer altitude and pose
+	calcAltitude();
 	
 	// filter gyro rates
 	// TODO: Maybe use notch filter instead
@@ -467,7 +491,7 @@ void loop() {
 		if (rc_channelValue[FMODE] == 1500) {
 			// Stable flightmode with tilt compensated thrust: Increase thrust when quadcopter is tilted, to compensate for height loss during horizontal movement.
 			// Note: In order to maintain stability, tilt compensated thrust is limited to the throttle limit.
-			throttle_sp = constrain((float) (throttle_sp - 1000) / (cos(roll_angle * DEG2RAD) * cos(pitch_angle * DEG2RAD)) + 1000, 1000, THROTTLE_LIMIT);
+			throttle_sp = constrain((float) (throttle_sp - 1000) / (pose_q[0]*pose_q[0] - pose_q[1]*pose_q[1] - pose_q[2]*pose_q[2] + pose_q[3]*pose_q[3]) + 1000, 1000, THROTTLE_LIMIT);
 		}
 		
 		// angle setpoints
@@ -628,7 +652,7 @@ void estimatePose(float beta_init, float beta, float init_angleDifference, float
 		imu.read_accel_gyro_rps(ax, ay, az, gx_rps, gy_rps, gz_rps);
 		imu.read_mag(mx, my, mz);
 		
-		madgwickFilter.get_euler(dt_s, ax, ay, az, gx_rps, gy_rps, gz_rps, mx, my, mz, roll_angle, pitch_angle, yaw_angle);
+		madgwickFilter.get_euler_quaternion(dt_s, ax, ay, az, gx_rps, gy_rps, gz_rps, mx, my, mz, roll_angle, pitch_angle, yaw_angle, pose_q);
 		
 		accelAngles(roll_angle_accel, pitch_angle_accel);
 		
@@ -662,6 +686,41 @@ void estimatePose(float beta_init, float beta, float init_angleDifference, float
 void accelAngles(float& roll_angle_accel, float& pitch_angle_accel) {
 	roll_angle_accel = atan2(ay, az) * RAD2DEG;
 	pitch_angle_accel = atan2(-ax, sqrt(pow(ay,2) + pow(az,2))) * RAD2DEG;
+}
+
+// multiply two quaternions (Hamilton product)
+void qMultiply(float* q1, float* q2, float* result_q) {
+	result_q[0] = q1[0] * q2[0] - q1[1] * q2[1] - q1[2] * q2[2] - q1[3] * q2[3];
+	result_q[1] = q1[0] * q2[1] + q1[1] * q2[0] + q1[2] * q2[3] - q1[3] * q2[2];
+	result_q[2] = q1[0] * q2[2] - q1[1] * q2[3] + q1[2] * q2[0] + q1[3] * q2[1];
+	result_q[3] = q1[0] * q2[3] + q1[1] * q2[2] - q1[2] * q2[1] + q1[3] * q2[0];
+}
+
+// calculate altitude in m from acceleration, barometer altitude and pose
+void calcAltitude() {
+	// acceleration of gravity is m/s²
+	const double G = 9.81;
+	
+	// acceleration quaternion in sensor-frame
+	static float a_q[4];
+	a_q[0] = 0; a_q[1] = ax; a_q[2] = ay; a_q[3] = az;
+	// acceleration quaternion in ned-frame
+	static float a_ned_q[4];
+	
+	// conjugation of pose_q, which is equal to the inverse of pose_q, since it is a unit quaternion
+	static float pose_q_conj[4];
+	pose_q_conj[0] = pose_q[0]; pose_q_conj[1] = -pose_q[1]; pose_q_conj[2] = -pose_q[2]; pose_q_conj[3] = -pose_q[3];
+	// helper quaternion to save some result
+	static float helper_q[4];
+	
+	// calculate the acceleration in ned-frame by rotating the accelerometer vector (sensor frame) with the pose quaternion (unit quaternion): pose_q a_q pose_q_conj 
+	qMultiply(pose_q, a_q, helper_q);
+	qMultiply(helper_q, pose_q_conj, a_ned_q);
+	
+	a_g_ned_q0 = a_ned_q[0] * accelRes;
+	a_g_ned_q1 = a_ned_q[1] * accelRes;
+	a_g_ned_q2 = a_ned_q[2] * accelRes;
+	a_g_ned_q3 = a_ned_q[3] * accelRes;
 }
 
 // calibrate gyroscope, accelerometer or magnetometer on rc command and return true if any calibration was performed
