@@ -253,7 +253,7 @@ float roll_angle, pitch_angle, yaw_angle;	// euler angles
 float pose_q[4];							// quaternion
 
 // quadcopter altitude
-float altitude;
+float altitude1, altitude2, altitude3;
 
 // TODO: Remove this later
 float a_ned_rel_q0, a_ned_rel_q1, a_ned_rel_q2, a_ned_rel_q3;
@@ -374,14 +374,14 @@ void setup() {
 	attachInterrupt(digitalPinToInterrupt(BAROMETER_INTERRUPT_PIN), barometerReady, RISING);
 	
 	#ifdef PLOT
-		// Start plotter
+		// !Start plotter
 		p.Begin();
 		
 		// Add time graphs. Notice the effect of points displayed on the time scale
 		//p.AddTimeGraph("Angles", 1000, "roll_angle", roll_angle, "pitch_angle", pitch_angle, "yaw_angle", yaw_angle);
 		//p.AddTimeGraph("Barometer altitude", 1000, "baroAltitude", baroAltitude);
-		//p.AddTimeGraph("Quadcopter altitude", 1000, "altitude", altitude);
-		p.AddTimeGraph("Relative acceleration in ned-frame", 10000, "a_ned_rel_q1", a_ned_rel_q1, "a_ned_rel_q2", a_ned_rel_q2, "a_ned_rel_q3", a_ned_rel_q3);
+		p.AddTimeGraph("Quadcopter altitude", 10000, "altitude1", altitude1, "altitude2", altitude2, "altitude3", altitude3);
+		//p.AddTimeGraph("Relative acceleration in ned-frame", 10000, "a_ned_rel_q1", a_ned_rel_q1, "a_ned_rel_q2", a_ned_rel_q2, "a_ned_rel_q3", a_ned_rel_q3);
 	#endif
 }
 
@@ -473,7 +473,7 @@ void loop() {
 	calcAltitude();
 	
 	// filter gyro rates
-	// TODO: Maybe use notch filter instead
+	// TODO: Use a notch filter or a bandstop filter made from a combination of two EMA filters instead
 	roll_rate = ema_filter(gx_rps * RAD2DEG, roll_rate, EMA_ROLL_RATE);
 	pitch_rate = ema_filter(gy_rps * RAD2DEG, pitch_rate, EMA_PITCH_RATE);
 	yaw_rate = ema_filter(gz_rps * RAD2DEG, yaw_rate, EMA_YAW_RATE);
@@ -726,6 +726,35 @@ void calcAltitude() {
 	a_ned_rel_q1 = a_ned_q[1] * accelRes * G;
 	a_ned_rel_q2 = a_ned_q[2] * accelRes * G;
 	a_ned_rel_q3 = (a_ned_q[3] * accelRes - 1) * G;
+	
+	// A Comparison of Complementary and Kalman Filtering
+	// WALTER T. HIGGINS, JR.
+	
+	// k1 = sqrt(2 * std_w / std_v)
+	// k2 = std_w / std_v
+	// std_w: standard deviation in the noise of the acceleration (0.1 m/s²)
+	// std_v: standard deviation in the noise of the barometer altitude (0.11 m)
+	
+	static float ratio1 = 0.45, ratio2 = 0.9, ratio3 = 1.8;	// 0.9091
+	
+	static const float k1_1 = sqrt(2 * ratio1);	// 1.3484	
+	static const float k2_1 = ratio1;			// 0.9091
+	
+	static const float k1_2 = sqrt(2 * ratio2);	
+	static const float k2_2 = ratio2;
+	
+	static const float k1_3 = sqrt(2 * ratio3);	
+	static const float k2_3 = ratio3;
+	
+	static float velocity1, velocity2, velocity3;	// vertical velocity
+	altitude1 += dt_s * velocity1 + (k1_1 + 0.5 * dt_s * k2_1) * dt_s * (baroAltitude - altitude1) + 0.5 * dt_s * a_ned_rel_q3 * dt_s;
+	velocity1 += k2_1 * dt_s * (baroAltitude - altitude1) + a_ned_rel_q3 * dt_s;
+	
+	altitude2 += dt_s * velocity2 + (k1_2 + 0.5 * dt_s * k2_2) * dt_s * (baroAltitude - altitude2) + 0.5 * dt_s * a_ned_rel_q3 * dt_s;
+	velocity2 += k2_2 * dt_s * (baroAltitude - altitude2) + a_ned_rel_q3 * dt_s;
+	
+	altitude3 += dt_s * velocity3 + (k1_3 + 0.5 * dt_s * k2_3) * dt_s * (baroAltitude - altitude3) + 0.5 * dt_s * a_ned_rel_q3 * dt_s;
+	velocity3 += k2_3 * dt_s * (baroAltitude - altitude3) + a_ned_rel_q3 * dt_s;
 }
 
 // calibrate gyroscope, accelerometer or magnetometer on rc command and return true if any calibration was performed
