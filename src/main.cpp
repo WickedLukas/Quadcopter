@@ -256,7 +256,7 @@ float pose_q[4];							// quaternion
 float altitude;
 
 // TODO: Remove this later
-float a_g_ned_q0, a_g_ned_q1, a_g_ned_q2, a_g_ned_q3;
+float a_ned_rel_q0, a_ned_rel_q1, a_ned_rel_q2, a_ned_rel_q3;
 
 // z-axis pose offset to compensate for the sensor mounting orientation relative to the quadcopter frame
 float yaw_angle_offset = 90;
@@ -381,7 +381,7 @@ void setup() {
 		//p.AddTimeGraph("Angles", 1000, "roll_angle", roll_angle, "pitch_angle", pitch_angle, "yaw_angle", yaw_angle);
 		//p.AddTimeGraph("Barometer altitude", 1000, "baroAltitude", baroAltitude);
 		//p.AddTimeGraph("Quadcopter altitude", 1000, "altitude", altitude);
-		p.AddTimeGraph("Acceleration in ned-frame", 1000, "a_g_ned_q0", a_g_ned_q0, "a_g_ned_q1", a_g_ned_q1, "a_g_ned_q2", a_g_ned_q2, "a_g_ned_q3", a_g_ned_q3);
+		p.AddTimeGraph("Relative acceleration in ned-frame", 10000, "a_ned_rel_q1", a_ned_rel_q1, "a_ned_rel_q2", a_ned_rel_q2, "a_ned_rel_q3", a_ned_rel_q3);
 	#endif
 }
 
@@ -546,48 +546,52 @@ void loop() {
 		disarmAndResetQuad();
 	}
 	
-	// run serial print at a rate independent of the main loop (t0_serial = 5000 for 200 Hz update rate)
+	// run serial print at a rate independent of the main loop (micros() - t0_serial = 16666 for 60 Hz update rate)
 	static uint32_t t0_serial = micros();
-	if (micros() - t0_serial > 16666) {
-		t0_serial = micros();
-		
-		//DEBUG_PRINT(ax); DEBUG_PRINT("\t"); DEBUG_PRINT(ay); DEBUG_PRINT("\t"); DEBUG_PRINTLN(az);
-		//DEBUG_PRINT(gx_rps); DEBUG_PRINT("\t"); DEBUG_PRINT(gy_rps); DEBUG_PRINT("\t"); DEBUG_PRINTLN(gz_rps);
-		//DEBUG_PRINT(mx); DEBUG_PRINT("\t"); DEBUG_PRINT(my); DEBUG_PRINT("\t"); DEBUG_PRINTLN(mz);
-		
-		//static float roll_angle_accel, pitch_angle_accel;
-		//accelAngles(roll_angle_accel, pitch_angle_accel);
-		//DEBUG_PRINT(roll_angle_accel); DEBUG_PRINT("\t"); DEBUG_PRINTLN(pitch_angle_accel);
-		
-		//DEBUG_PRINT(map((float) rc_channelValue[ROLL], 1000, 2000, -ROLL_ANGLE_LIMIT, ROLL_ANGLE_LIMIT)); DEBUG_PRINT("\t"); DEBUG_PRINTLN(roll_angle_sp);
-		//DEBUG_PRINT(map((float) rc_channelValue[YAW], 1000, 2000, -YAW_RATE_LIMIT, YAW_RATE_LIMIT)); DEBUG_PRINT("\t"); DEBUG_PRINTLN(yaw_rate_sp);
-		//DEBUG_PRINT(map((float) rc_channelValue[THROTTLE], 1000, 2000, 1000, THROTTLE_LIMIT)); DEBUG_PRINT("\t"); DEBUG_PRINTLN(throttle_sp);
-		//DEBUG_PRINT(map((float) (rc_channelValue[THROTTLE] - 1000) / (cos(roll_angle * DEG2RAD) * cos(pitch_angle * DEG2RAD)) + 1000, 1000, 2000, 1000, THROTTLE_LIMIT)); DEBUG_PRINT("\t"); DEBUG_PRINTLN(throttle_sp);
-		
-		//DEBUG_PRINTLN(roll_rate_sp);
-		
-		//DEBUG_PRINT(roll_angle); DEBUG_PRINT("\t"); DEBUG_PRINT(pitch_angle); DEBUG_PRINT("\t"); DEBUG_PRINT(yaw_angle); DEBUG_PRINT("\t");
-		//DEBUG_PRINT(roll_rate); DEBUG_PRINT("\t"); DEBUG_PRINT(pitch_rate); DEBUG_PRINT("\t"); DEBUG_PRINTLN(yaw_rate);
-		
-		//DEBUG_PRINTLN(dt);
-		//DEBUG_PRINTLN();
-		
-		// print channel values
-		/*for (int i=0; i<10 ; i++) {
-			DEBUG_PRINT(rc_channelValue[i]); DEBUG_PRINT("\t");
+	#ifdef DEBUG
+		if (micros() - t0_serial > 16666) {
+			t0_serial = micros();
+			
+			//DEBUG_PRINT(ax); DEBUG_PRINT("\t"); DEBUG_PRINT(ay); DEBUG_PRINT("\t"); DEBUG_PRINTLN(az);
+			//DEBUG_PRINT(gx_rps); DEBUG_PRINT("\t"); DEBUG_PRINT(gy_rps); DEBUG_PRINT("\t"); DEBUG_PRINTLN(gz_rps);
+			//DEBUG_PRINT(mx); DEBUG_PRINT("\t"); DEBUG_PRINT(my); DEBUG_PRINT("\t"); DEBUG_PRINTLN(mz);
+			
+			//static float roll_angle_accel, pitch_angle_accel;
+			//accelAngles(roll_angle_accel, pitch_angle_accel);
+			//DEBUG_PRINT(roll_angle_accel); DEBUG_PRINT("\t"); DEBUG_PRINTLN(pitch_angle_accel);
+			
+			//DEBUG_PRINT(map((float) rc_channelValue[ROLL], 1000, 2000, -ROLL_ANGLE_LIMIT, ROLL_ANGLE_LIMIT)); DEBUG_PRINT("\t"); DEBUG_PRINTLN(roll_angle_sp);
+			//DEBUG_PRINT(map((float) rc_channelValue[YAW], 1000, 2000, -YAW_RATE_LIMIT, YAW_RATE_LIMIT)); DEBUG_PRINT("\t"); DEBUG_PRINTLN(yaw_rate_sp);
+			//DEBUG_PRINT(map((float) rc_channelValue[THROTTLE], 1000, 2000, 1000, THROTTLE_LIMIT)); DEBUG_PRINT("\t"); DEBUG_PRINTLN(throttle_sp);
+			//DEBUG_PRINT(map((float) (rc_channelValue[THROTTLE] - 1000) / (cos(roll_angle * DEG2RAD) * cos(pitch_angle * DEG2RAD)) + 1000, 1000, 2000, 1000, THROTTLE_LIMIT)); DEBUG_PRINT("\t"); DEBUG_PRINTLN(throttle_sp);
+			
+			//DEBUG_PRINTLN(roll_rate_sp);
+			
+			//DEBUG_PRINT(roll_angle); DEBUG_PRINT("\t"); DEBUG_PRINT(pitch_angle); DEBUG_PRINT("\t"); DEBUG_PRINT(yaw_angle); DEBUG_PRINT("\t");
+			//DEBUG_PRINT(roll_rate); DEBUG_PRINT("\t"); DEBUG_PRINT(pitch_rate); DEBUG_PRINT("\t"); DEBUG_PRINTLN(yaw_rate);
+			
+			//DEBUG_PRINTLN(dt);
+			//DEBUG_PRINTLN();
+			
+			// print channel values
+			/*for (int i=0; i<10 ; i++) {
+				DEBUG_PRINT(rc_channelValue[i]); DEBUG_PRINT("\t");
+			}
+			DEBUG_PRINTLN();*/
 		}
-		DEBUG_PRINTLN();*/
-		
-		#ifdef PLOT
-			// Plot data with "Processing"
-			p.Plot();
-		#endif
-		
-		#ifdef SEND_SERIAL
+	#elif defined(SEND_SERIAL)
+		if (micros() - t0_serial > 16666) {
+			t0_serial = micros();
 			// Visualize data with "Processing"
 			sendSerial(dt, roll_angle, pitch_angle, yaw_angle);
-		#endif
-	}
+		}
+	#elif defined(PLOT)
+		if (micros() - t0_serial > 1000) {
+			t0_serial = micros();
+			// Plot data with "Processing"
+			p.Plot();
+		}
+	#endif
 }
 
 // update LED
@@ -717,10 +721,11 @@ void calcAltitude() {
 	qMultiply(pose_q, a_q, helper_q);
 	qMultiply(helper_q, pose_q_conj, a_ned_q);
 	
-	a_g_ned_q0 = a_ned_q[0] * accelRes;
-	a_g_ned_q1 = a_ned_q[1] * accelRes;
-	a_g_ned_q2 = a_ned_q[2] * accelRes;
-	a_g_ned_q3 = a_ned_q[3] * accelRes;
+	// Calculate relative acceleration by removing gravity and transforming acceleration from bit to m/s²
+	a_ned_rel_q0 = a_ned_q[0] * accelRes * G;
+	a_ned_rel_q1 = a_ned_q[1] * accelRes * G;
+	a_ned_rel_q2 = a_ned_q[2] * accelRes * G;
+	a_ned_rel_q3 = (a_ned_q[3] * accelRes - 1) * G;
 }
 
 // calibrate gyroscope, accelerometer or magnetometer on rc command and return true if any calibration was performed
