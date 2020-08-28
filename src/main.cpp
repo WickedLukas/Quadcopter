@@ -233,9 +233,12 @@ uint16_t *rc_channelValue;
 float throttle_sp;
 float roll_angle_sp, pitch_angle_sp;
 float roll_rate_sp, pitch_rate_sp, yaw_rate_sp;
+float altitude_sp;
+float vVelocity_sp;
 
 // manipulated variables
 float roll_rate_mv, pitch_rate_mv, yaw_rate_mv;
+float vVelocity_mv;
 
 // accelerometer resolution
 float accelRes;
@@ -253,7 +256,7 @@ float roll_angle, pitch_angle, yaw_angle;	// euler angles
 float pose_q[4];							// quaternion
 
 // quadcopter altitude
-float altitude1, altitude2, altitude3;
+float altitude, altitude1, altitude2;
 
 // TODO: Remove this later
 float a_ned_rel_q0, a_ned_rel_q1, a_ned_rel_q2, a_ned_rel_q3;
@@ -309,14 +312,14 @@ void disarmAndResetQuad();
 // arm/disarm on rc command and disarm on failsafe conditions
 void arm_failsafe(uint8_t fs_config);
 
-// Calculate the rate correction from the angle error. The rate has acceleration and deceleration limits including a basic jerk limit using timeConstant.
-float shape_angle(float error_angle, float timeConstant, float accel_max, float last_rate_sp);
+// Calculate the velocity correction from the position error. The velocity has acceleration and deceleration limits including a basic jerk limit using timeConstant.
+float shape_position(float position_error, float timeConstant, float accel_max, float last_velocity_sp);
 
-// proportional controller with sqrt sections to constrain the angular acceleration
-float sqrtController(float error_angle, float p, float accel_limit);
+// proportional controller with sqrt sections to constrain the acceleration
+float sqrtController(float position_error, float p, float accel_limit);
 
-// limit the acceleration/deceleration of a rate request
-float shape_rate(float desired_rate_sp, float accel_max, float last_rate_sp);
+// limit the acceleration/deceleration of a velocity request
+float shape_velocity(float desired_velocity_sp, float accel_max, float last_velocity_sp);
 
 void setup() {
 	// setup built in LED
@@ -380,7 +383,7 @@ void setup() {
 		// Add time graphs. Notice the effect of points displayed on the time scale
 		//p.AddTimeGraph("Angles", 1000, "roll_angle", roll_angle, "pitch_angle", pitch_angle, "yaw_angle", yaw_angle);
 		//p.AddTimeGraph("Barometer altitude", 1000, "baroAltitude", baroAltitude);
-		p.AddTimeGraph("Quadcopter altitude", 10000, "altitude1", altitude1, "altitude2", altitude2, "altitude3", altitude3);
+		p.AddTimeGraph("Quadcopter altitude", 10000, "altitude", altitude, "altitude1", altitude1, "altitude2", altitude2);
 		//p.AddTimeGraph("Relative acceleration in ned-frame", 10000, "a_ned_rel_q1", a_ned_rel_q1, "a_ned_rel_q2", a_ned_rel_q2, "a_ned_rel_q3", a_ned_rel_q3);
 	#endif
 }
@@ -499,9 +502,9 @@ void loop() {
 		pitch_angle_sp = map((float) rc_channelValue[PITCH], 1000, 2000, -PITCH_ANGLE_LIMIT, PITCH_ANGLE_LIMIT);
 		
 		// rate setpoints
-		roll_rate_sp = shape_angle(roll_angle_sp - roll_angle, TIME_CONSTANT, ACCEL_MAX_ROLL_PITCH, roll_rate_sp);
-		pitch_rate_sp = shape_angle(pitch_angle_sp - pitch_angle, TIME_CONSTANT, ACCEL_MAX_ROLL_PITCH, pitch_rate_sp);
-		yaw_rate_sp = shape_rate(map((float) rc_channelValue[YAW], 1000, 2000, -YAW_RATE_LIMIT, YAW_RATE_LIMIT), ACCEL_MAX_YAW, yaw_rate_sp);
+		roll_rate_sp = shape_position(roll_angle_sp - roll_angle, TIME_CONSTANT, ACCEL_MAX_ROLL_PITCH, roll_rate_sp);
+		pitch_rate_sp = shape_position(pitch_angle_sp - pitch_angle, TIME_CONSTANT, ACCEL_MAX_ROLL_PITCH, pitch_rate_sp);
+		yaw_rate_sp = shape_position(map((float) rc_channelValue[YAW], 1000, 2000, -YAW_RATE_LIMIT, YAW_RATE_LIMIT), TIME_CONSTANT, ACCEL_MAX_YAW, yaw_rate_sp);
 		
 		
 		// TODO: Remove this test code
@@ -735,26 +738,26 @@ void calcAltitude() {
 	// std_w: standard deviation in the noise of the acceleration (0.1 m/s²)
 	// std_v: standard deviation in the noise of the barometer altitude (0.11 m)
 	
-	static float ratio1 = 0.45, ratio2 = 0.9, ratio3 = 1.8;	// 0.9091
+	static float ratio = 0.9, ratio1 = 0.45, ratio2 = 1.8;	// 0.9091
 	
-	static const float k1_1 = sqrt(2 * ratio1);	// 1.3484	
-	static const float k2_1 = ratio1;			// 0.9091
+	static const float k1 = sqrt(2 * ratio);	// 1.3484	
+	static const float k2 = ratio;				// 0.9091
+	
+	static const float k1_1 = sqrt(2 * ratio1);	
+	static const float k2_1 = ratio1;
 	
 	static const float k1_2 = sqrt(2 * ratio2);	
 	static const float k2_2 = ratio2;
 	
-	static const float k1_3 = sqrt(2 * ratio3);	
-	static const float k2_3 = ratio3;
+	static float vVelocity, vVelocity1, vVelocity2;	// vertical velocity
+	altitude += dt_s * vVelocity + (k1 + 0.5 * dt_s * k2) * dt_s * (baroAltitude - altitude) + 0.5 * dt_s * a_ned_rel_q3 * dt_s;
+	vVelocity += k2 * dt_s * (baroAltitude - altitude) + a_ned_rel_q3 * dt_s;
 	
-	static float velocity1, velocity2, velocity3;	// vertical velocity
-	altitude1 += dt_s * velocity1 + (k1_1 + 0.5 * dt_s * k2_1) * dt_s * (baroAltitude - altitude1) + 0.5 * dt_s * a_ned_rel_q3 * dt_s;
-	velocity1 += k2_1 * dt_s * (baroAltitude - altitude1) + a_ned_rel_q3 * dt_s;
+	altitude1 += dt_s * vVelocity1 + (k1_1 + 0.5 * dt_s * k2_1) * dt_s * (baroAltitude - altitude1) + 0.5 * dt_s * a_ned_rel_q3 * dt_s;
+	vVelocity1 += k2_1 * dt_s * (baroAltitude - altitude1) + a_ned_rel_q3 * dt_s;
 	
-	altitude2 += dt_s * velocity2 + (k1_2 + 0.5 * dt_s * k2_2) * dt_s * (baroAltitude - altitude2) + 0.5 * dt_s * a_ned_rel_q3 * dt_s;
-	velocity2 += k2_2 * dt_s * (baroAltitude - altitude2) + a_ned_rel_q3 * dt_s;
-	
-	altitude3 += dt_s * velocity3 + (k1_3 + 0.5 * dt_s * k2_3) * dt_s * (baroAltitude - altitude3) + 0.5 * dt_s * a_ned_rel_q3 * dt_s;
-	velocity3 += k2_3 * dt_s * (baroAltitude - altitude3) + a_ned_rel_q3 * dt_s;
+	altitude2 += dt_s * vVelocity2 + (k1_2 + 0.5 * dt_s * k2_2) * dt_s * (baroAltitude - altitude2) + 0.5 * dt_s * a_ned_rel_q3 * dt_s;
+	vVelocity2 += k2_2 * dt_s * (baroAltitude - altitude2) + a_ned_rel_q3 * dt_s;
 }
 
 // calibrate gyroscope, accelerometer or magnetometer on rc command and return true if any calibration was performed
@@ -995,47 +998,47 @@ void arm_failsafe(uint8_t fs_config) {
 	}
 }
 
-// Calculate the rate correction from the angle error. The rate has acceleration and deceleration limits including a basic jerk limit using timeConstant.
-float shape_angle(float error_angle, float timeConstant, float accel_max, float last_rate_sp) {
-	static float desired_rate_sp;
+// Calculate the velocity correction from the position error. The velocity has acceleration and deceleration limits including a basic jerk limit using timeConstant.
+float shape_position(float position_error, float timeConstant, float accel_max, float last_velocity_sp) {
+	static float desired_velocity_sp;
 	
-	// calculate the rate as error_angle approaches zero with acceleration limited by accel_max (Ardupilot uses rad/ss but we use deg/ss here)
-	desired_rate_sp = sqrtController(error_angle, 1.0 / max(timeConstant, 0.01), accel_max);
+	// calculate the velocity as position_error approaches zero with acceleration limited by accel_max
+	desired_velocity_sp = sqrtController(position_error, 1.0 / max(timeConstant, 0.01), accel_max);
 	
 	// acceleration is limited directly to smooth the beginning of the curve
-	return shape_rate(desired_rate_sp, accel_max, last_rate_sp);
+	return shape_velocity(desired_velocity_sp, accel_max, last_velocity_sp);
 }
 
-// proportional controller with sqrt sections to constrain the angular acceleration
-float sqrtController(float error_angle, float p, float accel_max) {
+// proportional controller with sqrt sections to constrain the acceleration
+float sqrtController(float position_error, float p, float accel_max) {
 	static float correction_rate;
 	static float linear_dist;
 	
 	linear_dist = accel_max / sq(p);
 	
-	if (error_angle > linear_dist) {
-		correction_rate = sqrt(2 * accel_max * (error_angle - (linear_dist / 2)));
+	if (position_error > linear_dist) {
+		correction_rate = sqrt(2 * accel_max * (position_error - (linear_dist / 2)));
 	}
-	else if (error_angle < -linear_dist) {
-		correction_rate = -sqrt(2 * accel_max * (-error_angle - (linear_dist / 2)));
+	else if (position_error < -linear_dist) {
+		correction_rate = -sqrt(2 * accel_max * (-position_error - (linear_dist / 2)));
 	}
 	else {
-		correction_rate = error_angle * p;
+		correction_rate = position_error * p;
 	}
 	
 	if (dt_s > 0.000010) {
 		// this ensures we do not get small oscillations by over shooting the error correction in the last time step
-		return constrain(correction_rate, -abs(error_angle) / dt_s, abs(error_angle) / dt_s);
+		return constrain(correction_rate, -abs(position_error) / dt_s, abs(position_error) / dt_s);
 	}
 	else {
 		return correction_rate;
 	}
 }
 
-// limit the acceleration/deceleration of a rate request
-float shape_rate(float desired_rate_sp, float accel_max, float last_rate_sp) {
-	static float delta_rate;
+// limit the acceleration/deceleration of a velocity request
+float shape_velocity(float desired_velocity_sp, float accel_max, float last_velocity_sp) {
+	static float delta_velocity;
 	
-	delta_rate	= accel_max * dt_s;
-	return constrain(desired_rate_sp, last_rate_sp - delta_rate, last_rate_sp + delta_rate);
+	delta_velocity = accel_max * dt_s;
+	return constrain(desired_velocity_sp, last_velocity_sp - delta_velocity, last_velocity_sp + delta_velocity);
 }
