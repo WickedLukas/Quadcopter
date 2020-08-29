@@ -17,7 +17,7 @@
 //#define DEBUG
 
 // plot through Processing
-#define PLOT
+//#define PLOT
 
 // send imu data through serial (for example to visualize it in "Processing")
 //#define SEND_SERIAL
@@ -63,7 +63,7 @@
 #define MOTOR_PWM_RESOLUTION 11
 
 // motor pwm frequency
-#define MOTOR_PWM_FREQENCY 12000
+#define MOTOR_PWM_FREQENCY 4000
 
 // rc channel assignment
 #define ROLL		0
@@ -71,7 +71,7 @@
 #define YAW			3
 #define THROTTLE	2
 #define ARM			6	// disarmed: 1000, armed: 2000
-#define FMODE		8	// stable: 1000/2000, stable with tilt compensated thrust: 1500, acro (not implemented)
+#define FMODE		8	// stable: 1000, stable with tilt compensated thrust: 1500, stable with altitude hold: 2000, acro (not implemented)
 
 #define BETA_INIT	10		// Madgwick algorithm gain (2 * proportional gain (Kp)) during initial pose estimation - 10
 #define BETA		0.041	// Madgwick algorithm gain (2 * proportional gain (Kp)) - 0.041 MARG, 0.033 IMU
@@ -79,12 +79,15 @@
 // parameters to check if filtered angles converged during initialisation
 #define INIT_ANGLE_DIFFERENCE 0.5		// maximum angle difference between filtered angles and accelerometer angles (x- and y-axis) after initialisation
 #define INIT_RATE 0.05	// maximum angular rate of Madgwick-filtered angle (z-axis) after initialisation
+#define INIT_VELOCITY_V 0.50	// maximum vertical velocity after initialisation
 
 // limits for the flight setpoints
 #define YAW_RATE_LIMIT		180		// deg/s
 
 #define ROLL_ANGLE_LIMIT	30		// deg
 #define PITCH_ANGLE_LIMIT	30		// deg
+
+#define VELOCITY_V_LIMIT		2.5		// m/s
 
 // Throttle to enter started state and begin PID calculations.
 // The throttle stick position is centered around this value.
@@ -93,19 +96,33 @@
 // Set throttle limit (< 2000), so there is some headroom for pid control in order to keep the quadcopter stable during full throttle.
 #define THROTTLE_LIMIT	1750
 
+// throttle deadzone (altitude hold) in per cent of throttle range (< 50)
+#define THROTTLE_DEADZONE_PCT 10
+
+// throttle deadzone limits within which altitude hold is active
+const uint16_t THROTTLE_DEADZONE_BOT = 1000 + 10 * (50 - THROTTLE_DEADZONE_PCT);
+const uint16_t THROTTLE_DEADZONE_TOP = 1000 + 10 * (50 + THROTTLE_DEADZONE_PCT);
+
 // angle controller acceleration limits (deg/ss)
 //const float ACCEL_MIN_ROLL_PITCH = 40;
-const float ACCEL_MAX_ROLL_PITCH = 1100;	// 720
 //const float ACCEL_MIN_YAW = 10;
+const float ACCEL_MAX_ROLL_PITCH = 1100;	// 720
 const float ACCEL_MAX_YAW = 270;	// 120
-
 // angle controller time constant
-const float TIME_CONSTANT = 0.15;
+const float TIME_CONSTANT_ANGLE = 0.15;
+
+// altitude controller acceleration limits (m/ss)
+const float ACCEL_V_MAX = 2.5;
+// altitude controller time constant
+const float TIME_CONSTANT_ALTITUDE = 0.5;
 
 // angular rate PID values
-const float P_ROLL_RATE = 2.500,	I_ROLL_RATE = 0.000,	D_ROLL_RATE = 0.023; 	// 2.500, 0.000, 0.023 @ 0.006 EMA_RATE 
+const float P_ROLL_RATE = 2.500,	I_ROLL_RATE = 0.000,	D_ROLL_RATE = 0.023; 	// 2.500, 0.000, 0.023 @ 0.006 EMA_RATE
 const float P_PITCH_RATE = 2.500,	I_PITCH_RATE = 0.000,	D_PITCH_RATE = 0.023;
 const float P_YAW_RATE = 1.000,		I_YAW_RATE = 0.000,		D_YAW_RATE = 0.000;		// 0.200, 0.000, 0.000
+
+// vertical velocity PID values for altitude hold
+const float P_VELOCITY_V = 1.000,	I_VELOCITY_V = 0.000,	D_VELOCITY_V = 0.000; 	// 1.000, 0.000, 0.000
 
 // moving average filter configuration for the angular rates (gyro)
 // TODO: Use notch filter or a band stop filter from two EMA filters with specified cut off frequencies.
@@ -145,7 +162,7 @@ const uint8_t ERROR_MAG = 0b00000010;
 const uint8_t ERROR_BAR = 0b00000100;
 // Stores the errors which occurred and disables arming.
 // A restart is required to reset the error and enable arming.
-uint8_t error_code = 0;
+uint8_t error_code;
 
 // configuration data structure
 typedef struct {
@@ -171,8 +188,11 @@ ICM20948_SPI imu(IMU_CS_PIN, IMU_SPI_PORT);
 // BMP388 object
 BMP388_DEV bmp388;
 
-// initial quadcopter z-axis angle - this should be initialised with an implausible value (> 360)
-float yaw_angle_init = 1000;
+// initial quadcopter z-axis angle - this should be initialised with an implausible value
+float yaw_angle_init = -1000;
+
+// initial quadcopter altitude - this should be initialised with an implausible value
+float altitude_init = -1000;
 
 // motor class
 class PWMServoMotor
@@ -215,16 +235,19 @@ PWMServoMotor motor_4(MOTOR_PIN_4, MOTOR_PWM_RESOLUTION, MOTOR_PWM_FREQENCY);
 MADGWICK_AHRS madgwickFilter(BETA_INIT);
 
 // rate PID controller
-PID_controller roll_rate_pid(P_ROLL_RATE, I_ROLL_RATE, D_ROLL_RATE, 0, 0, 2000);
-PID_controller pitch_rate_pid(P_PITCH_RATE, I_PITCH_RATE, D_PITCH_RATE, 0, 0, 2000);
-PID_controller yaw_rate_pid(P_YAW_RATE, I_YAW_RATE, D_YAW_RATE, 0, 0, 2000);
+PID_controller roll_rate_pid(P_ROLL_RATE, I_ROLL_RATE, D_ROLL_RATE, 0, 0, 1000);
+PID_controller pitch_rate_pid(P_PITCH_RATE, I_PITCH_RATE, D_PITCH_RATE, 0, 0, 1000);
+PID_controller yaw_rate_pid(P_YAW_RATE, I_YAW_RATE, D_YAW_RATE, 0, 0, 1000);
+
+// vertical velocity PID controller for altitude hold
+PID_controller velocity_v_pid(P_VELOCITY_V, I_VELOCITY_V, D_VELOCITY_V, 0, 0, THROTTLE_LIMIT - 1000);
 
 // variables to measure imu update time
-uint32_t t0 = 0, t = 0;
+uint32_t t0, t;
 // measured imu update time in microseconds
-int32_t dt = 0;
+int32_t dt;
 // measured imu update time in seconds
-float dt_s = 0;
+float dt_s;
 
 // pointer on an array of 10 received rc channel values [1000; 2000]
 uint16_t *rc_channelValue;
@@ -234,11 +257,11 @@ float throttle_sp;
 float roll_angle_sp, pitch_angle_sp;
 float roll_rate_sp, pitch_rate_sp, yaw_rate_sp;
 float altitude_sp;
-float vVelocity_sp;
+float velocity_v_sp;
 
 // manipulated variables
 float roll_rate_mv, pitch_rate_mv, yaw_rate_mv;
-float vVelocity_mv;
+float velocity_v_mv;
 
 // accelerometer resolution
 float accelRes;
@@ -246,7 +269,7 @@ float accelRes;
 // imu measurements
 int16_t ax, ay, az;
 float gx_rps, gy_rps, gz_rps;
-int16_t mx = 0, my = 0, mz = 0;
+int16_t mx, my, mz;
 
 // barometer altitude measurement
 float baroAltitude;
@@ -266,6 +289,9 @@ float yaw_angle_offset = 90;
 
 // filtered gyro rates
 float roll_rate, pitch_rate, yaw_rate;
+
+// vertical velocity
+float velocity_v;
 
 // armed state - motors can only run when armed
 bool armed = false;
@@ -302,6 +328,9 @@ void qMultiply(float* q1, float* q2, float* result_q);
 
 // calculate altitude in m from acceleration, barometer altitude and pose
 void calcAltitude();
+
+// estimate initial altitude
+void estimateAltitude(float init_velocity_v);
 
 // calibrate gyroscope, accelerometer or magnetometer on rc command and return true if any calibration was performed
 bool imuCalibration();
@@ -356,7 +385,7 @@ void setup() {
 	
 	// initialise imu
 	if (!imu.init(data_eeprom.offset_gx_1000dps, data_eeprom.offset_gy_1000dps, data_eeprom.offset_gz_1000dps, data_eeprom.offset_ax_32g, data_eeprom.offset_ay_32g, data_eeprom.offset_az_32g, data_eeprom.offset_mx, data_eeprom.offset_my, data_eeprom.offset_mz, data_eeprom.scale_mx, data_eeprom.scale_my, data_eeprom.scale_mz)) {
-		// IMU could not be initialized. Set error value, which will disable arming.
+		// IMU could not be initialised. Set error value, which will disable arming.
 		error_code = error_code | ERROR_IMU;
 		DEBUG_PRINTLN("IMU error: Initialisation failed!");
 	}
@@ -366,7 +395,7 @@ void setup() {
 	
 	// initialise BMP388 mode, pressure oversampling, temperature oversampling, IIR-Filter and standby time
 	if (!bmp388.begin(NORMAL_MODE, OVERSAMPLING_X8, OVERSAMPLING_X1, IIR_FILTER_2, TIME_STANDBY_20MS)) {
-		// barometer could not be initialized. Set error value, which will disable arming.
+		// barometer could not be initialised. Set error value, which will disable arming.
 		error_code = error_code | ERROR_BAR;
 		DEBUG_PRINTLN("BAR error: Initialisation failed!");
 	}
@@ -383,8 +412,9 @@ void setup() {
 		// Add time graphs. Notice the effect of points displayed on the time scale
 		//p.AddTimeGraph("Angles", 1000, "roll_angle", roll_angle, "pitch_angle", pitch_angle, "yaw_angle", yaw_angle);
 		//p.AddTimeGraph("Barometer altitude", 1000, "baroAltitude", baroAltitude);
-		p.AddTimeGraph("Quadcopter altitude", 10000, "altitude", altitude, "altitude1", altitude1, "altitude2", altitude2);
+		//p.AddTimeGraph("Quadcopter altitude", 10000, "altitude", altitude, "altitude1", altitude1, "altitude2", altitude2);
 		//p.AddTimeGraph("Relative acceleration in ned-frame", 10000, "a_ned_rel_q1", a_ned_rel_q1, "a_ned_rel_q2", a_ned_rel_q2, "a_ned_rel_q3", a_ned_rel_q3);
+		p.AddTimeGraph("Quadcopter vertical velocity", 10000, "velocity_v", velocity_v, "velocity_v_sp", velocity_v_sp);
 	#endif
 }
 
@@ -405,18 +435,20 @@ void loop() {
 	// update rc
 	rc.update();
 	
-	static bool poseEstimated = false;
-	if (!poseEstimated) {
+	static bool initSensors = true;
+	if (initSensors) {
 		// estimate initial pose
 		estimatePose(BETA_INIT, BETA, INIT_ANGLE_DIFFERENCE, INIT_RATE);
+		// estimate initial altitude
+		estimateAltitude(INIT_VELOCITY_V);
 		
-		poseEstimated = true;
+		initSensors = false;
 	}
-
+	
 	// if disarmed, check for calibration request from rc and executed it
 	if (imuCalibration()) {
-		// calibration was performed, initial pose needs to be estimated again
-		poseEstimated = false;
+		// calibration was performed and sensors need to be initialised again
+		initSensors = true;
 		return;
 	}
 
@@ -502,10 +534,9 @@ void loop() {
 		pitch_angle_sp = map((float) rc_channelValue[PITCH], 1000, 2000, -PITCH_ANGLE_LIMIT, PITCH_ANGLE_LIMIT);
 		
 		// rate setpoints
-		roll_rate_sp = shape_position(roll_angle_sp - roll_angle, TIME_CONSTANT, ACCEL_MAX_ROLL_PITCH, roll_rate_sp);
-		pitch_rate_sp = shape_position(pitch_angle_sp - pitch_angle, TIME_CONSTANT, ACCEL_MAX_ROLL_PITCH, pitch_rate_sp);
-		yaw_rate_sp = shape_position(map((float) rc_channelValue[YAW], 1000, 2000, -YAW_RATE_LIMIT, YAW_RATE_LIMIT), TIME_CONSTANT, ACCEL_MAX_YAW, yaw_rate_sp);
-		
+		roll_rate_sp = shape_position(roll_angle_sp - roll_angle, TIME_CONSTANT_ANGLE, ACCEL_MAX_ROLL_PITCH, roll_rate_sp);
+		pitch_rate_sp = shape_position(pitch_angle_sp - pitch_angle, TIME_CONSTANT_ANGLE, ACCEL_MAX_ROLL_PITCH, pitch_rate_sp);
+		yaw_rate_sp = shape_position(map((float) rc_channelValue[YAW], 1000, 2000, -YAW_RATE_LIMIT, YAW_RATE_LIMIT), TIME_CONSTANT_ANGLE, ACCEL_MAX_YAW, yaw_rate_sp);
 		
 		// TODO: Remove this test code
 		//static float p_rate, i_rate, d_rate;
@@ -523,25 +554,45 @@ void loop() {
 		
 		// In order to ensure a smooth start, PID calculations are delayed until a minimum throttle value is applied.
 		if (started) {
-			// calculate manipulated variables
+			// calculate manipulated variables for attitude hold
 			roll_rate_mv = roll_rate_pid.get_mv(roll_rate_sp, roll_rate, dt_s);
 			pitch_rate_mv = pitch_rate_pid.get_mv(pitch_rate_sp, pitch_rate, dt_s);
 			yaw_rate_mv = yaw_rate_pid.get_mv(yaw_rate_sp, yaw_rate, dt_s);
 			
-			motor_1.write(constrain(throttle_sp + roll_rate_mv - pitch_rate_mv + yaw_rate_mv, 1000, 2000));
-			motor_2.write(constrain(throttle_sp - roll_rate_mv - pitch_rate_mv - yaw_rate_mv, 1000, 2000));
-			motor_3.write(constrain(throttle_sp - roll_rate_mv + pitch_rate_mv + yaw_rate_mv, 1000, 2000));
-			motor_4.write(constrain(throttle_sp + roll_rate_mv + pitch_rate_mv - yaw_rate_mv, 1000, 2000));
-		}
-		else if (throttle_sp > THROTTLE_HOVER) {
-			started = true;
-			DEBUG_PRINTLN("Started!");
+			// do not hold altitude unless flight mode uses altitude hold and throttle stick is centered
+			if ((rc_channelValue[FMODE] != 2000) || (rc_channelValue[THROTTLE] < THROTTLE_DEADZONE_BOT) || (rc_channelValue[THROTTLE] > THROTTLE_DEADZONE_TOP)) {
+				altitude_sp = altitude;
+				velocity_v_sp = 0;
+				
+				velocity_v_pid.reset();
+				velocity_v_mv = 0;
+			}
+			else {
+				// vertical velocity setpoint
+				velocity_v_sp = constrain(shape_position(altitude_sp - altitude, TIME_CONSTANT_ALTITUDE, ACCEL_V_MAX, velocity_v_sp), -VELOCITY_V_LIMIT, VELOCITY_V_LIMIT);
+				
+				// calculate manipulated variable for altitude hold
+				velocity_v_mv = velocity_v_pid.get_mv(velocity_v_sp, velocity_v, dt_s);
+			}
+			
+			// motor mixing
+			/*motor_1.write(constrain(throttle_sp + velocity_v_mv + roll_rate_mv - pitch_rate_mv - yaw_rate_mv, 1000, 2000));
+			motor_2.write(constrain(throttle_sp + velocity_v_mv - roll_rate_mv - pitch_rate_mv + yaw_rate_mv, 1000, 2000));
+			motor_3.write(constrain(throttle_sp + velocity_v_mv - roll_rate_mv + pitch_rate_mv - yaw_rate_mv, 1000, 2000));
+			motor_4.write(constrain(throttle_sp + velocity_v_mv + roll_rate_mv + pitch_rate_mv + yaw_rate_mv, 1000, 2000));*/
 		}
 		else {
 			motor_1.write(1000);
 			motor_2.write(1000);
 			motor_3.write(1000);
 			motor_4.write(1000);
+			
+			altitude_sp = altitude;
+			
+			if (throttle_sp > THROTTLE_HOVER) {
+				started = true;
+				DEBUG_PRINTLN("Started!");
+			}
 		}
 	}
 	else {
@@ -749,15 +800,65 @@ void calcAltitude() {
 	static const float k1_2 = sqrt(2 * ratio2);	
 	static const float k2_2 = ratio2;
 	
-	static float vVelocity, vVelocity1, vVelocity2;	// vertical velocity
-	altitude += dt_s * vVelocity + (k1 + 0.5 * dt_s * k2) * dt_s * (baroAltitude - altitude) + 0.5 * dt_s * a_ned_rel_q3 * dt_s;
-	vVelocity += k2 * dt_s * (baroAltitude - altitude) + a_ned_rel_q3 * dt_s;
+	static float velocity_v1, velocity_v2;	// vertical velocity
+	altitude += dt_s * velocity_v + (k1 + 0.5 * dt_s * k2) * dt_s * (baroAltitude - altitude) + 0.5 * dt_s * a_ned_rel_q3 * dt_s;
+	velocity_v += k2 * dt_s * (baroAltitude - altitude) + a_ned_rel_q3 * dt_s;
 	
-	altitude1 += dt_s * vVelocity1 + (k1_1 + 0.5 * dt_s * k2_1) * dt_s * (baroAltitude - altitude1) + 0.5 * dt_s * a_ned_rel_q3 * dt_s;
-	vVelocity1 += k2_1 * dt_s * (baroAltitude - altitude1) + a_ned_rel_q3 * dt_s;
+	altitude1 += dt_s * velocity_v1 + (k1_1 + 0.5 * dt_s * k2_1) * dt_s * (baroAltitude - altitude1) + 0.5 * dt_s * a_ned_rel_q3 * dt_s;
+	velocity_v1 += k2_1 * dt_s * (baroAltitude - altitude1) + a_ned_rel_q3 * dt_s;
 	
-	altitude2 += dt_s * vVelocity2 + (k1_2 + 0.5 * dt_s * k2_2) * dt_s * (baroAltitude - altitude2) + 0.5 * dt_s * a_ned_rel_q3 * dt_s;
-	vVelocity2 += k2_2 * dt_s * (baroAltitude - altitude2) + a_ned_rel_q3 * dt_s;
+	altitude2 += dt_s * velocity_v2 + (k1_2 + 0.5 * dt_s * k2_2) * dt_s * (baroAltitude - altitude2) + 0.5 * dt_s * a_ned_rel_q3 * dt_s;
+	velocity_v2 += k2_2 * dt_s * (baroAltitude - altitude2) + a_ned_rel_q3 * dt_s;
+}
+
+// estimate initial altitude
+void estimateAltitude(float init_velocity_v) {
+	DEBUG_PRINTLN(F("Estimating initial altitude. Keep device at rest ..."));
+	while (1) {
+		while (!imuInterrupt) {
+			// wait for next imu interrupt
+		}
+		// reset imu interrupt flag
+		imuInterrupt = false;
+		
+		// blink LED fast to indicate altitude estimation
+		updateLED(LED_PIN, 1, 500);
+		
+		// update time
+		t = micros();
+		dt = (t - t0);	// in us
+		dt_s = (float) (dt) * 1.e-6;	// in s
+		t0 = t;
+		
+		// read imu measurements
+		imu.read_accel_gyro_rps(ax, ay, az, gx_rps, gy_rps, gz_rps);
+		imu.read_mag(mx, my, mz);
+		
+		madgwickFilter.get_euler_quaternion(dt_s, ax, ay, az, gx_rps, gy_rps, gz_rps, mx, my, mz, roll_angle, pitch_angle, yaw_angle, pose_q);
+		
+		calcAltitude();
+		
+		static uint32_t dt_baro;
+		if (barometerInterrupt) {
+			barometerInterrupt = false;
+			bmp388.getAltitude(baroAltitude);
+			
+			if (dt_baro > 1000000) {
+				DEBUG_PRINTLN(altitude);
+				
+				// altitude is estimated if vertical velocity coverged
+				if ((abs(altitude - altitude_init) * 1000000 / dt_baro) < init_velocity_v) {
+					DEBUG_PRINTLN(F("Initial altitude estimated."));
+					DEBUG_PRINTLN2(abs(altitude - altitude_init) * 1000000 / dt_baro, 2);
+					
+					break;
+				}
+				altitude_init = altitude;
+				dt_baro = 0;
+			}
+		}
+		dt_baro += dt;
+	}
 }
 
 // calibrate gyroscope, accelerometer or magnetometer on rc command and return true if any calibration was performed
@@ -855,15 +956,20 @@ void disarmAndResetQuad() {
 		yaw_rate_sp = 0;
 		
 		throttle_sp = 1000;
+		velocity_v_sp = 0;
+		
+		altitude_sp = altitude;
 		
 		// reset PID controller
 		roll_rate_pid.reset();
 		pitch_rate_pid.reset();
 		yaw_rate_pid.reset();
+		velocity_v_pid.reset();
 		
 		roll_rate_mv = 0;
 		pitch_rate_mv = 0;
 		yaw_rate_mv = 0;
+		velocity_v_mv = 0;
 		
 		// turn off motors
 		motor_1.write(0);
