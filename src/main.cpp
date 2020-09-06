@@ -536,11 +536,17 @@ void loop() {
 		// rate setpoints
 		roll_rate_sp = shape_position(roll_angle_sp - roll_angle, TIME_CONSTANT_ANGLE, ACCEL_MAX_ROLL_PITCH, roll_rate_sp);
 		pitch_rate_sp = shape_position(pitch_angle_sp - pitch_angle, TIME_CONSTANT_ANGLE, ACCEL_MAX_ROLL_PITCH, pitch_rate_sp);
-		yaw_rate_sp = shape_position(map((float) rc_channelValue[YAW], 1000, 2000, -YAW_RATE_LIMIT, YAW_RATE_LIMIT), TIME_CONSTANT_ANGLE, ACCEL_MAX_YAW, yaw_rate_sp);
+		
+		if (rc_channelValue[THROTTLE] < 1100) {
+			// if throttle is too low, disable setting a yaw rate, since it is physically impossible and might also cause problems when disarming
+			yaw_rate_sp = shape_velocity(0, ACCEL_MAX_YAW, yaw_rate_sp);
+		} else {
+			yaw_rate_sp = shape_velocity(map((float) rc_channelValue[YAW], 1000, 2000, -YAW_RATE_LIMIT, YAW_RATE_LIMIT), ACCEL_MAX_YAW, yaw_rate_sp);
+		}
 		
 		// TODO: Remove this test code
 		static float p_rate, i_rate, d_rate;
-		p_rate = map((float) rc_channelValue[4], 1000, 2000, 2.5, 5);
+		/*p_rate = map((float) rc_channelValue[4], 1000, 2000, 2.5, 5);
 		i_rate = map((float) 1000, 1000, 2000, 0, 1);
 		d_rate = map((float) rc_channelValue[5], 1000, 2000, 0.023, 0.05);
 		
@@ -550,7 +556,15 @@ void loop() {
 		
 		pitch_rate_pid.set_K_p(p_rate);
 		pitch_rate_pid.set_K_i(i_rate);
-		pitch_rate_pid.set_K_d(d_rate);
+		pitch_rate_pid.set_K_d(d_rate);*/
+		
+		p_rate = map((float) rc_channelValue[4], 1000, 2000, 0, 3);
+		i_rate = map((float) 1000, 1000, 2000, 0, 1);
+		d_rate = map((float) rc_channelValue[5], 1000, 2000, 0, 0.05);
+		
+		yaw_rate_pid.set_K_p(p_rate);
+		yaw_rate_pid.set_K_i(i_rate);
+		yaw_rate_pid.set_K_d(d_rate);
 		
 		// In order to ensure a smooth start, PID calculations are delayed until a minimum throttle value is applied.
 		if (started) {
@@ -622,6 +636,7 @@ void loop() {
 			//DEBUG_PRINTLN(roll_rate_sp);
 			
 			//DEBUG_PRINT(roll_angle); DEBUG_PRINT("\t"); DEBUG_PRINT(pitch_angle); DEBUG_PRINT("\t"); DEBUG_PRINT(yaw_angle); DEBUG_PRINT("\t");
+			//DEBUG_PRINTLN(yaw_rate_sp);
 			//DEBUG_PRINT(roll_rate); DEBUG_PRINT("\t"); DEBUG_PRINT(pitch_rate); DEBUG_PRINT("\t"); DEBUG_PRINTLN(yaw_rate);
 			
 			//DEBUG_PRINTLN(dt);
@@ -982,7 +997,7 @@ void arm_failsafe(uint8_t fs_config) {
 	static uint32_t t_arm = 0, t_disarm = 0;
 	if (rc_channelValue[ARM] == 2000) {	// arm switch needs to be set to enable arming, else disarm and reset
 		if ((rc_channelValue[THROTTLE] < 1100) && (((rc_channelValue[ROLL] > 1400) && (rc_channelValue[ROLL] < 1600)) && ((rc_channelValue[PITCH] > 1400) && (rc_channelValue[PITCH] < 1600)))) {
-			if ((rc_channelValue[YAW] > 1900) && (error_code == 0) && (!armed)) {	// arming is only allowed when no error occured
+			if ((rc_channelValue[YAW] > 1900) && (error_code == 0) && (!armed)) {	// arming is only allowed when no error occurred
 				// hold left stick bottom-right and keep right stick centered (2s) to complete arming
 				t_disarm = 0;
 				if (t_arm == 0) {
