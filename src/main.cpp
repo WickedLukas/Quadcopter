@@ -92,9 +92,9 @@
 // Throttle to enter started state and begin PID calculations.
 // The throttle stick position is centered around this value.
 // To ensure a smooth start, this value should be close to the throttle necessary for take off.
-#define THROTTLE_HOVER	1400
+#define THROTTLE_HOVER	1425
 // Set throttle limit (< 2000), so there is some headroom for pid control in order to keep the quadcopter stable during full throttle.
-#define THROTTLE_LIMIT	1750
+#define THROTTLE_LIMIT	1800
 
 // throttle deadzone (altitude hold) in per cent of throttle range (< 50)
 #define THROTTLE_DEADZONE_PCT 10
@@ -279,7 +279,7 @@ float roll_angle, pitch_angle, yaw_angle;	// euler angles
 float pose_q[4];							// quaternion
 
 // quadcopter altitude
-float altitude, altitude1, altitude2;
+float altitude;
 
 // TODO: Remove this later
 float a_ned_rel_q0, a_ned_rel_q1, a_ned_rel_q2, a_ned_rel_q3;
@@ -412,7 +412,7 @@ void setup() {
 		// Add time graphs. Notice the effect of points displayed on the time scale
 		//p.AddTimeGraph("Angles", 1000, "roll_angle", roll_angle, "pitch_angle", pitch_angle, "yaw_angle", yaw_angle);
 		//p.AddTimeGraph("Barometer altitude", 1000, "baroAltitude", baroAltitude);
-		//p.AddTimeGraph("Quadcopter altitude", 10000, "altitude", altitude, "altitude1", altitude1, "altitude2", altitude2);
+		//p.AddTimeGraph("Quadcopter altitude", 10000, "altitude", altitude);
 		//p.AddTimeGraph("Relative acceleration in ned-frame", 10000, "a_ned_rel_q1", a_ned_rel_q1, "a_ned_rel_q2", a_ned_rel_q2, "a_ned_rel_q3", a_ned_rel_q3);
 		p.AddTimeGraph("Quadcopter vertical velocity", 10000, "velocity_v", velocity_v, "velocity_v_sp", velocity_v_sp);
 	#endif
@@ -539,18 +539,18 @@ void loop() {
 		yaw_rate_sp = shape_position(map((float) rc_channelValue[YAW], 1000, 2000, -YAW_RATE_LIMIT, YAW_RATE_LIMIT), TIME_CONSTANT_ANGLE, ACCEL_MAX_YAW, yaw_rate_sp);
 		
 		// TODO: Remove this test code
-		//static float p_rate, i_rate, d_rate;
-		//p_rate = map((float) rc_channelValue[4], 1000, 2000, 2.5, 5);
-		//i_rate = map((float) rc_channelValue[5], 1000, 2000, 0, 1);
-		//d_rate = map((float) rc_channelValue[5], 1000, 2000, 0.023, 0.05);
+		static float p_rate, i_rate, d_rate;
+		p_rate = map((float) rc_channelValue[4], 1000, 2000, 2.5, 5);
+		i_rate = map((float) 1000, 1000, 2000, 0, 1);
+		d_rate = map((float) rc_channelValue[5], 1000, 2000, 0.023, 0.05);
 		
-		//roll_rate_pid.set_K_p(p_rate);
-		//roll_rate_pid.set_K_i(i_rate);
-		//roll_rate_pid.set_K_d(d_rate);
+		roll_rate_pid.set_K_p(p_rate);
+		roll_rate_pid.set_K_i(i_rate);
+		roll_rate_pid.set_K_d(d_rate);
 		
-		//pitch_rate_pid.set_K_p(p_rate);
-		//pitch_rate_pid.set_K_i(i_rate);
-		//pitch_rate_pid.set_K_d(d_rate);
+		pitch_rate_pid.set_K_p(p_rate);
+		pitch_rate_pid.set_K_i(i_rate);
+		pitch_rate_pid.set_K_d(d_rate);
 		
 		// In order to ensure a smooth start, PID calculations are delayed until a minimum throttle value is applied.
 		if (started) {
@@ -576,10 +576,10 @@ void loop() {
 			}
 			
 			// motor mixing
-			/*motor_1.write(constrain(throttle_sp + velocity_v_mv + roll_rate_mv - pitch_rate_mv - yaw_rate_mv, 1000, 2000));
+			motor_1.write(constrain(throttle_sp + velocity_v_mv + roll_rate_mv - pitch_rate_mv - yaw_rate_mv, 1000, 2000));
 			motor_2.write(constrain(throttle_sp + velocity_v_mv - roll_rate_mv - pitch_rate_mv + yaw_rate_mv, 1000, 2000));
 			motor_3.write(constrain(throttle_sp + velocity_v_mv - roll_rate_mv + pitch_rate_mv - yaw_rate_mv, 1000, 2000));
-			motor_4.write(constrain(throttle_sp + velocity_v_mv + roll_rate_mv + pitch_rate_mv + yaw_rate_mv, 1000, 2000));*/
+			motor_4.write(constrain(throttle_sp + velocity_v_mv + roll_rate_mv + pitch_rate_mv + yaw_rate_mv, 1000, 2000));
 		}
 		else {
 			motor_1.write(1000);
@@ -743,7 +743,7 @@ void estimatePose(float beta_init, float beta, float init_angleDifference, float
 // calculate accelerometer x and y angles in degrees
 void accelAngles(float& roll_angle_accel, float& pitch_angle_accel) {
 	roll_angle_accel = atan2(ay, az) * RAD2DEG;
-	pitch_angle_accel = atan2(-ax, sqrt(pow(ay,2) + pow(az,2))) * RAD2DEG;
+	pitch_angle_accel = atan2(-ax, sqrt(pow(ay, 2) + pow(az, 2))) * RAD2DEG;
 }
 
 // multiply two quaternions (Hamilton product)
@@ -789,26 +789,13 @@ void calcAltitude() {
 	// std_w: standard deviation in the noise of the acceleration (0.1 m/s²)
 	// std_v: standard deviation in the noise of the barometer altitude (0.11 m)
 	
-	static float ratio = 0.9, ratio1 = 0.45, ratio2 = 1.8;	// 0.9091
+	static const float ratio = 0.9;
 	
 	static const float k1 = sqrt(2 * ratio);	// 1.3484	
 	static const float k2 = ratio;				// 0.9091
 	
-	static const float k1_1 = sqrt(2 * ratio1);	
-	static const float k2_1 = ratio1;
-	
-	static const float k1_2 = sqrt(2 * ratio2);	
-	static const float k2_2 = ratio2;
-	
-	static float velocity_v1, velocity_v2;	// vertical velocity
 	altitude += dt_s * velocity_v + (k1 + 0.5 * dt_s * k2) * dt_s * (baroAltitude - altitude) + 0.5 * dt_s * a_ned_rel_q3 * dt_s;
 	velocity_v += k2 * dt_s * (baroAltitude - altitude) + a_ned_rel_q3 * dt_s;
-	
-	altitude1 += dt_s * velocity_v1 + (k1_1 + 0.5 * dt_s * k2_1) * dt_s * (baroAltitude - altitude1) + 0.5 * dt_s * a_ned_rel_q3 * dt_s;
-	velocity_v1 += k2_1 * dt_s * (baroAltitude - altitude1) + a_ned_rel_q3 * dt_s;
-	
-	altitude2 += dt_s * velocity_v2 + (k1_2 + 0.5 * dt_s * k2_2) * dt_s * (baroAltitude - altitude2) + 0.5 * dt_s * a_ned_rel_q3 * dt_s;
-	velocity_v2 += k2_2 * dt_s * (baroAltitude - altitude2) + a_ned_rel_q3 * dt_s;
 }
 
 // estimate initial altitude
