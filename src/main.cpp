@@ -529,45 +529,47 @@ void loop() {
 			throttle_sp = constrain((float) (throttle_sp - 1000) / (pose_q[0]*pose_q[0] - pose_q[1]*pose_q[1] - pose_q[2]*pose_q[2] + pose_q[3]*pose_q[3]) + 1000, 1000, THROTTLE_LIMIT);
 		}
 		
-		// angle setpoints
-		roll_angle_sp = map((float) rc_channelValue[ROLL], 1000, 2000, -ROLL_ANGLE_LIMIT, ROLL_ANGLE_LIMIT);
-		pitch_angle_sp = map((float) rc_channelValue[PITCH], 1000, 2000, -PITCH_ANGLE_LIMIT, PITCH_ANGLE_LIMIT);
-		
-		// rate setpoints
-		roll_rate_sp = shape_position(roll_angle_sp - roll_angle, TIME_CONSTANT_ANGLE, ACCEL_MAX_ROLL_PITCH, roll_rate_sp);
-		pitch_rate_sp = shape_position(pitch_angle_sp - pitch_angle, TIME_CONSTANT_ANGLE, ACCEL_MAX_ROLL_PITCH, pitch_rate_sp);
-		
-		if (rc_channelValue[THROTTLE] < 1100) {
-			// if throttle is too low, disable setting a yaw rate, since it is physically impossible and might also cause problems when disarming
-			yaw_rate_sp = shape_velocity(0, ACCEL_MAX_YAW, yaw_rate_sp);
-		} else {
-			yaw_rate_sp = shape_velocity(map((float) rc_channelValue[YAW], 1000, 2000, -YAW_RATE_LIMIT, YAW_RATE_LIMIT), ACCEL_MAX_YAW, yaw_rate_sp);
-		}
-		
-		// TODO: Remove this test code
-		static float p_rate, i_rate, d_rate;
-		/*p_rate = map((float) rc_channelValue[4], 1000, 2000, 2.5, 5);
-		i_rate = map((float) 1000, 1000, 2000, 0, 1);
-		d_rate = map((float) rc_channelValue[5], 1000, 2000, 0.023, 0.05);
-		
-		roll_rate_pid.set_K_p(p_rate);
-		roll_rate_pid.set_K_i(i_rate);
-		roll_rate_pid.set_K_d(d_rate);
-		
-		pitch_rate_pid.set_K_p(p_rate);
-		pitch_rate_pid.set_K_i(i_rate);
-		pitch_rate_pid.set_K_d(d_rate);*/
-		
-		p_rate = map((float) rc_channelValue[4], 1000, 2000, 0, 3);
-		i_rate = map((float) 1000, 1000, 2000, 0, 1);
-		d_rate = map((float) rc_channelValue[5], 1000, 2000, 0, 0.05);
-		
-		yaw_rate_pid.set_K_p(p_rate);
-		yaw_rate_pid.set_K_i(i_rate);
-		yaw_rate_pid.set_K_d(d_rate);
-		
 		// In order to ensure a smooth start, PID calculations are delayed until a minimum throttle value is applied.
 		if (started) {
+			// angle setpoints
+			roll_angle_sp = map((float) rc_channelValue[ROLL], 1000, 2000, -ROLL_ANGLE_LIMIT, ROLL_ANGLE_LIMIT);
+			pitch_angle_sp = map((float) rc_channelValue[PITCH], 1000, 2000, -PITCH_ANGLE_LIMIT, PITCH_ANGLE_LIMIT);
+			
+			// rate setpoints
+			roll_rate_sp = shape_position(roll_angle_sp - roll_angle, TIME_CONSTANT_ANGLE, ACCEL_MAX_ROLL_PITCH, roll_rate_sp);
+			pitch_rate_sp = shape_position(pitch_angle_sp - pitch_angle, TIME_CONSTANT_ANGLE, ACCEL_MAX_ROLL_PITCH, pitch_rate_sp);
+			
+			if (rc_channelValue[THROTTLE] < 1100) {
+				// if throttle is too low, disable setting a yaw rate, since it might cause problems when disarming
+				yaw_rate_sp = shape_velocity(0, ACCEL_MAX_YAW, yaw_rate_sp);
+			} else {
+				yaw_rate_sp = shape_velocity(map((float) rc_channelValue[YAW], 1000, 2000, YAW_RATE_LIMIT, -YAW_RATE_LIMIT), ACCEL_MAX_YAW, yaw_rate_sp);
+			}
+			
+			
+			// TODO: Remove this test code
+			static float p_rate, i_rate, d_rate;
+			/*p_rate = map((float) rc_channelValue[4], 1000, 2000, 2.5, 5);
+			i_rate = map((float) 1000, 1000, 2000, 0, 1);
+			d_rate = map((float) rc_channelValue[5], 1000, 2000, 0.023, 0.05);
+			
+			roll_rate_pid.set_K_p(p_rate);
+			roll_rate_pid.set_K_i(i_rate);
+			roll_rate_pid.set_K_d(d_rate);
+			
+			pitch_rate_pid.set_K_p(p_rate);
+			pitch_rate_pid.set_K_i(i_rate);
+			pitch_rate_pid.set_K_d(d_rate);*/
+			
+			p_rate = map((float) rc_channelValue[4], 1000, 2000, 0, 2);
+			//i_rate = map((float) rc_channelValue[5], 1000, 2000, 0, 0.1);
+			//d_rate = map((float) rc_channelValue[5], 1000, 2000, 0, 0.05);
+			
+			yaw_rate_pid.set_K_p(p_rate);
+			yaw_rate_pid.set_K_i(0);
+			yaw_rate_pid.set_K_d(0);
+			
+			
 			// calculate manipulated variables for attitude hold
 			roll_rate_mv = roll_rate_pid.get_mv(roll_rate_sp, roll_rate, dt_s);
 			pitch_rate_mv = pitch_rate_pid.get_mv(pitch_rate_sp, pitch_rate, dt_s);
@@ -588,19 +590,8 @@ void loop() {
 				// calculate manipulated variable for altitude hold
 				velocity_v_mv = velocity_v_pid.get_mv(velocity_v_sp, velocity_v, dt_s);
 			}
-			
-			// motor mixing
-			motor_1.write(constrain(throttle_sp + velocity_v_mv + roll_rate_mv - pitch_rate_mv - yaw_rate_mv, 1000, 2000));
-			motor_2.write(constrain(throttle_sp + velocity_v_mv - roll_rate_mv - pitch_rate_mv + yaw_rate_mv, 1000, 2000));
-			motor_3.write(constrain(throttle_sp + velocity_v_mv - roll_rate_mv + pitch_rate_mv - yaw_rate_mv, 1000, 2000));
-			motor_4.write(constrain(throttle_sp + velocity_v_mv + roll_rate_mv + pitch_rate_mv + yaw_rate_mv, 1000, 2000));
 		}
 		else {
-			motor_1.write(1000);
-			motor_2.write(1000);
-			motor_3.write(1000);
-			motor_4.write(1000);
-			
 			altitude_sp = altitude;
 			
 			if (throttle_sp > THROTTLE_HOVER) {
@@ -608,6 +599,12 @@ void loop() {
 				DEBUG_PRINTLN("Started!");
 			}
 		}
+		
+		// motor mixing
+		motor_1.write(constrain(throttle_sp + velocity_v_mv + roll_rate_mv - pitch_rate_mv + yaw_rate_mv, 1000, 2000));
+		motor_2.write(constrain(throttle_sp + velocity_v_mv - roll_rate_mv - pitch_rate_mv - yaw_rate_mv, 1000, 2000));
+		motor_3.write(constrain(throttle_sp + velocity_v_mv - roll_rate_mv + pitch_rate_mv + yaw_rate_mv, 1000, 2000));
+		motor_4.write(constrain(throttle_sp + velocity_v_mv + roll_rate_mv + pitch_rate_mv - yaw_rate_mv, 1000, 2000));
 	}
 	else {
 		// for safety reasons repeat disarm and reset, even when it was already done
