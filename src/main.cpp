@@ -414,7 +414,7 @@ void setup() {
 		//p.AddTimeGraph("Barometer altitude", 1000, "baroAltitude", baroAltitude);
 		//p.AddTimeGraph("Quadcopter altitude", 10000, "altitude", altitude);
 		//p.AddTimeGraph("Relative acceleration in ned-frame", 10000, "a_ned_rel_q1", a_ned_rel_q1, "a_ned_rel_q2", a_ned_rel_q2, "a_ned_rel_q3", a_ned_rel_q3);
-		p.AddTimeGraph("Quadcopter vertical velocity", 10000, "velocity_v", velocity_v, "velocity_v_sp", velocity_v_sp);
+		//p.AddTimeGraph("Quadcopter vertical velocity", 10000, "velocity_v", velocity_v, "velocity_v_sp", velocity_v_sp);
 	#endif
 }
 
@@ -561,12 +561,12 @@ void loop() {
 			pitch_rate_pid.set_K_i(i_rate);
 			pitch_rate_pid.set_K_d(d_rate);*/
 			
-			p_rate = map((float) rc_channelValue[4], 1000, 2000, 0, 2);
-			//i_rate = map((float) rc_channelValue[5], 1000, 2000, 0, 0.1);
-			//d_rate = map((float) rc_channelValue[5], 1000, 2000, 0, 0.05);
+			p_rate = constrain(map((float) rc_channelValue[4], 1000, 2000, -0.2, 2), 0, 2);
+			i_rate = constrain(map((float) rc_channelValue[5], 1000, 2000, -0.001, 0.01), 0, 0.01);
+			d_rate = constrain(map((float) rc_channelValue[5], 1000, 2000, -0.001, 0.01), 0, 0.01);
 			
 			yaw_rate_pid.set_K_p(p_rate);
-			yaw_rate_pid.set_K_i(0);
+			yaw_rate_pid.set_K_i(i_rate);
 			yaw_rate_pid.set_K_d(0);
 			
 			
@@ -601,10 +601,12 @@ void loop() {
 		}
 		
 		// motor mixing
-		motor_1.write(constrain(throttle_sp + velocity_v_mv + roll_rate_mv - pitch_rate_mv + yaw_rate_mv, 1000, 2000));
-		motor_2.write(constrain(throttle_sp + velocity_v_mv - roll_rate_mv - pitch_rate_mv - yaw_rate_mv, 1000, 2000));
-		motor_3.write(constrain(throttle_sp + velocity_v_mv - roll_rate_mv + pitch_rate_mv + yaw_rate_mv, 1000, 2000));
-		motor_4.write(constrain(throttle_sp + velocity_v_mv + roll_rate_mv + pitch_rate_mv - yaw_rate_mv, 1000, 2000));
+		#if !defined(DEBUG) && !defined(SEND_SERIAL) && !defined(PLOT)	// apply thrust only if all debug modes are turned off
+			motor_1.write(constrain(throttle_sp + velocity_v_mv + roll_rate_mv - pitch_rate_mv + yaw_rate_mv, 1000, 2000));
+			motor_2.write(constrain(throttle_sp + velocity_v_mv - roll_rate_mv - pitch_rate_mv - yaw_rate_mv, 1000, 2000));
+			motor_3.write(constrain(throttle_sp + velocity_v_mv - roll_rate_mv + pitch_rate_mv + yaw_rate_mv, 1000, 2000));
+			motor_4.write(constrain(throttle_sp + velocity_v_mv + roll_rate_mv + pitch_rate_mv - yaw_rate_mv, 1000, 2000));
+		#endif
 	}
 	else {
 		// for safety reasons repeat disarm and reset, even when it was already done
