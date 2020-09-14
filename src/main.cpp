@@ -87,8 +87,12 @@
 #define ROLL_ANGLE_LIMIT	30		// deg
 #define PITCH_ANGLE_LIMIT	30		// deg
 
-#define VELOCITY_V_LIMIT		2.5		// m/s
+#define VELOCITY_V_LIMIT	2.5		// m/s
 
+// Throttle when armed (slightly above esc/motor deadzone)
+#define THROTTLE_ARMED	1100
+// Minimum throttle during flight (above THROTTLE_ARMED)
+#define THROTTLE_MIN	1200
 // Throttle to enter started state and begin PID calculations.
 // The throttle stick position is centered around this value.
 // To ensure a smooth start, this value should be close to the throttle necessary for take off.
@@ -96,12 +100,12 @@
 // Set throttle limit (< 2000), so there is some headroom for pid control in order to keep the quadcopter stable during full throttle.
 #define THROTTLE_LIMIT	1800
 
-// throttle deadzone (altitude hold) in per cent of throttle range (< 50)
-#define THROTTLE_DEADZONE_PCT 10
+// throttle deadzone (altitude hold) in per cent of throttle range
+#define THROTTLE_DEADZONE_PCT 20
 
 // throttle deadzone limits within which altitude hold is active
-const uint16_t THROTTLE_DEADZONE_BOT = 1000 + 10 * (50 - THROTTLE_DEADZONE_PCT);
-const uint16_t THROTTLE_DEADZONE_TOP = 1000 + 10 * (50 + THROTTLE_DEADZONE_PCT);
+const uint16_t THROTTLE_DEADZONE_BOT = 1000 + 10 * (50 - 0.5 * THROTTLE_DEADZONE_PCT);
+const uint16_t THROTTLE_DEADZONE_TOP = 1000 + 10 * (50 + 0.5 * THROTTLE_DEADZONE_PCT);
 
 // angle controller acceleration limits (deg/ss)
 //const float ACCEL_MIN_ROLL_PITCH = 40;
@@ -517,7 +521,12 @@ void loop() {
 	if (armed) {
 		// throttle setpoint
 		if (rc_channelValue[THROTTLE] < 1500) {
-			throttle_sp = map((float) rc_channelValue[THROTTLE], 1000, 1500, 1000, THROTTLE_HOVER);
+			if (!started) {
+				throttle_sp = map((float) rc_channelValue[THROTTLE], 1000, 1500, THROTTLE_ARMED, THROTTLE_HOVER);
+			}
+			else {
+				throttle_sp = map((float) rc_channelValue[THROTTLE], 1000, 1500, THROTTLE_MIN, THROTTLE_HOVER);
+			}
 		}
 		else {
 			throttle_sp = map((float) rc_channelValue[THROTTLE], 1500, 2000, THROTTLE_HOVER, THROTTLE_LIMIT);
@@ -561,8 +570,8 @@ void loop() {
 			pitch_rate_pid.set_K_i(i_rate);
 			pitch_rate_pid.set_K_d(d_rate);*/
 			
-			p_rate = constrain(map((float) rc_channelValue[4], 1000, 2000, -0.2, 2), 0, 2);
-			i_rate = constrain(map((float) rc_channelValue[5], 1000, 2000, -0.001, 0.01), 0, 0.01);
+			p_rate = constrain(map((float) rc_channelValue[4], 1000, 2000, -0.4, 4), 0, 4);
+			i_rate = constrain(map((float) rc_channelValue[5], 1000, 2000, -0.1, 1), 0, 1);
 			d_rate = constrain(map((float) rc_channelValue[5], 1000, 2000, -0.001, 0.01), 0, 0.01);
 			
 			yaw_rate_pid.set_K_p(p_rate);
