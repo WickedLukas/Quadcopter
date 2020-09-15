@@ -198,6 +198,9 @@ float yaw_angle_init = -1000;
 // initial quadcopter altitude - this should be initialised with an implausible value
 float altitude_init = -1000;
 
+// pointer on an array of 10 received rc channel values [1000; 2000]
+uint16_t *rc_channelValue;
+
 // motor class
 class MotorsQuadcopter {
 	public:
@@ -327,9 +330,6 @@ uint32_t t0, t;
 int32_t dt;
 // measured imu update time in seconds
 float dt_s;
-
-// pointer on an array of 10 received rc channel values [1000; 2000]
-uint16_t *rc_channelValue;
 
 // flight setpoints
 float throttle_sp;
