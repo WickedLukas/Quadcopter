@@ -199,8 +199,7 @@ float yaw_angle_init = -1000;
 float altitude_init = -1000;
 
 // motor class
-class MotorsQuadcopter
-{
+class MotorsQuadcopter {
 	public:
 	
 	// constructor
@@ -298,7 +297,7 @@ class MotorsQuadcopter
 
 	uint8_t m_motor1_pin, m_motor2_pin, m_motor3_pin, m_motor4_pin;
 	uint8_t m_motor_pwm_resolution;
-	uint8_t m_motor_pwm_frequency;
+	uint16_t m_motor_pwm_frequency;
 
 	// motor state
 	enum class State {armed, disarmed, arming} m_state = State::disarmed;
