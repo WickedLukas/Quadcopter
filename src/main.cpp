@@ -81,7 +81,7 @@
 #define INIT_RATE 0.05	// maximum angular rate of Madgwick-filtered angle (z-axis) after initialisation
 #define INIT_VELOCITY_V 0.50	// maximum vertical velocity after initialisation
 
-// limits for the flight setpoints
+// flight setpoint limits
 #define YAW_RATE_LIMIT		180		// deg/s
 
 #define ROLL_ANGLE_LIMIT	30		// deg
@@ -89,14 +89,14 @@
 
 #define VELOCITY_V_LIMIT	2.5		// m/s
 
-// Throttle when armed (slightly above esc/motor deadzone)
+// throttle when armed (slightly above esc/motor deadzone)
 #define THROTTLE_ARMED	1100
-// Minimum throttle during flight (above THROTTLE_ARMED)
+// minimum throttle during flight (above THROTTLE_ARMED)
 #define THROTTLE_MIN	1200
 // Throttle to enter started state and begin PID calculations.
 // The throttle stick position is centered around this value.
 // To ensure a smooth start, this value should be close to the throttle necessary for take off.
-#define THROTTLE_HOVER	1425
+#define THROTTLE_HOVER	1450
 // Set throttle limit (< 2000), so there is some headroom for pid control in order to keep the quadcopter stable during full throttle.
 #define THROTTLE_LIMIT	1800
 
@@ -110,8 +110,8 @@ const uint16_t THROTTLE_DEADZONE_TOP = 1000 + 10 * (50 + 0.5 * THROTTLE_DEADZONE
 // angle controller acceleration limits (deg/ss)
 //const float ACCEL_MIN_ROLL_PITCH = 40;
 //const float ACCEL_MIN_YAW = 10;
-const float ACCEL_MAX_ROLL_PITCH = 1100;	// 720
-const float ACCEL_MAX_YAW = 270;	// 120
+const float ACCEL_MAX_ROLL_PITCH = 720;	// 1100, 720
+const float ACCEL_MAX_YAW = 180;	// 270, 180
 // angle controller time constant
 const float TIME_CONSTANT_ANGLE = 0.15;
 
