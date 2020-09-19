@@ -92,7 +92,7 @@
 // throttle when armed (slightly above esc/motor deadzone)
 #define THROTTLE_ARMED	1100
 // minimum throttle during flight (above THROTTLE_ARMED)
-#define THROTTLE_MIN	1200
+#define THROTTLE_MIN	1300
 // Throttle to enter started state and begin PID calculations.
 // The throttle stick position is centered around this value.
 // To ensure a smooth start, this value should be close to the throttle necessary for take off.
@@ -110,8 +110,8 @@ const uint16_t THROTTLE_DEADZONE_TOP = 1000 + 10 * (50 + 0.5 * THROTTLE_DEADZONE
 // angle controller acceleration limits (deg/ss)
 //const float ACCEL_MIN_ROLL_PITCH = 40;
 //const float ACCEL_MIN_YAW = 10;
-const float ACCEL_MAX_ROLL_PITCH = 720;	// 1100, 720
-const float ACCEL_MAX_YAW = 180;	// 270, 180
+const float ACCEL_MAX_ROLL_PITCH = 1100;	// 1100, 720
+const float ACCEL_MAX_YAW = 270;	// 270, 180
 // angle controller time constant
 const float TIME_CONSTANT_ANGLE = 0.15;
 
@@ -130,9 +130,9 @@ const float P_VELOCITY_V = 1.000,	I_VELOCITY_V = 0.000,	D_VELOCITY_V = 0.000; 	/
 
 // moving average filter configuration for the angular rates (gyro)
 // TODO: Use notch filter or a band stop filter from two EMA filters with specified cut off frequencies.
-const float EMA_ROLL_RATE	= 0.006;
-const float EMA_PITCH_RATE	= 0.006;
-const float EMA_YAW_RATE	= 0.006;
+const float EMA_ROLL_RATE	= 0.008;
+const float EMA_PITCH_RATE	= 0.008;
+const float EMA_YAW_RATE	= 0.008;
 
 // failsafe configuration
 const uint8_t FS_IMU		= 0b00000001;
@@ -319,7 +319,7 @@ MADGWICK_AHRS madgwickFilter(BETA_INIT);
 // rate PID controller
 PID_controller roll_rate_pid(P_ROLL_RATE, I_ROLL_RATE, D_ROLL_RATE, 0, 0, 500, 50);
 PID_controller pitch_rate_pid(P_PITCH_RATE, I_PITCH_RATE, D_PITCH_RATE, 0, 0, 500, 50);
-PID_controller yaw_rate_pid(P_YAW_RATE, I_YAW_RATE, D_YAW_RATE, 0, 0, 500, 100);
+PID_controller yaw_rate_pid(P_YAW_RATE, I_YAW_RATE, D_YAW_RATE, 0, 0, 500, 50);
 
 // vertical velocity PID controller for altitude hold
 PID_controller velocity_v_pid(P_VELOCITY_V, I_VELOCITY_V, D_VELOCITY_V, 0, 0, THROTTLE_LIMIT - 1000, 200);
