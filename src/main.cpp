@@ -111,7 +111,7 @@ const uint16_t THROTTLE_DEADZONE_TOP = 1000 + 10 * (50 + 0.5 * THROTTLE_DEADZONE
 //const float ACCEL_MIN_ROLL_PITCH = 40;
 //const float ACCEL_MIN_YAW = 10;
 const float ACCEL_MAX_ROLL_PITCH = 1100;	// 1100, 720
-const float ACCEL_MAX_YAW = 270;	// 270, 180
+const float ACCEL_MAX_YAW = 180;	// 270, 180
 // angle controller time constant
 const float TIME_CONSTANT_ANGLE = 0.15;
 
@@ -121,18 +121,18 @@ const float ACCEL_V_MAX = 2.5;
 const float TIME_CONSTANT_ALTITUDE = 0.5;
 
 // angular rate PID values
-const float P_ROLL_RATE = 2.500,	I_ROLL_RATE = 0.000,	D_ROLL_RATE = 0.023; 	// 2.500, 0.000, 0.023 @ 0.006 EMA_RATE
-const float P_PITCH_RATE = 2.500,	I_PITCH_RATE = 0.000,	D_PITCH_RATE = 0.023;
-const float P_YAW_RATE = 1.000,		I_YAW_RATE = 0.000,		D_YAW_RATE = 0.000;		// 0.200, 0.000, 0.000
+const float P_ROLL_RATE = 2.000,	I_ROLL_RATE = 0.000,	D_ROLL_RATE = 0.022; 	// 2.500, 0.000, 0.023 @ 0.006 EMA_RATE
+const float P_PITCH_RATE = 2.000,	I_PITCH_RATE = 0.000,	D_PITCH_RATE = 0.022;
+const float P_YAW_RATE = 2.500,		I_YAW_RATE = 1.000,		D_YAW_RATE = 0.000;		// 0.200, 0.000, 0.000
 
 // vertical velocity PID values for altitude hold
 const float P_VELOCITY_V = 1.000,	I_VELOCITY_V = 0.000,	D_VELOCITY_V = 0.000; 	// 1.000, 0.000, 0.000
 
 // moving average filter configuration for the angular rates (gyro)
 // TODO: Use notch filter or a band stop filter from two EMA filters with specified cut off frequencies.
-const float EMA_ROLL_RATE	= 0.006;
-const float EMA_PITCH_RATE	= 0.006;
-const float EMA_YAW_RATE	= 0.006;
+const float EMA_ROLL_RATE	= 0.005;
+const float EMA_PITCH_RATE	= 0.005;
+const float EMA_YAW_RATE	= 0.005;
 
 // failsafe configuration
 const uint8_t FS_IMU		= 0b00000001;
@@ -319,7 +319,7 @@ MADGWICK_AHRS madgwickFilter(BETA_INIT);
 // rate PID controller
 PID_controller roll_rate_pid(P_ROLL_RATE, I_ROLL_RATE, D_ROLL_RATE, 0, 0, 500, 50);
 PID_controller pitch_rate_pid(P_PITCH_RATE, I_PITCH_RATE, D_PITCH_RATE, 0, 0, 500, 50);
-PID_controller yaw_rate_pid(P_YAW_RATE, I_YAW_RATE, D_YAW_RATE, 0, 0, 500, 50);
+PID_controller yaw_rate_pid(P_YAW_RATE, I_YAW_RATE, D_YAW_RATE, 0, 0, 500, 100);
 
 // vertical velocity PID controller for altitude hold
 PID_controller velocity_v_pid(P_VELOCITY_V, I_VELOCITY_V, D_VELOCITY_V, 0, 0, THROTTLE_LIMIT - 1000, 200);
@@ -634,9 +634,9 @@ void loop() {
 			
 			// TODO: Remove this test code
 			static float p_rate, i_rate, d_rate;
-			/*p_rate = map((float) rc_channelValue[4], 1000, 2000, 2.5, 5);
+			/*p_rate = map((float) rc_channelValue[4], 1000, 2000, 2, 3);
 			i_rate = map((float) 1000, 1000, 2000, 0, 1);
-			d_rate = map((float) rc_channelValue[5], 1000, 2000, 0.023, 0.05);
+			d_rate = map((float) rc_channelValue[5], 1000, 2000, 0.022, 0.03);
 			
 			roll_rate_pid.set_K_p(p_rate);
 			roll_rate_pid.set_K_i(i_rate);
@@ -646,8 +646,8 @@ void loop() {
 			pitch_rate_pid.set_K_i(i_rate);
 			pitch_rate_pid.set_K_d(d_rate);*/
 			
-			p_rate = constrain(map((float) rc_channelValue[4], 1000, 2000, -0.5, 5), 0, 5);
-			i_rate = constrain(map((float) rc_channelValue[5], 1000, 2000, -0.1, 1), 0, 1);
+			p_rate = constrain(map((float) rc_channelValue[4], 1000, 2000, 2.5, 5), 2.5, 5);
+			i_rate = constrain(map((float) rc_channelValue[5], 1000, 2000, 1, 2), 1, 2);
 			d_rate = constrain(map((float) rc_channelValue[5], 1000, 2000, -0.001, 0.01), 0, 0.01);
 			
 			yaw_rate_pid.set_K_p(p_rate);
