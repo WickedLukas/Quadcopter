@@ -130,9 +130,9 @@ const float P_VELOCITY_V = 1.000,	I_VELOCITY_V = 0.000,	D_VELOCITY_V = 0.000; 	/
 
 // moving average filter configuration for the angular rates (gyro)
 // TODO: Use notch filter or a band stop filter from two EMA filters with specified cut off frequencies.
-const float EMA_ROLL_RATE	= 0.008;
-const float EMA_PITCH_RATE	= 0.008;
-const float EMA_YAW_RATE	= 0.008;
+const float EMA_ROLL_RATE	= 0.006;
+const float EMA_PITCH_RATE	= 0.006;
+const float EMA_YAW_RATE	= 0.006;
 
 // failsafe configuration
 const uint8_t FS_IMU		= 0b00000001;
@@ -150,7 +150,7 @@ const uint8_t FS_CONFIG		= 0b00000011;
 
 // failsafe motion limits
 #define FS_MOTION_ANGLE_LIMIT 60
-#define FS_MOTION_RATE_LIMIT 270
+#define FS_MOTION_RATE_LIMIT 450
 
 // failsafe control limits
 #define FS_CONTROL_ANGLE_DIFF 30
@@ -486,7 +486,10 @@ void setup() {
 		p.Begin();
 		
 		// Add time graphs. Notice the effect of points displayed on the time scale
-		//p.AddTimeGraph("Angles", 1000, "roll_angle", roll_angle, "pitch_angle", pitch_angle, "yaw_angle", yaw_angle);
+		//p.AddTimeGraph("Angles", 5000, "roll_angle", roll_angle, "pitch_angle", pitch_angle, "yaw_angle", yaw_angle);
+		//p.AddTimeGraph("Rates", 5000, "roll_rate", roll_rate, "pitch_rate", pitch_rate, "yaw_rate", yaw_rate);
+		//p.AddTimeGraph("mv", 5000, "roll_rate_sp", roll_rate_sp, "pitch_rate_sp", pitch_rate_sp, "yaw_rate_sp", yaw_rate_sp);
+		//p.AddTimeGraph("mv", 5000, "roll_rate_mv", roll_rate_mv, "pitch_rate_mv", pitch_rate_mv, "yaw_rate_mv", yaw_rate_mv);
 		//p.AddTimeGraph("Barometer altitude", 1000, "baroAltitude", baroAltitude);
 		//p.AddTimeGraph("Quadcopter altitude", 10000, "altitude", altitude);
 		//p.AddTimeGraph("Relative acceleration in ned-frame", 10000, "a_ned_rel_q1", a_ned_rel_q1, "a_ned_rel_q2", a_ned_rel_q2, "a_ned_rel_q3", a_ned_rel_q3);
@@ -585,6 +588,7 @@ void loop() {
 	
 	// filter gyro rates
 	// TODO: Use a notch filter or a bandstop filter made from a combination of two EMA filters instead
+	// TODO: Special filter for D of PID controller (20Hz LPF - alpha = 0.35)
 	roll_rate = ema_filter(gx_rps * RAD2DEG, roll_rate, EMA_ROLL_RATE);
 	pitch_rate = ema_filter(gy_rps * RAD2DEG, pitch_rate, EMA_PITCH_RATE);
 	yaw_rate = ema_filter(gz_rps * RAD2DEG, yaw_rate, EMA_YAW_RATE);
@@ -642,8 +646,8 @@ void loop() {
 			pitch_rate_pid.set_K_i(i_rate);
 			pitch_rate_pid.set_K_d(d_rate);*/
 			
-			p_rate = constrain(map((float) rc_channelValue[4], 1000, 2000, -1, 10), 0, 10);
-			i_rate = constrain(map((float) rc_channelValue[5], 1000, 2000, -1, 10), 0, 10);
+			p_rate = constrain(map((float) rc_channelValue[4], 1000, 2000, -0.5, 5), 0, 5);
+			i_rate = constrain(map((float) rc_channelValue[5], 1000, 2000, -0.1, 1), 0, 1);
 			d_rate = constrain(map((float) rc_channelValue[5], 1000, 2000, -0.001, 0.01), 0, 0.01);
 			
 			yaw_rate_pid.set_K_p(p_rate);
