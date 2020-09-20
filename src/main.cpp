@@ -121,9 +121,9 @@ const float ACCEL_V_MAX = 2.5;
 const float TIME_CONSTANT_ALTITUDE = 0.5;
 
 // angular rate PID values
-const float P_ROLL_RATE = 1.750,	I_ROLL_RATE = 0.000,	D_ROLL_RATE = 0.022; 	// 2.500, 0.000, 0.023 @ 0.006 EMA_RATE
-const float P_PITCH_RATE = 2.000,	I_PITCH_RATE = 0.000,	D_PITCH_RATE = 0.022;
-const float P_YAW_RATE = 2.000,		I_YAW_RATE = 0.750,		D_YAW_RATE = 0.000;		// 0.200, 0.000, 0.000
+const float P_ROLL_RATE = 1.750,	I_ROLL_RATE = 0.000,	D_ROLL_RATE = 0.02; 	// 2.500, 0.000, 0.023 @ 0.006 EMA_RATE
+const float P_PITCH_RATE = 1.750,	I_PITCH_RATE = 0.000,	D_PITCH_RATE = 0.02;
+const float P_YAW_RATE = 1.000,		I_YAW_RATE = 0.750,		D_YAW_RATE = 0.000;		// 0.200, 0.000, 0.000
 
 // vertical velocity PID values for altitude hold
 const float P_VELOCITY_V = 1.000,	I_VELOCITY_V = 0.000,	D_VELOCITY_V = 0.000; 	// 1.000, 0.000, 0.000
@@ -651,9 +651,9 @@ void loop() {
 			
 			// TODO: Remove this test code
 			static float p_rate, i_rate, d_rate;
-			/*p_rate = map((float) rc_channelValue[4], 1000, 2000, 2, 3);
+			/*p_rate = map((float) rc_channelValue[4], 1000, 2000, 1.75, 2.75);
 			i_rate = map((float) 1000, 1000, 2000, 0, 1);
-			d_rate = map((float) rc_channelValue[5], 1000, 2000, 0.022, 0.03);
+			d_rate = map((float) rc_channelValue[5], 1000, 2000, 0.02, 0.03);
 			
 			roll_rate_pid.set_K_p(p_rate);
 			roll_rate_pid.set_K_i(i_rate);
@@ -663,7 +663,7 @@ void loop() {
 			pitch_rate_pid.set_K_i(i_rate);
 			pitch_rate_pid.set_K_d(d_rate);*/
 			
-			p_rate = constrain(map((float) rc_channelValue[4], 1000, 2000, 2, 3), 2, 3);
+			p_rate = constrain(map((float) rc_channelValue[4], 1000, 2000, 1, 2), 1, 2);
 			i_rate = constrain(map((float) rc_channelValue[5], 1000, 2000, 0.75, 1.75), 0.75, 1.75);
 			d_rate = constrain(map((float) rc_channelValue[5], 1000, 2000, -0.001, 0.01), 0, 0.01);
 			
