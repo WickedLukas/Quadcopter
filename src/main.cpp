@@ -121,9 +121,9 @@ const float ACCEL_V_MAX = 2.5;
 const float TIME_CONSTANT_ALTITUDE = 0.5;
 
 // angular rate PID values
-const float P_ROLL_RATE = 2.000,	I_ROLL_RATE = 0.000,	D_ROLL_RATE = 0.022; 	// 2.500, 0.000, 0.023 @ 0.006 EMA_RATE
+const float P_ROLL_RATE = 1.750,	I_ROLL_RATE = 0.000,	D_ROLL_RATE = 0.022; 	// 2.500, 0.000, 0.023 @ 0.006 EMA_RATE
 const float P_PITCH_RATE = 2.000,	I_PITCH_RATE = 0.000,	D_PITCH_RATE = 0.022;
-const float P_YAW_RATE = 2.500,		I_YAW_RATE = 1.000,		D_YAW_RATE = 0.000;		// 0.200, 0.000, 0.000
+const float P_YAW_RATE = 2.000,		I_YAW_RATE = 0.750,		D_YAW_RATE = 0.000;		// 0.200, 0.000, 0.000
 
 // vertical velocity PID values for altitude hold
 const float P_VELOCITY_V = 1.000,	I_VELOCITY_V = 0.000,	D_VELOCITY_V = 0.000; 	// 1.000, 0.000, 0.000
@@ -201,6 +201,9 @@ float altitude_init = -1000;
 // pointer on an array of 10 received rc channel values [1000; 2000]
 uint16_t *rc_channelValue;
 
+// enum class for motor states
+enum class State {armed, disarmed, arming, disarming};
+
 // motor class
 class MotorsQuadcopter {
 	public:
@@ -231,33 +234,30 @@ class MotorsQuadcopter {
 
 		switch (m_state) {
 			case State::armed:
-				#if !defined(DEBUG) && !defined(SEND_SERIAL) && !defined(PLOT)	// apply thrust only if all debug modes are turned off
-					analogWrite(m_motor1_pin, pwm1);
-					analogWrite(m_motor2_pin, pwm2);
-					analogWrite(m_motor3_pin, pwm3);
-					analogWrite(m_motor4_pin, pwm4);
-				#endif
+				analogWriteMotors(pwm1, pwm2, pwm3, pwm4);
 				break;
 
 			case State::disarmed:
-				analogWrite(m_motor1_pin, 0);
-				analogWrite(m_motor2_pin, 0);
-				analogWrite(m_motor3_pin, 0);
-				analogWrite(m_motor4_pin, 0);
+				analogWriteMotors(0, 0, 0, 0);
 				break;
 
 			case State::arming:
-				if (micros() - t0_arming > ARMING_TIME) {
+				if (micros() - t0_arming > ARMING_DISARMING_TIME) {
 					m_state = State::armed;
 					DEBUG_PRINTLN("Armed!");
 				}
 				else {
-					#if !defined(DEBUG) && !defined(SEND_SERIAL) && !defined(PLOT)	// apply thrust only if all debug modes are turned off
-					analogWrite(m_motor1_pin, 1000);
-					analogWrite(m_motor2_pin, 1000);
-					analogWrite(m_motor3_pin, 1000);
-					analogWrite(m_motor4_pin, 1000);
-					#endif
+					analogWriteMotors(1000, 1000, 1000, 1000);
+				}
+				break;
+
+			case State::disarming:
+				if (micros() - t0_disarming > ARMING_DISARMING_TIME) {
+					m_state = State::disarmed;
+					DEBUG_PRINTLN("Disarmed!");
+				}
+				else {
+					analogWriteMotors(1000, 1000, 1000, 1000);
 				}
 				break;
 		}
@@ -277,13 +277,16 @@ class MotorsQuadcopter {
 
 	// disarm motors
 	void disarm() {
-		m_state = State::disarmed;
-		DEBUG_PRINTLN("Disarmed!");
+		// disarming when armed or arming (disarm will cancle arming process)
+		if ((m_state == State::armed) || (m_state == State::arming)) {
+			t0_disarming = micros();
+			m_state = State::disarming;
+		}
 	}
 
-	// return if motors are armed
-	bool getArmed() {
-		return (m_state == State::armed);
+	// return motor state
+	State getState() {
+		return m_state;
 	}
 	
 	private:
@@ -294,18 +297,28 @@ class MotorsQuadcopter {
 		pinMode(pin, OUTPUT);
 		digitalWrite(pin, LOW);
 	}
+
+	// analogWrite to all motors
+	void analogWriteMotors(uint16_t pwm1, uint16_t pwm2, uint16_t pwm3, uint16_t pwm4) {
+		#if !defined(DEBUG) && !defined(SEND_SERIAL) && !defined(PLOT)	// control motors only if all debug modes are turned off
+			analogWrite(m_motor1_pin, pwm1);
+			analogWrite(m_motor2_pin, pwm2);
+			analogWrite(m_motor3_pin, pwm3);
+			analogWrite(m_motor4_pin, pwm4);
+		#endif
+	}
 	
-	// arming time in microseconds
-	const uint32_t ARMING_TIME = 2000000;
+	// arming and disarming time in microseconds
+	const uint32_t ARMING_DISARMING_TIME = 2000000;
 
 	uint8_t m_motor1_pin, m_motor2_pin, m_motor3_pin, m_motor4_pin;
 	uint8_t m_motor_pwm_resolution;
 	uint16_t m_motor_pwm_frequency;
 
 	// motor state
-	enum class State {armed, disarmed, arming} m_state = State::disarmed;
+	State m_state = State::disarmed;
 
-	uint32_t t0_arming;
+	uint32_t t0_arming, t0_disarming;
 	
 	uint8_t m_oldResolution;
 };
@@ -502,13 +515,17 @@ void loop() {
 		// blink LED very fast to indicate an error occurrence
 		updateLED(LED_PIN, 1, 250);
 	}
-	else if (motors.getArmed()) {
+	else if (motors.getState() == State::armed) {
 		// blink LED normally to indicate armed status
 		updateLED(LED_PIN, 1, 1000);
 	}
-	else {
+	else if (motors.getState() == State::disarmed) {
 		// turn off LED to indicate disarmed status
 		updateLED(LED_PIN, 0);
+	}
+	else {
+		// turn on LED to indicate arming/disarming status
+		updateLED(LED_PIN, 2);
 	}
 	
 	// update rc
@@ -594,7 +611,7 @@ void loop() {
 	yaw_rate = ema_filter(gz_rps * RAD2DEG, yaw_rate, EMA_YAW_RATE);
 	
 	// when armed, calculate flight setpoints, manipulated variables and control motors
-	if (motors.getArmed()) {
+	if (motors.getState() == State::armed) {
 		// throttle setpoint
 		if (rc_channelValue[THROTTLE] < 1500) {
 			if (!started) {
@@ -646,8 +663,8 @@ void loop() {
 			pitch_rate_pid.set_K_i(i_rate);
 			pitch_rate_pid.set_K_d(d_rate);*/
 			
-			p_rate = constrain(map((float) rc_channelValue[4], 1000, 2000, 2.5, 5), 2.5, 5);
-			i_rate = constrain(map((float) rc_channelValue[5], 1000, 2000, 1, 2), 1, 2);
+			p_rate = constrain(map((float) rc_channelValue[4], 1000, 2000, 2, 3), 2, 3);
+			i_rate = constrain(map((float) rc_channelValue[5], 1000, 2000, 0.75, 1.75), 0.75, 1.75);
 			d_rate = constrain(map((float) rc_channelValue[5], 1000, 2000, -0.001, 0.01), 0, 0.01);
 			
 			yaw_rate_pid.set_K_p(p_rate);
@@ -948,7 +965,7 @@ bool imuCalibration() {
 	t_imuCalibration = micros();
 	
 	static uint32_t t_calibrateGyro = 0, t_calibrateAccel = 0, t_calibrateMag = 0;
-	if (!motors.getArmed()) {
+	if (motors.getState() == State::disarmed) {
 		if ((rc_channelValue[PITCH] < 1100) && (rc_channelValue[ROLL] > 1400) && (rc_channelValue[ROLL] < 1600)) {
 			if ((rc_channelValue[THROTTLE] < 1100) && (rc_channelValue[YAW] < 1100)) {
 				// hold right stick bottom center and left stick bottom-left to start gyro calibration	(2s)
@@ -1071,7 +1088,7 @@ void arm_failsafe(uint8_t fs_config) {
 	static uint32_t t_arm = 0, t_disarm = 0;
 	if (rc_channelValue[ARM] == 2000) {	// arm switch needs to be set to enable arming, else disarm and reset
 		if ((rc_channelValue[THROTTLE] < 1100) && (((rc_channelValue[ROLL] > 1400) && (rc_channelValue[ROLL] < 1600)) && ((rc_channelValue[PITCH] > 1400) && (rc_channelValue[PITCH] < 1600)))) {
-			if (rc_channelValue[YAW] > 1900) {
+			if ((rc_channelValue[YAW] > 1900)  && (motors.getState() == State::disarmed)) {
 				// hold left stick bottom-right and keep right stick centered (2s) to complete arming
 				t_disarm = 0;
 				if (t_arm == 0) {
@@ -1082,7 +1099,7 @@ void arm_failsafe(uint8_t fs_config) {
 					t_arm = 0;
 				}
 			}
-			else if ((rc_channelValue[YAW] < 1100) && (motors.getArmed())) {
+			else if ((rc_channelValue[YAW] < 1100) && ((motors.getState() == State::armed) || (motors.getState() == State::arming))) {
 				// hold left stick bottom-left and keep right stick centered (2s) to complete disarming
 				t_arm = 0;
 				if (t_disarm == 0) {
@@ -1103,7 +1120,7 @@ void arm_failsafe(uint8_t fs_config) {
 			t_disarm = 0;
 		}
 	}
-	else if (motors.getArmed()) {
+	else if ((motors.getState() == State::armed) || (motors.getState() == State::arming)) {
 		disarmAndResetQuad();
 		t_arm = 0;
 		t_disarm = 0;
@@ -1114,7 +1131,7 @@ void arm_failsafe(uint8_t fs_config) {
 	}
 	
 	// -------------------- disarm on failsafe conditions
-	if (motors.getArmed()) {
+	if ((motors.getState() == State::armed) || (motors.getState() == State::arming)) {
 		// imu failsafe
 		if ((FS_CONFIG & FS_IMU) == FS_IMU) {
 			if (dt > FS_IMU_DT_LIMIT) {
