@@ -277,7 +277,7 @@ class MotorsQuadcopter {
 
 	// disarm motors
 	void disarm() {
-		// disarming when armed or arming (disarm will cancle arming process)
+		// disarming when armed or arming (disarm will cancel arming process)
 		if ((m_state == State::armed) || (m_state == State::arming)) {
 			t0_disarming = micros();
 			m_state = State::disarming;
@@ -449,7 +449,7 @@ void setup() {
 	// set default resolution for analog write, in order to go back to it after running motors with different resolution
 	analogWriteResolution(8);
 	
-	#if defined(DEBUG) || defined(SEND_SERIAL) || defined(PLOT)
+	#if defined(DEBUG) || defined(SEND_SERIAL)
 		// initialise serial for monitoring
 		Serial.begin(115200);
 		while (!Serial);
@@ -483,7 +483,7 @@ void setup() {
 	imu.read_accelRes(accelRes);
 	
 	// initialise BMP388 mode, pressure oversampling, temperature oversampling, IIR-Filter and standby time
-	if (!bmp388.begin(NORMAL_MODE, OVERSAMPLING_X8, OVERSAMPLING_X1, IIR_FILTER_2, TIME_STANDBY_20MS)) {
+	if (!bmp388.begin(NORMAL_MODE, OVERSAMPLING_X8, OVERSAMPLING_SKIP, IIR_FILTER_2, TIME_STANDBY_20MS)) {
 		// barometer could not be initialised. Set error value, which will disable arming.
 		error_code = error_code | ERROR_BAR;
 		DEBUG_PRINTLN("BAR error: Initialisation failed!");
