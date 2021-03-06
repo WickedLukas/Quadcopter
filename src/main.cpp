@@ -128,11 +128,11 @@ const float P_YAW_RATE = 1.000,		I_YAW_RATE = 0.750,		D_YAW_RATE = 0.000;		// 0.
 // vertical velocity PID values for altitude hold
 const float P_VELOCITY_V = 1.000,	I_VELOCITY_V = 0.000,	D_VELOCITY_V = 0.000; 	// 1.000, 0.000, 0.000
 
-// moving average filter configuration for the angular rates (gyro)
-// TODO: Use notch filter or a band stop filter from two EMA filters with specified cut off frequencies.
-const float EMA_ROLL_RATE	= 0.005;
-const float EMA_PITCH_RATE	= 0.005;
-const float EMA_YAW_RATE	= 0.005;
+// EMA filter parameters for derivative controller inputs.
+// Cut of frequency f_c: https://dsp.stackexchange.com/questions/40462/exponential-moving-average-cut-off-frequency)
+const float EMA_ROLL_RATE_D		= 0.0139; // EMA = 0.0139 --> f_c = 20 Hz
+const float EMA_PITCH_RATE_D	= 0.0139; // EMA = 0.0139 --> f_c = 20 Hz
+const float EMA_YAW_RATE_D		= 0.0034; // EMA = 0.0034 --> f_c = 5 Hz
 
 // failsafe configuration
 const uint8_t FS_IMU		= 0b00000001;
@@ -300,7 +300,7 @@ class MotorsQuadcopter {
 
 	// analogWrite to all motors
 	void analogWriteMotors(uint16_t pwm1, uint16_t pwm2, uint16_t pwm3, uint16_t pwm4) {
-		#if !defined(DEBUG) && !defined(SEND_SERIAL) && !defined(PLOT)	// control motors only if all debug modes are turned off
+		#if !defined(DEBUG) && !defined(SEND_SERIAL)	// control motors only if debug modes are turned off
 			analogWrite(m_motor1_pin, pwm1);
 			analogWrite(m_motor2_pin, pwm2);
 			analogWrite(m_motor3_pin, pwm3);
@@ -330,9 +330,9 @@ MotorsQuadcopter motors(MOTOR_PIN_1, MOTOR_PIN_2, MOTOR_PIN_3, MOTOR_PIN_4, MOTO
 MADGWICK_AHRS madgwickFilter(BETA_INIT);
 
 // rate PID controller
-PID_controller roll_rate_pid(P_ROLL_RATE, I_ROLL_RATE, D_ROLL_RATE, 0, 0, 500, 50);
-PID_controller pitch_rate_pid(P_PITCH_RATE, I_PITCH_RATE, D_PITCH_RATE, 0, 0, 500, 50);
-PID_controller yaw_rate_pid(P_YAW_RATE, I_YAW_RATE, D_YAW_RATE, 0, 0, 500, 100);
+PID_controller roll_rate_pid(P_ROLL_RATE, I_ROLL_RATE, D_ROLL_RATE, 0, 0, 500, 50, EMA_ROLL_RATE_D);
+PID_controller pitch_rate_pid(P_PITCH_RATE, I_PITCH_RATE, D_PITCH_RATE, 0, 0, 500, 50, EMA_PITCH_RATE_D);
+PID_controller yaw_rate_pid(P_YAW_RATE, I_YAW_RATE, D_YAW_RATE, 0, 0, 500, 100, EMA_YAW_RATE_D);
 
 // vertical velocity PID controller for altitude hold
 PID_controller velocity_v_pid(P_VELOCITY_V, I_VELOCITY_V, D_VELOCITY_V, 0, 0, THROTTLE_LIMIT - 1000, 200);
@@ -455,8 +455,8 @@ void setup() {
 		while (!Serial);
 	#endif
 	
-	// initialise serial for iBus communication
-	Serial2.begin(115200, SERIAL_8N1);
+	// initialise serial2 for iBus communication
+	Serial2.begin(115200);
 	while (!Serial2);
 	
 	// initialise rc and return a pointer on the received rc channel values
@@ -603,12 +603,7 @@ void loop() {
 	// calculate altitude in m from acceleration, barometer altitude and pose
 	calcAltitude();
 	
-	// filter gyro rates
-	// TODO: Use a notch filter or a bandstop filter made from a combination of two EMA filters instead
-	// TODO: Special filter for D of PID controller (20Hz LPF - alpha = 0.35)
-	roll_rate = ema_filter(gx_rps * RAD2DEG, roll_rate, EMA_ROLL_RATE);
-	pitch_rate = ema_filter(gy_rps * RAD2DEG, pitch_rate, EMA_PITCH_RATE);
-	yaw_rate = ema_filter(gz_rps * RAD2DEG, yaw_rate, EMA_YAW_RATE);
+	// ! TODO: Filter angular rates (gyro) using notch filter or a band stop filter from two EMA filters with specified cut off frequencies.
 	
 	// when armed, calculate flight setpoints, manipulated variables and control motors
 	if (motors.getState() == State::armed) {
