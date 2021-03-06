@@ -604,6 +604,9 @@ void loop() {
 	calcAltitude();
 	
 	// ! TODO: Filter angular rates (gyro) using notch filter or a band stop filter from two EMA filters with specified cut off frequencies.
+	roll_rate = gx_rps * RAD2DEG;
+	pitch_rate = gy_rps * RAD2DEG;
+	yaw_rate = gz_rps * RAD2DEG;
 	
 	// when armed, calculate flight setpoints, manipulated variables and control motors
 	if (motors.getState() == State::armed) {
