@@ -501,7 +501,7 @@ void setup() {
 	attachInterrupt(digitalPinToInterrupt(BAROMETER_INTERRUPT_PIN), barometerReady, RISING);
 	
 	#ifdef PLOT
-		// !Start plotter
+		// ! Start plotter
 		p.Begin();
 		
 		// Add time graphs. Notice the effect of points displayed on the time scale
@@ -758,7 +758,7 @@ void loop() {
 			sendSerial(dt, roll_angle, pitch_angle, yaw_angle);
 		}
 	#elif defined(PLOT)
-		if (micros() - t0_serial > 1000) {
+		if (micros() - t0_serial > 100) {
 			t0_serial = micros();
 			// Plot data with "Processing"
 			p.Plot();
@@ -876,7 +876,7 @@ void qMultiply(float* q1, float* q2, float* result_q) {
 // calculate altitude in m from acceleration, barometer altitude and pose
 void calcAltitude() {
 	// acceleration of gravity is m/s²
-	const double G = 9.81;
+	const float G = 9.81;
 	
 	// acceleration quaternion in sensor-frame
 	static float a_q[4];
