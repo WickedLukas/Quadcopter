@@ -128,13 +128,13 @@ const float P_YAW_RATE = 1.000,		I_YAW_RATE = 0.750,		D_YAW_RATE = 0.000;		// 0.
 // vertical velocity PID values for altitude hold
 const float P_VELOCITY_V = 1.000,	I_VELOCITY_V = 0.000,	D_VELOCITY_V = 0.000; 	// 1.000, 0.000, 0.000
 
-// EMA filter parameters for gyro rates.
+// EMA filter parameters for proportional (P) rate controller inputs.
 // Cut of frequency f_c: https://dsp.stackexchange.com/questions/40462/exponential-moving-average-cut-off-frequency)
-const float EMA_ROLL_RATE	= 0.1301; // EMA = 0.1301 --> f_c = 200 Hz
-const float EMA_PITCH_RATE	= 0.1301; // EMA = 0.1301 --> f_c = 200 Hz
-const float EMA_YAW_RATE	= 0.1301; // EMA = 0.1301 --> f_c = 200 Hz
+const float EMA_ROLL_RATE_P		= 0.1301; // EMA = 0.1301 --> f_c = 200 Hz
+const float EMA_PITCH_RATE_P	= 0.1301; // EMA = 0.1301 --> f_c = 200 Hz
+const float EMA_YAW_RATE_P		= 0.1301; // EMA = 0.1301 --> f_c = 200 Hz
 
-// EMA filter parameters for derivative (D) controller inputs.
+// EMA filter parameters for derivative (D) rate controller inputs.
 // Cut of frequency f_c: https://dsp.stackexchange.com/questions/40462/exponential-moving-average-cut-off-frequency)
 const float EMA_ROLL_RATE_D		= 0.0139; // EMA = 0.0139 --> f_c = 20 Hz
 const float EMA_PITCH_RATE_D	= 0.0139; // EMA = 0.0139 --> f_c = 20 Hz
@@ -336,9 +336,9 @@ MotorsQuadcopter motors(MOTOR_PIN_1, MOTOR_PIN_2, MOTOR_PIN_3, MOTOR_PIN_4, MOTO
 MADGWICK_AHRS madgwickFilter(BETA_INIT);
 
 // rate PID controller
-PID_controller roll_rate_pid(P_ROLL_RATE, I_ROLL_RATE, D_ROLL_RATE, 0, 0, 500, 50, EMA_ROLL_RATE_D);
-PID_controller pitch_rate_pid(P_PITCH_RATE, I_PITCH_RATE, D_PITCH_RATE, 0, 0, 500, 50, EMA_PITCH_RATE_D);
-PID_controller yaw_rate_pid(P_YAW_RATE, I_YAW_RATE, D_YAW_RATE, 0, 0, 500, 100, EMA_YAW_RATE_D);
+PID_controller roll_rate_pid(P_ROLL_RATE, I_ROLL_RATE, D_ROLL_RATE, 0, 0, 500, 50, EMA_ROLL_RATE_P, EMA_ROLL_RATE_D);
+PID_controller pitch_rate_pid(P_PITCH_RATE, I_PITCH_RATE, D_PITCH_RATE, 0, 0, 500, 50, EMA_PITCH_RATE_P, EMA_PITCH_RATE_D);
+PID_controller yaw_rate_pid(P_YAW_RATE, I_YAW_RATE, D_YAW_RATE, 0, 0, 500, 100, EMA_PITCH_RATE_P, EMA_YAW_RATE_D);
 
 // vertical velocity PID controller for altitude hold
 PID_controller velocity_v_pid(P_VELOCITY_V, I_VELOCITY_V, D_VELOCITY_V, 0, 0, THROTTLE_LIMIT - 1000, 200);
@@ -612,9 +612,9 @@ void loop() {
 	calcAltitude();
 	
 	// ! Filter angular rates (gyro) using notch filter or a band stop filter from two EMA filters with specified cut off frequencies.
-	roll_rate = ema_filter(gx_rps * RAD2DEG, roll_rate, EMA_ROLL_RATE);
-	pitch_rate = ema_filter(gy_rps * RAD2DEG, pitch_rate, EMA_PITCH_RATE);
-	yaw_rate = ema_filter(gz_rps * RAD2DEG, yaw_rate, EMA_YAW_RATE);
+	roll_rate = gx_rps * RAD2DEG;
+	pitch_rate = gy_rps * RAD2DEG;
+	yaw_rate = gz_rps * RAD2DEG;
 	
 	// when armed, calculate flight setpoints, manipulated variables and control motors
 	if (motors.getState() == State::armed) {
@@ -1061,10 +1061,6 @@ void disarmAndResetQuad() {
 		roll_rate_sp = 0;
 		pitch_rate_sp = 0;
 		yaw_rate_sp = 0;
-		
-		roll_rate = 0;
-		pitch_rate = 0;
-		yaw_rate = 0;
 		
 		throttle_sp = 1000;
 		velocity_v_sp = 0;
