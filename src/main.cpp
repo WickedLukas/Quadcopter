@@ -658,7 +658,7 @@ void loop() {
 			// TODO: Remove this test code
 			static float p_rate, i_rate, d_rate;
 			
-			p_rate = constrain(map((float) rc_channelValue[4], 1000, 2000, 0.1, 1), 0.1, 1);
+			p_rate = constrain(map((float) rc_channelValue[4], 1000, 2000, 1.75, 2.5), 1.75, 2.5);
 			//i_rate = constrain(map((float) rc_channelValue[5], 1000, 2000, 0.75, 1.75), 0.75, 1.75);
 			d_rate = constrain(map((float) rc_channelValue[5], 1000, 2000, -0.001, 0.03), 0, 0.03);
 			
