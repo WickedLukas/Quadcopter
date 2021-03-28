@@ -17,7 +17,7 @@
 //#define DEBUG
 
 // plot through Processing
-//#define PLOT
+#define PLOT
 
 // send imu data through serial (for example to visualize it in "Processing")
 //#define SEND_SERIAL
@@ -128,11 +128,17 @@ const float P_YAW_RATE = 1.000,		I_YAW_RATE = 0.750,		D_YAW_RATE = 0.000;		// 0.
 // vertical velocity PID values for altitude hold
 const float P_VELOCITY_V = 1.000,	I_VELOCITY_V = 0.000,	D_VELOCITY_V = 0.000; 	// 1.000, 0.000, 0.000
 
-// EMA filter parameters for derivative controller inputs.
+// EMA filter parameters for gyro rates.
+// Cut of frequency f_c: https://dsp.stackexchange.com/questions/40462/exponential-moving-average-cut-off-frequency)
+const float EMA_ROLL_RATE	= 0.1301; // EMA = 0.1301 --> f_c = 200 Hz
+const float EMA_PITCH_RATE	= 0.1301; // EMA = 0.1301 --> f_c = 200 Hz
+const float EMA_YAW_RATE	= 0.1301; // EMA = 0.1301 --> f_c = 200 Hz
+
+// EMA filter parameters for derivative (D) controller inputs.
 // Cut of frequency f_c: https://dsp.stackexchange.com/questions/40462/exponential-moving-average-cut-off-frequency)
 const float EMA_ROLL_RATE_D		= 0.0139; // EMA = 0.0139 --> f_c = 20 Hz
 const float EMA_PITCH_RATE_D	= 0.0139; // EMA = 0.0139 --> f_c = 20 Hz
-const float EMA_YAW_RATE_D		= 0.0034; // EMA = 0.0034 --> f_c = 5 Hz
+const float EMA_YAW_RATE_D		= 0.0035; // EMA = 0.0035 --> f_c = 5 Hz
 
 // failsafe configuration
 const uint8_t FS_IMU		= 0b00000001;
@@ -499,8 +505,9 @@ void setup() {
 		p.Begin();
 		
 		// Add time graphs. Notice the effect of points displayed on the time scale
-		//p.AddTimeGraph("Angles", 5000, "roll_angle", roll_angle, "pitch_angle", pitch_angle, "yaw_angle", yaw_angle);
+		p.AddTimeGraph("Angles", 5000, "roll_angle", roll_angle, "pitch_angle", pitch_angle, "yaw_angle", yaw_angle);
 		//p.AddTimeGraph("Rates", 5000, "roll_rate", roll_rate, "pitch_rate", pitch_rate, "yaw_rate", yaw_rate);
+		//p.AddTimeGraph("AccelAngles", 5000, "roll_angle_accel", roll_angle_accel, "pitch_angle_accel", pitch_angle_accel);
 		//p.AddTimeGraph("mv", 5000, "roll_rate_sp", roll_rate_sp, "pitch_rate_sp", pitch_rate_sp, "yaw_rate_sp", yaw_rate_sp);
 		//p.AddTimeGraph("mv", 5000, "roll_rate_mv", roll_rate_mv, "pitch_rate_mv", pitch_rate_mv, "yaw_rate_mv", yaw_rate_mv);
 		//p.AddTimeGraph("Barometer altitude", 1000, "baroAltitude", baroAltitude);
@@ -589,7 +596,8 @@ void loop() {
 	}
 	
 	// perform sensor fusion with Madgwick filter to calculate pose
-	madgwickFilter.get_euler_quaternion(dt_s, ax, ay, az, gx_rps, gy_rps, gz_rps, mx, my, mz, roll_angle, pitch_angle, yaw_angle, pose_q);
+	// TODO: Check if there is a benefit from magnetometer data
+	madgwickFilter.get_euler_quaternion(dt_s, ax, ay, az, gx_rps, gy_rps, gz_rps, 0, 0, 0, roll_angle, pitch_angle, yaw_angle, pose_q);
 	
 	// apply offset to z-axis pose in order to compensate for the sensor mounting orientation relative to the quadcopter frame
 	yaw_angle += yaw_angle_offset;
@@ -603,10 +611,10 @@ void loop() {
 	// calculate altitude in m from acceleration, barometer altitude and pose
 	calcAltitude();
 	
-	// ! TODO: Filter angular rates (gyro) using notch filter or a band stop filter from two EMA filters with specified cut off frequencies.
-	roll_rate = gx_rps * RAD2DEG;
-	pitch_rate = gy_rps * RAD2DEG;
-	yaw_rate = gz_rps * RAD2DEG;
+	// ! Filter angular rates (gyro) using notch filter or a band stop filter from two EMA filters with specified cut off frequencies.
+	roll_rate = ema_filter(gx_rps * RAD2DEG, roll_rate, EMA_ROLL_RATE);
+	pitch_rate = ema_filter(gy_rps * RAD2DEG, pitch_rate, EMA_PITCH_RATE);
+	yaw_rate = ema_filter(gz_rps * RAD2DEG, yaw_rate, EMA_YAW_RATE);
 	
 	// when armed, calculate flight setpoints, manipulated variables and control motors
 	if (motors.getState() == State::armed) {
@@ -649,24 +657,25 @@ void loop() {
 			
 			// TODO: Remove this test code
 			static float p_rate, i_rate, d_rate;
-			/*p_rate = map((float) rc_channelValue[4], 1000, 2000, 1.75, 2.75);
-			i_rate = map((float) 1000, 1000, 2000, 0, 1);
-			d_rate = map((float) rc_channelValue[5], 1000, 2000, 0.02, 0.03);
+			
+			p_rate = constrain(map((float) rc_channelValue[4], 1000, 2000, 0.1, 1), 0.1, 1);
+			//i_rate = constrain(map((float) rc_channelValue[5], 1000, 2000, 0.75, 1.75), 0.75, 1.75);
+			d_rate = constrain(map((float) rc_channelValue[5], 1000, 2000, -0.001, 0.03), 0, 0.03);
 			
 			roll_rate_pid.set_K_p(p_rate);
-			roll_rate_pid.set_K_i(i_rate);
+			//roll_rate_pid.set_K_i(i_rate);
 			roll_rate_pid.set_K_d(d_rate);
 			
 			pitch_rate_pid.set_K_p(p_rate);
-			pitch_rate_pid.set_K_i(i_rate);
-			pitch_rate_pid.set_K_d(d_rate);*/
+			//pitch_rate_pid.set_K_i(i_rate);
+			pitch_rate_pid.set_K_d(d_rate);
 			
-			p_rate = constrain(map((float) rc_channelValue[4], 1000, 2000, 1, 2), 1, 2);
+			/*p_rate = constrain(map((float) rc_channelValue[4], 1000, 2000, 1, 2), 1, 2);
 			i_rate = constrain(map((float) rc_channelValue[5], 1000, 2000, 0.75, 1.75), 0.75, 1.75);
-			d_rate = constrain(map((float) rc_channelValue[5], 1000, 2000, -0.001, 0.01), 0, 0.01);
+			d_rate = constrain(map((float) rc_channelValue[5], 1000, 2000, -0.001, 0.01), 0, 0.01);*/
 			
-			yaw_rate_pid.set_K_p(p_rate);
-			yaw_rate_pid.set_K_i(i_rate);
+			yaw_rate_pid.set_K_p(0);
+			yaw_rate_pid.set_K_i(0);
 			yaw_rate_pid.set_K_d(0);
 			
 			
@@ -819,7 +828,8 @@ void estimatePose(float beta_init, float beta, float init_angleDifference, float
 		imu.read_accel_gyro_rps(ax, ay, az, gx_rps, gy_rps, gz_rps);
 		imu.read_mag(mx, my, mz);
 		
-		madgwickFilter.get_euler_quaternion(dt_s, ax, ay, az, gx_rps, gy_rps, gz_rps, mx, my, mz, roll_angle, pitch_angle, yaw_angle, pose_q);
+		// TODO: Check if there is a benefit from magnetometer data
+		madgwickFilter.get_euler_quaternion(dt_s, ax, ay, az, gx_rps, gy_rps, gz_rps, 0, 0, 0, roll_angle, pitch_angle, yaw_angle, pose_q);
 		
 		accelAngles(roll_angle_accel, pitch_angle_accel);
 		
@@ -930,7 +940,8 @@ void estimateAltitude(float init_velocity_v) {
 		imu.read_accel_gyro_rps(ax, ay, az, gx_rps, gy_rps, gz_rps);
 		imu.read_mag(mx, my, mz);
 		
-		madgwickFilter.get_euler_quaternion(dt_s, ax, ay, az, gx_rps, gy_rps, gz_rps, mx, my, mz, roll_angle, pitch_angle, yaw_angle, pose_q);
+		// TODO: Check if there is a benefit from magnetometer data		
+		madgwickFilter.get_euler_quaternion(dt_s, ax, ay, az, gx_rps, gy_rps, gz_rps, 0, 0, 0, roll_angle, pitch_angle, yaw_angle, pose_q);
 		
 		calcAltitude();
 		
@@ -1050,6 +1061,10 @@ void disarmAndResetQuad() {
 		roll_rate_sp = 0;
 		pitch_rate_sp = 0;
 		yaw_rate_sp = 0;
+		
+		roll_rate = 0;
+		pitch_rate = 0;
+		yaw_rate = 0;
 		
 		throttle_sp = 1000;
 		velocity_v_sp = 0;
