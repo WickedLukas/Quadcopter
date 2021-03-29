@@ -370,9 +370,6 @@ int16_t ax, ay, az;
 float gx_rps, gy_rps, gz_rps;
 int16_t mx, my, mz;
 
-// TODO: Remove this later
-float pv_p, pv_d;
-
 // barometer altitude measurement
 float baroAltitude;
 
@@ -510,7 +507,6 @@ void setup() {
 		
 		// Add time graphs. Notice the effect of points displayed on the time scale
 		p.AddTimeGraph("Angles", 1000, "roll_angle", roll_angle, "pitch_angle", pitch_angle, "yaw_angle", yaw_angle);
-		//p.AddTimeGraph("Process variables", 1000, "pv_p", pv_p, "pv_d", pv_d);
 		//p.AddTimeGraph("Rates", 1000, "roll_rate", roll_rate, "pitch_rate", pitch_rate, "yaw_rate", yaw_rate);
 		//p.AddTimeGraph("AccelAngles", 1000, "roll_angle_accel", roll_angle_accel, "pitch_angle_accel", pitch_angle_accel);
 		//p.AddTimeGraph("mv", 1000, "roll_rate_sp", roll_rate_sp, "pitch_rate_sp", pitch_rate_sp, "yaw_rate_sp", yaw_rate_sp);
@@ -688,10 +684,6 @@ void loop() {
 			pitch_rate_mv = pitch_rate_pid.get_mv(pitch_rate_sp, pitch_rate, dt_s);
 			yaw_rate_mv = yaw_rate_pid.get_mv(yaw_rate_sp, yaw_rate, dt_s);
 			
-			// TODO: Remove this later
-			pv_p = pitch_rate_pid.get_pv_p();
-			pv_d = pitch_rate_pid.get_pv_d();
-			
 			// do not hold altitude unless flight mode uses altitude hold and throttle stick is centered
 			if ((rc_channelValue[FMODE] != 2000) || (rc_channelValue[THROTTLE] < THROTTLE_DEADZONE_BOT) || (rc_channelValue[THROTTLE] > THROTTLE_DEADZONE_TOP)) {
 				altitude_sp = altitude;
@@ -766,6 +758,7 @@ void loop() {
 			sendSerial(dt, roll_angle, pitch_angle, yaw_angle);
 		}
 	#elif defined(PLOT)
+		// TODO: Check if this update rate is still too fast
 		if (micros() - t0_serial > 16666) {
 			t0_serial = micros();
 			// Plot data with "Processing"
