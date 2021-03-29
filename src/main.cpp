@@ -130,15 +130,16 @@ const float P_VELOCITY_V = 1.000,	I_VELOCITY_V = 0.000,	D_VELOCITY_V = 0.000; 	/
 
 // EMA filter parameters for proportional (P) rate controller inputs.
 // Cut of frequency f_c: https://dsp.stackexchange.com/questions/40462/exponential-moving-average-cut-off-frequency)
-const float EMA_ROLL_RATE_P		= 0.1301; // EMA = 0.1301 --> f_c = 200 Hz
-const float EMA_PITCH_RATE_P	= 0.1301; // EMA = 0.1301 --> f_c = 200 Hz
-const float EMA_YAW_RATE_P		= 0.1301; // EMA = 0.1301 --> f_c = 200 Hz
+// ! Filter angular rates (gyro) using notch filter or a band stop filter from two EMA filters with specified cut off frequencies.
+const float EMA_ROLL_RATE_P		= 0.04; // EMA = 0.1301 --> f_c = 200 Hz; EMA = 0.0674 --> f_c = 100 Hz;
+const float EMA_PITCH_RATE_P	= 0.04; // EMA = 0.1301 --> f_c = 200 Hz; EMA = 0.0674 --> f_c = 100 Hz;
+const float EMA_YAW_RATE_P		= 0.04; // EMA = 0.1301 --> f_c = 200 Hz; EMA = 0.0674 --> f_c = 100 Hz;
 
 // EMA filter parameters for derivative (D) rate controller inputs.
 // Cut of frequency f_c: https://dsp.stackexchange.com/questions/40462/exponential-moving-average-cut-off-frequency)
-const float EMA_ROLL_RATE_D		= 0.0139; // EMA = 0.0139 --> f_c = 20 Hz
-const float EMA_PITCH_RATE_D	= 0.0139; // EMA = 0.0139 --> f_c = 20 Hz
-const float EMA_YAW_RATE_D		= 0.0035; // EMA = 0.0035 --> f_c = 5 Hz
+const float EMA_ROLL_RATE_D		= 0.006; // EMA = 0.0139 --> f_c = 20 Hz
+const float EMA_PITCH_RATE_D	= 0.006; // EMA = 0.0139 --> f_c = 20 Hz
+const float EMA_YAW_RATE_D		= 0.006; // EMA = 0.0035 --> f_c = 5 Hz
 
 // failsafe configuration
 const uint8_t FS_IMU		= 0b00000001;
@@ -509,15 +510,15 @@ void setup() {
 		
 		// Add time graphs. Notice the effect of points displayed on the time scale
 		p.AddTimeGraph("Angles", 1000, "roll_angle", roll_angle, "pitch_angle", pitch_angle, "yaw_angle", yaw_angle);
-		//p.AddTimeGraph("Process variables", 5000, "pv_p", pv_p, "pv_d", pv_d);
-		//p.AddTimeGraph("Rates", 5000, "roll_rate", roll_rate, "pitch_rate", pitch_rate, "yaw_rate", yaw_rate);
-		//p.AddTimeGraph("AccelAngles", 5000, "roll_angle_accel", roll_angle_accel, "pitch_angle_accel", pitch_angle_accel);
-		//p.AddTimeGraph("mv", 5000, "roll_rate_sp", roll_rate_sp, "pitch_rate_sp", pitch_rate_sp, "yaw_rate_sp", yaw_rate_sp);
-		//p.AddTimeGraph("mv", 5000, "roll_rate_mv", roll_rate_mv, "pitch_rate_mv", pitch_rate_mv, "yaw_rate_mv", yaw_rate_mv);
+		//p.AddTimeGraph("Process variables", 1000, "pv_p", pv_p, "pv_d", pv_d);
+		//p.AddTimeGraph("Rates", 1000, "roll_rate", roll_rate, "pitch_rate", pitch_rate, "yaw_rate", yaw_rate);
+		//p.AddTimeGraph("AccelAngles", 1000, "roll_angle_accel", roll_angle_accel, "pitch_angle_accel", pitch_angle_accel);
+		//p.AddTimeGraph("mv", 1000, "roll_rate_sp", roll_rate_sp, "pitch_rate_sp", pitch_rate_sp, "yaw_rate_sp", yaw_rate_sp);
+		//p.AddTimeGraph("mv", 1000, "roll_rate_mv", roll_rate_mv, "pitch_rate_mv", pitch_rate_mv, "yaw_rate_mv", yaw_rate_mv);
 		//p.AddTimeGraph("Barometer altitude", 1000, "baroAltitude", baroAltitude);
-		//p.AddTimeGraph("Quadcopter altitude", 10000, "altitude", altitude);
-		//p.AddTimeGraph("Relative acceleration in ned-frame", 10000, "a_ned_rel_q1", a_ned_rel_q1, "a_ned_rel_q2", a_ned_rel_q2, "a_ned_rel_q3", a_ned_rel_q3);
-		//p.AddTimeGraph("Quadcopter vertical velocity", 10000, "velocity_v", velocity_v, "velocity_v_sp", velocity_v_sp);
+		//p.AddTimeGraph("Quadcopter altitude", 2000, "altitude", altitude);
+		//p.AddTimeGraph("Relative acceleration in ned-frame", 2000, "a_ned_rel_q1", a_ned_rel_q1, "a_ned_rel_q2", a_ned_rel_q2, "a_ned_rel_q3", a_ned_rel_q3);
+		//p.AddTimeGraph("Quadcopter vertical velocity", 2000, "velocity_v", velocity_v, "velocity_v_sp", velocity_v_sp);
 	#endif
 }
 
@@ -615,7 +616,6 @@ void loop() {
 	// calculate altitude in m from acceleration, barometer altitude and pose
 	calcAltitude();
 	
-	// ! Filter angular rates (gyro) using notch filter or a band stop filter from two EMA filters with specified cut off frequencies.
 	roll_rate = gx_rps * RAD2DEG;
 	pitch_rate = gy_rps * RAD2DEG;
 	yaw_rate = gz_rps * RAD2DEG;
