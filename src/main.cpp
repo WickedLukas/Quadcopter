@@ -17,7 +17,7 @@
 //#define DEBUG
 
 // plot through Processing
-#define PLOT
+//#define PLOT
 
 // send imu data through serial (for example to visualize it in "Processing")
 //#define SEND_SERIAL
@@ -74,7 +74,8 @@
 #define FMODE		8	// stable: 1000, stable with tilt compensated thrust: 1500, stable with altitude hold: 2000, acro (not implemented)
 
 #define BETA_INIT	10		// Madgwick algorithm gain (2 * proportional gain (Kp)) during initial pose estimation - 10
-#define BETA		0.041	// Madgwick algorithm gain (2 * proportional gain (Kp)) - 0.041 MARG, 0.033 IMU
+// TODO: Check if parameter needs to be changed (increased?) to reduce angle drift in noisy environment
+#define BETA		0.030	// Madgwick algorithm gain (2 * proportional gain (Kp)) - 0.041 MARG, 0.033 IMU
 
 // parameters to check if filtered angles converged during initialisation
 #define INIT_ANGLE_DIFFERENCE 0.5		// maximum angle difference between filtered angles and accelerometer angles (x- and y-axis) after initialisation
@@ -121,9 +122,9 @@ const float ACCEL_V_MAX = 2.5;
 const float TIME_CONSTANT_ALTITUDE = 0.5;
 
 // angular rate PID values
-const float P_ROLL_RATE = 1.750,	I_ROLL_RATE = 0.000,	D_ROLL_RATE = 0.02; 	// 2.500, 0.000, 0.023 @ 0.006 EMA_RATE
-const float P_PITCH_RATE = 1.750,	I_PITCH_RATE = 0.000,	D_PITCH_RATE = 0.02;
-const float P_YAW_RATE = 1.000,		I_YAW_RATE = 0.750,		D_YAW_RATE = 0.000;		// 0.200, 0.000, 0.000
+const float P_ROLL_RATE = 1.750,	I_ROLL_RATE = 0.000,	D_ROLL_RATE = 0.020; 	// 2.500, 0.000, 0.023 @ 0.006 EMA_RATE
+const float P_PITCH_RATE = 1.750,	I_PITCH_RATE = 0.000,	D_PITCH_RATE = 0.020;	// 2.500, 0.000, 0.023 @ 0.006 EMA_RATE
+const float P_YAW_RATE = 0.000,		I_YAW_RATE = 0.000,		D_YAW_RATE = 0.000;		// 1.000, 0.750, 0.000
 
 // vertical velocity PID values for altitude hold
 const float P_VELOCITY_V = 1.000,	I_VELOCITY_V = 0.000,	D_VELOCITY_V = 0.000; 	// 1.000, 0.000, 0.000
@@ -131,9 +132,9 @@ const float P_VELOCITY_V = 1.000,	I_VELOCITY_V = 0.000,	D_VELOCITY_V = 0.000; 	/
 // EMA filter parameters for proportional (P) rate controller inputs.
 // Cut of frequency f_c: https://dsp.stackexchange.com/questions/40462/exponential-moving-average-cut-off-frequency)
 // ! Filter angular rates (gyro) using notch filter or a band stop filter from two EMA filters with specified cut off frequencies.
-const float EMA_ROLL_RATE_P		= 0.04; // EMA = 0.1301 --> f_c = 200 Hz; EMA = 0.0674 --> f_c = 100 Hz;
-const float EMA_PITCH_RATE_P	= 0.04; // EMA = 0.1301 --> f_c = 200 Hz; EMA = 0.0674 --> f_c = 100 Hz;
-const float EMA_YAW_RATE_P		= 0.04; // EMA = 0.1301 --> f_c = 200 Hz; EMA = 0.0674 --> f_c = 100 Hz;
+const float EMA_ROLL_RATE_P		= 0.08; // EMA = 0.1301 --> f_c = 200 Hz; EMA = 0.0674 --> f_c = 100 Hz;
+const float EMA_PITCH_RATE_P	= 0.08; // EMA = 0.1301 --> f_c = 200 Hz; EMA = 0.0674 --> f_c = 100 Hz;
+const float EMA_YAW_RATE_P		= 0.08; // EMA = 0.1301 --> f_c = 200 Hz; EMA = 0.0674 --> f_c = 100 Hz;
 
 // EMA filter parameters for derivative (D) rate controller inputs.
 // Cut of frequency f_c: https://dsp.stackexchange.com/questions/40462/exponential-moving-average-cut-off-frequency)
@@ -506,9 +507,8 @@ void setup() {
 		p.Begin();
 		
 		// Add time graphs. Notice the effect of points displayed on the time scale
-		p.AddTimeGraph("Angles", 1000, "roll_angle", roll_angle, "pitch_angle", pitch_angle, "yaw_angle", yaw_angle);
+		//p.AddTimeGraph("Angles", 1000, "r", roll_angle, "p", pitch_angle, "y", yaw_angle);
 		//p.AddTimeGraph("Rates", 1000, "roll_rate", roll_rate, "pitch_rate", pitch_rate, "yaw_rate", yaw_rate);
-		//p.AddTimeGraph("AccelAngles", 1000, "roll_angle_accel", roll_angle_accel, "pitch_angle_accel", pitch_angle_accel);
 		//p.AddTimeGraph("mv", 1000, "roll_rate_sp", roll_rate_sp, "pitch_rate_sp", pitch_rate_sp, "yaw_rate_sp", yaw_rate_sp);
 		//p.AddTimeGraph("mv", 1000, "roll_rate_mv", roll_rate_mv, "pitch_rate_mv", pitch_rate_mv, "yaw_rate_mv", yaw_rate_mv);
 		//p.AddTimeGraph("Barometer altitude", 1000, "baroAltitude", baroAltitude);
@@ -656,11 +656,11 @@ void loop() {
 			
 			
 			// TODO: Remove this test code
-			static float p_rate, i_rate, d_rate;
+			//static float p_rate, i_rate, d_rate;
 			
-			p_rate = constrain(map((float) rc_channelValue[4], 1000, 2000, 1.75, 2.5), 1.75, 2.5);
+			/*p_rate = constrain(map((float) rc_channelValue[4], 1000, 2000, 1.75, 2.5), 1.75, 2.5);
 			//i_rate = constrain(map((float) rc_channelValue[5], 1000, 2000, 0.75, 1.75), 0.75, 1.75);
-			d_rate = constrain(map((float) rc_channelValue[5], 1000, 2000, -0.001, 0.03), 0, 0.03);
+			d_rate = constrain(map((float) rc_channelValue[5], 1000, 2000, 0.02, 0.03), 0.02, 0.03);
 			
 			roll_rate_pid.set_K_p(p_rate);
 			//roll_rate_pid.set_K_i(i_rate);
@@ -668,15 +668,15 @@ void loop() {
 			
 			pitch_rate_pid.set_K_p(p_rate);
 			//pitch_rate_pid.set_K_i(i_rate);
-			pitch_rate_pid.set_K_d(d_rate);
+			pitch_rate_pid.set_K_d(d_rate);*/
 			
 			/*p_rate = constrain(map((float) rc_channelValue[4], 1000, 2000, 1, 2), 1, 2);
 			i_rate = constrain(map((float) rc_channelValue[5], 1000, 2000, 0.75, 1.75), 0.75, 1.75);
-			d_rate = constrain(map((float) rc_channelValue[5], 1000, 2000, -0.001, 0.01), 0, 0.01);*/
+			d_rate = constrain(map((float) rc_channelValue[5], 1000, 2000, -0.001, 0.01), 0, 0.01);
 			
 			yaw_rate_pid.set_K_p(0);
 			yaw_rate_pid.set_K_i(0);
-			yaw_rate_pid.set_K_d(0);
+			//yaw_rate_pid.set_K_d(0);*/
 			
 			
 			// calculate manipulated variables for attitude hold
@@ -759,7 +759,7 @@ void loop() {
 		}
 	#elif defined(PLOT)
 		// TODO: Check if this update rate is still too fast
-		if (micros() - t0_serial > 16666) {
+		if (micros() - t0_serial > 20000) {
 			t0_serial = micros();
 			// Plot data with "Processing"
 			p.Plot();
