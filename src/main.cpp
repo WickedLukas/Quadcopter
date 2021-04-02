@@ -11,8 +11,6 @@
 #include "Plotter.h"
 #include "sendSerial.h"
 
-// TODO: integrate telemetry (MAVLink?)
-
 // print debug outputs through serial
 //#define DEBUG
 
@@ -83,7 +81,7 @@
 #define INIT_VELOCITY_V 0.50	// maximum vertical velocity after initialisation
 
 // flight setpoint limits
-#define YAW_RATE_LIMIT		180		// deg/s
+#define YAW_RATE_LIMIT		120		// deg/s
 
 #define ROLL_ANGLE_LIMIT	30		// deg
 #define PITCH_ANGLE_LIMIT	30		// deg
@@ -122,9 +120,9 @@ const float ACCEL_V_MAX = 2.5;
 const float TIME_CONSTANT_ALTITUDE = 0.5;
 
 // angular rate PID values
-const float P_ROLL_RATE = 1.750,	I_ROLL_RATE = 0.000,	D_ROLL_RATE = 0.020; 	// 2.500, 0.000, 0.023 @ 0.006 EMA_RATE
-const float P_PITCH_RATE = 1.750,	I_PITCH_RATE = 0.000,	D_PITCH_RATE = 0.020;	// 2.500, 0.000, 0.023 @ 0.006 EMA_RATE
-const float P_YAW_RATE = 0.000,		I_YAW_RATE = 0.000,		D_YAW_RATE = 0.000;		// 1.000, 0.750, 0.000
+const float P_ROLL_RATE = 2.000,	I_ROLL_RATE = 0.000,	D_ROLL_RATE = 0.020; 	// 2.500, 0.000, 0.023 @ 0.006 EMA_RATE
+const float P_PITCH_RATE = 2.000,	I_PITCH_RATE = 0.000,	D_PITCH_RATE = 0.020;	// 2.500, 0.000, 0.023 @ 0.006 EMA_RATE
+const float P_YAW_RATE = 4.000,		I_YAW_RATE = 2.000,		D_YAW_RATE = 0.000;		// 4.000, 2.000, 0.000
 
 // vertical velocity PID values for altitude hold
 const float P_VELOCITY_V = 1.000,	I_VELOCITY_V = 0.000,	D_VELOCITY_V = 0.000; 	// 1.000, 0.000, 0.000
@@ -132,15 +130,15 @@ const float P_VELOCITY_V = 1.000,	I_VELOCITY_V = 0.000,	D_VELOCITY_V = 0.000; 	/
 // EMA filter parameters for proportional (P) rate controller inputs.
 // Cut of frequency f_c: https://dsp.stackexchange.com/questions/40462/exponential-moving-average-cut-off-frequency)
 // ! Filter angular rates (gyro) using notch filter or a band stop filter from two EMA filters with specified cut off frequencies.
-const float EMA_ROLL_RATE_P		= 0.08; // EMA = 0.1301 --> f_c = 200 Hz; EMA = 0.0674 --> f_c = 100 Hz;
-const float EMA_PITCH_RATE_P	= 0.08; // EMA = 0.1301 --> f_c = 200 Hz; EMA = 0.0674 --> f_c = 100 Hz;
-const float EMA_YAW_RATE_P		= 0.08; // EMA = 0.1301 --> f_c = 200 Hz; EMA = 0.0674 --> f_c = 100 Hz;
+const float EMA_ROLL_RATE_P		= 0.05; // EMA = 0.1301 --> f_c = 200 Hz; EMA = 0.0674 --> f_c = 100 Hz;
+const float EMA_PITCH_RATE_P	= 0.05; // EMA = 0.1301 --> f_c = 200 Hz; EMA = 0.0674 --> f_c = 100 Hz;
+const float EMA_YAW_RATE_P		= 0.02; // EMA = 0.1301 --> f_c = 200 Hz; EMA = 0.0674 --> f_c = 100 Hz;
 
 // EMA filter parameters for derivative (D) rate controller inputs.
 // Cut of frequency f_c: https://dsp.stackexchange.com/questions/40462/exponential-moving-average-cut-off-frequency)
-const float EMA_ROLL_RATE_D		= 0.006; // EMA = 0.0139 --> f_c = 20 Hz
-const float EMA_PITCH_RATE_D	= 0.006; // EMA = 0.0139 --> f_c = 20 Hz
-const float EMA_YAW_RATE_D		= 0.006; // EMA = 0.0035 --> f_c = 5 Hz
+const float EMA_ROLL_RATE_D		= 0.005; // EMA = 0.0139 --> f_c = 20 Hz
+const float EMA_PITCH_RATE_D	= 0.005; // EMA = 0.0139 --> f_c = 20 Hz
+const float EMA_YAW_RATE_D		= 0.005; // EMA = 0.0035 --> f_c = 5 Hz
 
 // failsafe configuration
 const uint8_t FS_IMU		= 0b00000001;
@@ -670,12 +668,12 @@ void loop() {
 			//pitch_rate_pid.set_K_i(i_rate);
 			pitch_rate_pid.set_K_d(d_rate);*/
 			
-			/*p_rate = constrain(map((float) rc_channelValue[4], 1000, 2000, 1, 2), 1, 2);
-			i_rate = constrain(map((float) rc_channelValue[5], 1000, 2000, 0.75, 1.75), 0.75, 1.75);
-			d_rate = constrain(map((float) rc_channelValue[5], 1000, 2000, -0.001, 0.01), 0, 0.01);
+			/*p_rate = constrain(map((float) rc_channelValue[4], 1000, 2000, 2.5, 5.0), 4.0, 5.0);
+			i_rate = constrain(map((float) rc_channelValue[5], 1000, 2000, 2.0, 5.0), 2.0, 3.0);
+			//d_rate = constrain(map((float) rc_channelValue[5], 1000, 2000, -0.001, 0.01), 0, 0.01);
 			
-			yaw_rate_pid.set_K_p(0);
-			yaw_rate_pid.set_K_i(0);
+			yaw_rate_pid.set_K_p(p_rate);
+			yaw_rate_pid.set_K_i(i_rate);
 			//yaw_rate_pid.set_K_d(0);*/
 			
 			
