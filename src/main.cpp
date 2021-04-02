@@ -122,7 +122,7 @@ const float TIME_CONSTANT_ALTITUDE = 0.5;
 // angular rate PID values
 const float P_ROLL_RATE = 2.000,	I_ROLL_RATE = 0.000,	D_ROLL_RATE = 0.020; 	// 2.500, 0.000, 0.023 @ 0.006 EMA_RATE
 const float P_PITCH_RATE = 2.000,	I_PITCH_RATE = 0.000,	D_PITCH_RATE = 0.020;	// 2.500, 0.000, 0.023 @ 0.006 EMA_RATE
-const float P_YAW_RATE = 4.000,		I_YAW_RATE = 2.000,		D_YAW_RATE = 0.000;		// 4.000, 2.000, 0.000
+const float P_YAW_RATE = 3.500,		I_YAW_RATE = 2.000,		D_YAW_RATE = 0.000;		// 3.500, 2.000, 0.000
 
 // vertical velocity PID values for altitude hold
 const float P_VELOCITY_V = 1.000,	I_VELOCITY_V = 0.000,	D_VELOCITY_V = 0.000; 	// 1.000, 0.000, 0.000
@@ -336,9 +336,9 @@ MotorsQuadcopter motors(MOTOR_PIN_1, MOTOR_PIN_2, MOTOR_PIN_3, MOTOR_PIN_4, MOTO
 MADGWICK_AHRS madgwickFilter(BETA_INIT);
 
 // rate PID controller
-PID_controller roll_rate_pid(P_ROLL_RATE, I_ROLL_RATE, D_ROLL_RATE, 0, 0, 500, 50, EMA_ROLL_RATE_P, EMA_ROLL_RATE_D);
-PID_controller pitch_rate_pid(P_PITCH_RATE, I_PITCH_RATE, D_PITCH_RATE, 0, 0, 500, 50, EMA_PITCH_RATE_P, EMA_PITCH_RATE_D);
-PID_controller yaw_rate_pid(P_YAW_RATE, I_YAW_RATE, D_YAW_RATE, 0, 0, 500, 100, EMA_YAW_RATE_P, EMA_YAW_RATE_D);
+PID_controller roll_rate_pid(P_ROLL_RATE, I_ROLL_RATE, D_ROLL_RATE, 0, 0, 300, 50, EMA_ROLL_RATE_P, EMA_ROLL_RATE_D);
+PID_controller pitch_rate_pid(P_PITCH_RATE, I_PITCH_RATE, D_PITCH_RATE, 0, 0, 300, 50, EMA_PITCH_RATE_P, EMA_PITCH_RATE_D);
+PID_controller yaw_rate_pid(P_YAW_RATE, I_YAW_RATE, D_YAW_RATE, 0, 0, 250, 100, EMA_YAW_RATE_P, EMA_YAW_RATE_D);
 
 // vertical velocity PID controller for altitude hold
 PID_controller velocity_v_pid(P_VELOCITY_V, I_VELOCITY_V, D_VELOCITY_V, 0, 0, THROTTLE_LIMIT - 1000, 200);
@@ -668,8 +668,8 @@ void loop() {
 			//pitch_rate_pid.set_K_i(i_rate);
 			pitch_rate_pid.set_K_d(d_rate);*/
 			
-			/*p_rate = constrain(map((float) rc_channelValue[4], 1000, 2000, 2.5, 5.0), 4.0, 5.0);
-			i_rate = constrain(map((float) rc_channelValue[5], 1000, 2000, 2.0, 5.0), 2.0, 3.0);
+			/*p_rate = constrain(map((float) rc_channelValue[4], 1000, 2000, 3.5, 4.5), 3.5, 4.5);
+			i_rate = constrain(map((float) rc_channelValue[5], 1000, 2000, 2.0, 3.0), 2.0, 3.0);
 			//d_rate = constrain(map((float) rc_channelValue[5], 1000, 2000, -0.001, 0.01), 0, 0.01);
 			
 			yaw_rate_pid.set_K_p(p_rate);
