@@ -130,7 +130,7 @@ const float P_PITCH_RATE = 2.000,	I_PITCH_RATE = 0.000,	D_PITCH_RATE = 0.020;	//
 const float P_YAW_RATE = 3.500,		I_YAW_RATE = 2.000,		D_YAW_RATE = 0.000;		// 3.500, 2.000, 0.000
 
 // vertical velocity PID values for altitude hold
-const float P_VELOCITY_V = 40.000,	I_VELOCITY_V = 20.000,	D_VELOCITY_V = 0.000; 	// 40.000, 20.000, 0.000
+const float P_VELOCITY_V = 50.000,	I_VELOCITY_V = 5.000,	D_VELOCITY_V = 0.000; 	// 40.000, 5.000, 0.000
 
 // Cut of frequency f_c: https://dsp.stackexchange.com/questions/40462/exponential-moving-average-cut-off-frequency)
 // EMA filter parameters for proportional (P) and derivative (D) rate controller inputs.
@@ -531,7 +531,7 @@ void setup() {
 		//p.AddTimeGraph("Altitude", 1000, "Quadcopter", altitude, "Barometer", baroAltitude);
 		//p.AddTimeGraph("Relative acceleration in ned-frame", 1000, "a_ned_rel_q1", a_ned_rel_q1, "a_ned_rel_q2", a_ned_rel_q2, "a_ned_rel_q3", a_ned_rel_q3);
 		//p.AddTimeGraph("Quadcopter vertical velocity", 1000, "velocity_v", velocity_v, "velocity_v_sp", velocity_v_sp);
-		p.AddTimeGraph("z", 1000, "a", altitude, "bA", baroAltitude, "aS", altitude_sp "v", velocity_v, "v_sp", velocity_v_sp);
+		p.AddTimeGraph("z", 1000, "a", altitude, "bA", baroAltitude, "aS", altitude_sp, "v", velocity_v, "v_sp", velocity_v_sp);
 	#endif
 }
 
