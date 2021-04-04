@@ -11,6 +11,8 @@
 #include "Plotter.h"
 #include "sendSerial.h"
 
+// TODO: Tune parameters for altitude hold mode (barometer filter settings, PID, ...)
+
 // print debug outputs through serial
 //#define DEBUG
 
@@ -69,11 +71,11 @@
 #define YAW			3
 #define THROTTLE	2
 #define ARM			6	// disarmed: 1000, armed: 2000
-#define FMODE		8	// stable: 1000, stable with tilt compensated thrust: 1500, stable with altitude hold: 2000, acro (not implemented)
+#define FMODE		8	// stable: 1000, stable with tilt compensated thrust: 1500, stable with tilt compensated thrust and altitude hold: 2000, acro (not implemented)
 
 #define BETA_INIT	10		// Madgwick algorithm gain (2 * proportional gain (Kp)) during initial pose estimation - 10
 // TODO: Check if parameter needs to be changed (increased?) to reduce angle drift in noisy environment
-#define BETA		0.030	// Madgwick algorithm gain (2 * proportional gain (Kp)) - 0.041 MARG, 0.033 IMU
+#define BETA		0.033	// Madgwick algorithm gain (2 * proportional gain (Kp)) - 0.041 MARG, 0.033 IMU
 
 // parameters to check if filtered angles converged during initialisation
 #define INIT_ANGLE_DIFFERENCE 0.5		// maximum angle difference between filtered angles and accelerometer angles (x- and y-axis) after initialisation
@@ -95,7 +97,7 @@
 // Throttle to enter started state and begin PID calculations.
 // The throttle stick position is centered around this value.
 // To ensure a smooth start, this value should be close to the throttle necessary for take off.
-#define THROTTLE_HOVER	1450
+#define THROTTLE_HOVER	1475
 // Set throttle limit (< 2000), so there is some headroom for pid control in order to keep the quadcopter stable during full throttle.
 #define THROTTLE_LIMIT	1800
 
@@ -114,31 +116,39 @@ const float ACCEL_MAX_YAW = 180;	// 270, 180
 // angle controller time constant
 const float TIME_CONSTANT_ANGLE = 0.15;
 
+// throttle expo parameter used to achieve less throttle sensitivity around hover
+const float THROTTLE_EXPO = 0.3;	// 0.3
+
 // altitude controller acceleration limits (m/ss)
 const float ACCEL_V_MAX = 2.5;
 // altitude controller time constant
 const float TIME_CONSTANT_ALTITUDE = 0.5;
 
 // angular rate PID values
-const float P_ROLL_RATE = 2.000,	I_ROLL_RATE = 0.000,	D_ROLL_RATE = 0.020; 	// 2.500, 0.000, 0.023 @ 0.006 EMA_RATE
+const float P_ROLL_RATE = 2.000,	I_ROLL_RATE = 0.000,	D_ROLL_RATE = 0.020;	// 2.500, 0.000, 0.023 @ 0.006 EMA_RATE
 const float P_PITCH_RATE = 2.000,	I_PITCH_RATE = 0.000,	D_PITCH_RATE = 0.020;	// 2.500, 0.000, 0.023 @ 0.006 EMA_RATE
 const float P_YAW_RATE = 3.500,		I_YAW_RATE = 2.000,		D_YAW_RATE = 0.000;		// 3.500, 2.000, 0.000
 
 // vertical velocity PID values for altitude hold
-const float P_VELOCITY_V = 1.000,	I_VELOCITY_V = 0.000,	D_VELOCITY_V = 0.000; 	// 1.000, 0.000, 0.000
+const float P_VELOCITY_V = 40.000,	I_VELOCITY_V = 20.000,	D_VELOCITY_V = 0.000; 	// 40.000, 20.000, 0.000
 
-// EMA filter parameters for proportional (P) rate controller inputs.
 // Cut of frequency f_c: https://dsp.stackexchange.com/questions/40462/exponential-moving-average-cut-off-frequency)
+// EMA filter parameters for proportional (P) and derivative (D) rate controller inputs.
 // ! Filter angular rates (gyro) using notch filter or a band stop filter from two EMA filters with specified cut off frequencies.
-const float EMA_ROLL_RATE_P		= 0.05; // EMA = 0.1301 --> f_c = 200 Hz; EMA = 0.0674 --> f_c = 100 Hz;
-const float EMA_PITCH_RATE_P	= 0.05; // EMA = 0.1301 --> f_c = 200 Hz; EMA = 0.0674 --> f_c = 100 Hz;
-const float EMA_YAW_RATE_P		= 0.02; // EMA = 0.1301 --> f_c = 200 Hz; EMA = 0.0674 --> f_c = 100 Hz;
+// EMA = 0.1301 --> f_c = 200 Hz; EMA = 0.0674 --> f_c = 100 Hz;
+const float EMA_ROLL_RATE_P		= 0.040;	// 0.040
+const float EMA_PITCH_RATE_P	= 0.040;	// 0.040
+const float EMA_YAW_RATE_P		= 0.020;	// 0.020
+// EMA = 0.0139 --> f_c = 20 Hz; EMA = 0.0035 --> f_c = 5 Hz;
+const float EMA_ROLL_RATE_D		= 0.005;	// 0.005
+const float EMA_PITCH_RATE_D	= 0.005;	// 0.005
+const float EMA_YAW_RATE_D		= 0.005;	// 0.005
 
-// EMA filter parameters for derivative (D) rate controller inputs.
-// Cut of frequency f_c: https://dsp.stackexchange.com/questions/40462/exponential-moving-average-cut-off-frequency)
-const float EMA_ROLL_RATE_D		= 0.005; // EMA = 0.0139 --> f_c = 20 Hz
-const float EMA_PITCH_RATE_D	= 0.005; // EMA = 0.0139 --> f_c = 20 Hz
-const float EMA_YAW_RATE_D		= 0.005; // EMA = 0.0035 --> f_c = 5 Hz
+// EMA filter parameters for proportional (P)  and derivative (D) vertical velocity controller inputs.
+// EMA = 0.1301 --> f_c = 200 Hz; EMA = 0.0674 --> f_c = 100 Hz;
+const float EMA_velocity_v_P	= 0.040;	// 0.040
+// EMA = 0.0139 --> f_c = 20 Hz; EMA = 0.0035 --> f_c = 5 Hz;
+const float EMA_velocity_v_D	= 0.005;	// 0.005
 
 // failsafe configuration
 const uint8_t FS_IMU		= 0b00000001;
@@ -336,12 +346,12 @@ MotorsQuadcopter motors(MOTOR_PIN_1, MOTOR_PIN_2, MOTOR_PIN_3, MOTOR_PIN_4, MOTO
 MADGWICK_AHRS madgwickFilter(BETA_INIT);
 
 // rate PID controller
-PID_controller roll_rate_pid(P_ROLL_RATE, I_ROLL_RATE, D_ROLL_RATE, 0, 0, 300, 50, EMA_ROLL_RATE_P, EMA_ROLL_RATE_D);
-PID_controller pitch_rate_pid(P_PITCH_RATE, I_PITCH_RATE, D_PITCH_RATE, 0, 0, 300, 50, EMA_PITCH_RATE_P, EMA_PITCH_RATE_D);
+PID_controller roll_rate_pid(P_ROLL_RATE, I_ROLL_RATE, D_ROLL_RATE, 0, 0, 250, 50, EMA_ROLL_RATE_P, EMA_ROLL_RATE_D);
+PID_controller pitch_rate_pid(P_PITCH_RATE, I_PITCH_RATE, D_PITCH_RATE, 0, 0, 250, 50, EMA_PITCH_RATE_P, EMA_PITCH_RATE_D);
 PID_controller yaw_rate_pid(P_YAW_RATE, I_YAW_RATE, D_YAW_RATE, 0, 0, 250, 100, EMA_YAW_RATE_P, EMA_YAW_RATE_D);
 
 // vertical velocity PID controller for altitude hold
-PID_controller velocity_v_pid(P_VELOCITY_V, I_VELOCITY_V, D_VELOCITY_V, 0, 0, THROTTLE_LIMIT - 1000, 200);
+PID_controller velocity_v_pid(P_VELOCITY_V, I_VELOCITY_V, D_VELOCITY_V, 0, 0, 200, 200, EMA_velocity_v_P, EMA_velocity_v_D);
 
 // variables to measure imu update time
 uint32_t t0, t;
@@ -350,8 +360,10 @@ int32_t dt;
 // measured imu update time in seconds
 float dt_s;
 
+// throttle output
+float throttle_out;
+
 // flight setpoints
-float throttle_sp;
 float roll_angle_sp, pitch_angle_sp;
 float roll_rate_sp, pitch_rate_sp, yaw_rate_sp;
 float altitude_sp;
@@ -374,7 +386,7 @@ float baroAltitude;
 
 // quadcopter pose
 float roll_angle, pitch_angle, yaw_angle;	// euler angles
-float pose_q[4];							// quaternion
+float pose_q[4];	// quaternion
 
 // quadcopter altitude
 float altitude;
@@ -436,6 +448,13 @@ void disarmAndResetQuad();
 // arm/disarm on rc command and disarm on failsafe conditions
 void arm_failsafe(uint8_t fs_config);
 
+// shape throttle to achieve less sensitivity around hover
+float shape_throttle(float throttle_in, float throttle_expo);
+
+// generate exponential (cubic) curve
+// x = [-1, 1]; expo = [0, 1];
+float expo_curve(float x, float expo);
+
 // Calculate the velocity correction from the position error. The velocity has acceleration and deceleration limits including a basic jerk limit using timeConstant.
 float shape_position(float position_error, float timeConstant, float accel_max, float last_velocity_sp);
 
@@ -489,7 +508,7 @@ void setup() {
 	imu.read_accelRes(accelRes);
 	
 	// initialise BMP388 mode, pressure oversampling, temperature oversampling, IIR-Filter and standby time
-	if (!bmp388.begin(NORMAL_MODE, OVERSAMPLING_X8, OVERSAMPLING_SKIP, IIR_FILTER_2, TIME_STANDBY_20MS)) {
+	if (!bmp388.begin(NORMAL_MODE, OVERSAMPLING_SKIP, OVERSAMPLING_SKIP, IIR_FILTER_32, TIME_STANDBY_5MS)) {
 		// barometer could not be initialised. Set error value, which will disable arming.
 		error_code = error_code | ERROR_BAR;
 		DEBUG_PRINTLN("BAR error: Initialisation failed!");
@@ -509,10 +528,10 @@ void setup() {
 		//p.AddTimeGraph("Rates", 1000, "roll_rate", roll_rate, "pitch_rate", pitch_rate, "yaw_rate", yaw_rate);
 		//p.AddTimeGraph("mv", 1000, "roll_rate_sp", roll_rate_sp, "pitch_rate_sp", pitch_rate_sp, "yaw_rate_sp", yaw_rate_sp);
 		//p.AddTimeGraph("mv", 1000, "roll_rate_mv", roll_rate_mv, "pitch_rate_mv", pitch_rate_mv, "yaw_rate_mv", yaw_rate_mv);
-		//p.AddTimeGraph("Barometer altitude", 1000, "baroAltitude", baroAltitude);
-		//p.AddTimeGraph("Quadcopter altitude", 2000, "altitude", altitude);
-		//p.AddTimeGraph("Relative acceleration in ned-frame", 2000, "a_ned_rel_q1", a_ned_rel_q1, "a_ned_rel_q2", a_ned_rel_q2, "a_ned_rel_q3", a_ned_rel_q3);
-		//p.AddTimeGraph("Quadcopter vertical velocity", 2000, "velocity_v", velocity_v, "velocity_v_sp", velocity_v_sp);
+		//p.AddTimeGraph("Altitude", 1000, "Quadcopter", altitude, "Barometer", baroAltitude);
+		//p.AddTimeGraph("Relative acceleration in ned-frame", 1000, "a_ned_rel_q1", a_ned_rel_q1, "a_ned_rel_q2", a_ned_rel_q2, "a_ned_rel_q3", a_ned_rel_q3);
+		//p.AddTimeGraph("Quadcopter vertical velocity", 1000, "velocity_v", velocity_v, "velocity_v_sp", velocity_v_sp);
+		p.AddTimeGraph("z", 1000, "a", altitude, "bA", baroAltitude, "aS", altitude_sp "v", velocity_v, "v_sp", velocity_v_sp);
 	#endif
 }
 
@@ -616,24 +635,8 @@ void loop() {
 	
 	// when armed, calculate flight setpoints, manipulated variables and control motors
 	if (motors.getState() == State::armed) {
-		// throttle setpoint
-		if (rc_channelValue[THROTTLE] < 1500) {
-			if (!started) {
-				throttle_sp = map((float) rc_channelValue[THROTTLE], 1000, 1500, THROTTLE_ARMED, THROTTLE_HOVER);
-			}
-			else {
-				throttle_sp = map((float) rc_channelValue[THROTTLE], 1000, 1500, THROTTLE_MIN, THROTTLE_HOVER);
-			}
-		}
-		else {
-			throttle_sp = map((float) rc_channelValue[THROTTLE], 1500, 2000, THROTTLE_HOVER, THROTTLE_LIMIT);
-		}
-		
-		if (rc_channelValue[FMODE] == 1500) {
-			// Stable flightmode with tilt compensated thrust: Increase thrust when quadcopter is tilted, to compensate for height loss during horizontal movement.
-			// Note: In order to maintain stability, tilt compensated thrust is limited to the throttle limit.
-			throttle_sp = constrain((float) (throttle_sp - 1000) / (pose_q[0]*pose_q[0] - pose_q[1]*pose_q[1] - pose_q[2]*pose_q[2] + pose_q[3]*pose_q[3]) + 1000, 1000, THROTTLE_LIMIT);
-		}
+		// throttle output
+		throttle_out = shape_throttle(rc_channelValue[THROTTLE], THROTTLE_EXPO);
 		
 		// In order to ensure a smooth start, PID calculations are delayed until a minimum throttle value is applied.
 		if (started) {
@@ -701,7 +704,7 @@ void loop() {
 		else {
 			altitude_sp = altitude;
 			
-			if (throttle_sp > THROTTLE_HOVER) {
+			if (throttle_out > THROTTLE_HOVER) {
 				started = true;
 				DEBUG_PRINTLN("Started!");
 			}
@@ -710,10 +713,10 @@ void loop() {
 
 	// motor mixing
 	motors.output(
-		constrain(throttle_sp + velocity_v_mv + roll_rate_mv - pitch_rate_mv + yaw_rate_mv, 1000, 2000),
-		constrain(throttle_sp + velocity_v_mv - roll_rate_mv - pitch_rate_mv - yaw_rate_mv, 1000, 2000),
-		constrain(throttle_sp + velocity_v_mv - roll_rate_mv + pitch_rate_mv + yaw_rate_mv, 1000, 2000),
-		constrain(throttle_sp + velocity_v_mv + roll_rate_mv + pitch_rate_mv - yaw_rate_mv, 1000, 2000));
+		constrain(throttle_out + velocity_v_mv + roll_rate_mv - pitch_rate_mv + yaw_rate_mv, 1000, 2000),
+		constrain(throttle_out + velocity_v_mv - roll_rate_mv - pitch_rate_mv - yaw_rate_mv, 1000, 2000),
+		constrain(throttle_out + velocity_v_mv - roll_rate_mv + pitch_rate_mv + yaw_rate_mv, 1000, 2000),
+		constrain(throttle_out + velocity_v_mv + roll_rate_mv + pitch_rate_mv - yaw_rate_mv, 1000, 2000));
 	
 	// run serial print at a rate independent of the main loop (micros() - t0_serial = 16666 for 60 Hz update rate)
 	static uint32_t t0_serial = micros();
@@ -731,8 +734,8 @@ void loop() {
 			
 			//DEBUG_PRINT(map((float) rc_channelValue[ROLL], 1000, 2000, -ROLL_ANGLE_LIMIT, ROLL_ANGLE_LIMIT)); DEBUG_PRINT("\t"); DEBUG_PRINTLN(roll_angle_sp);
 			//DEBUG_PRINT(map((float) rc_channelValue[YAW], 1000, 2000, -YAW_RATE_LIMIT, YAW_RATE_LIMIT)); DEBUG_PRINT("\t"); DEBUG_PRINTLN(yaw_rate_sp);
-			//DEBUG_PRINT(map((float) rc_channelValue[THROTTLE], 1000, 2000, 1000, THROTTLE_LIMIT)); DEBUG_PRINT("\t"); DEBUG_PRINTLN(throttle_sp);
-			//DEBUG_PRINT(map((float) (rc_channelValue[THROTTLE] - 1000) / (cos(roll_angle * DEG2RAD) * cos(pitch_angle * DEG2RAD)) + 1000, 1000, 2000, 1000, THROTTLE_LIMIT)); DEBUG_PRINT("\t"); DEBUG_PRINTLN(throttle_sp);
+			//DEBUG_PRINT(map((float) rc_channelValue[THROTTLE], 1000, 2000, 1000, THROTTLE_LIMIT)); DEBUG_PRINT("\t"); DEBUG_PRINTLN(throttle_out);
+			//DEBUG_PRINT(map((float) (rc_channelValue[THROTTLE] - 1000) / (cos(roll_angle * DEG2RAD) * cos(pitch_angle * DEG2RAD)) + 1000, 1000, 2000, 1000, THROTTLE_LIMIT)); DEBUG_PRINT("\t"); DEBUG_PRINTLN(throttle_out);
 			
 			//DEBUG_PRINTLN(roll_rate_sp);
 			
@@ -904,7 +907,7 @@ void calcAltitude() {
 	
 	// k1 = sqrt(2 * std_w / std_v)
 	// k2 = std_w / std_v
-	// std_w: standard deviation in the noise of the acceleration (0.1 m/s²)
+	// std_w: standard deviation in the noise of the acceleration (0.10 m/s²)
 	// std_v: standard deviation in the noise of the barometer altitude (0.11 m)
 	
 	static const float ratio = 0.9;
@@ -1061,7 +1064,7 @@ void disarmAndResetQuad() {
 		pitch_rate_sp = 0;
 		yaw_rate_sp = 0;
 		
-		throttle_sp = 1000;
+		throttle_out = 1000;
 		velocity_v_sp = 0;
 		
 		altitude_sp = altitude;
@@ -1200,6 +1203,40 @@ void arm_failsafe(uint8_t fs_config) {
 		// TODO: add additional failsafes here
 		
 	}
+}
+
+// shape throttle for a more linear behaviour between pilot input throttle and thrust
+float shape_throttle(float throttle_in, float throttle_expo) {
+	static float throttle = 0;
+	
+	// map throttle to [-1, 1]
+	throttle_in = map(throttle_in, 1000, 2000, -1, 1);
+	
+	if (throttle_in < 0) {
+		if (!started) {
+			throttle = map(expo_curve(throttle_in, throttle_expo), -1, 0, THROTTLE_ARMED, THROTTLE_HOVER);
+		}
+		else {
+			throttle = map(expo_curve(throttle_in, throttle_expo), -1, 0, THROTTLE_MIN, THROTTLE_HOVER);
+		}
+	}
+	else {
+		throttle = map(expo_curve(throttle_in, throttle_expo), 0, 1, THROTTLE_HOVER, THROTTLE_LIMIT);
+	}
+
+	if ((rc_channelValue[FMODE] == 1500) || (rc_channelValue[FMODE] == 2000)) {
+		// Tilt compensated thrust: Increase thrust when quadcopter is tilted, to compensate for height loss during horizontal movement.
+		// Note: In order to maintain stability, tilt compensated thrust is limited to the throttle limit.
+		throttle = constrain((float) (throttle - 1000) / (pose_q[0]*pose_q[0] - pose_q[1]*pose_q[1] - pose_q[2]*pose_q[2] + pose_q[3]*pose_q[3]) + 1000, 1000, THROTTLE_LIMIT);
+	}
+	
+	return throttle;
+}
+
+// Generate exponential (cubic) curve.
+// x = [-1, 1]; expo = [0, 1];
+float expo_curve(float x, float expo) {
+	return (1.0f - expo) * x + expo * x * x * x;
 }
 
 // Calculate the velocity correction from the position error. The velocity has acceleration and deceleration limits including a basic jerk limit using timeConstant.
