@@ -120,9 +120,9 @@ const float TIME_CONSTANT_ANGLE = 0.15;
 const float THROTTLE_EXPO = 0.3;	// 0.3
 
 // altitude controller acceleration limits (m/ss)
-const float ACCEL_V_MAX = 2.5;
+const float ACCEL_V_MAX = 1;
 // altitude controller time constant
-const float TIME_CONSTANT_ALTITUDE = 0.5;
+const float TIME_CONSTANT_ALTITUDE = 2;
 
 // angular rate PID values
 const float P_ROLL_RATE = 2.000,	I_ROLL_RATE = 0.000,	D_ROLL_RATE = 0.020;	// 2.500, 0.000, 0.023 @ 0.006 EMA_RATE
@@ -130,7 +130,7 @@ const float P_PITCH_RATE = 2.000,	I_PITCH_RATE = 0.000,	D_PITCH_RATE = 0.020;	//
 const float P_YAW_RATE = 3.500,		I_YAW_RATE = 2.000,		D_YAW_RATE = 0.000;		// 3.500, 2.000, 0.000
 
 // vertical velocity PID values for altitude hold
-const float P_VELOCITY_V = 50.000,	I_VELOCITY_V = 5.000,	D_VELOCITY_V = 0.000; 	// 40.000, 5.000, 0.000
+const float P_VELOCITY_V = 250.000,	I_VELOCITY_V = 5.000,	D_VELOCITY_V = 0.000; 	// 250.000, 5.000, 0.000
 
 // Cut of frequency f_c: https://dsp.stackexchange.com/questions/40462/exponential-moving-average-cut-off-frequency)
 // EMA filter parameters for proportional (P) and derivative (D) rate controller inputs.
@@ -146,7 +146,7 @@ const float EMA_YAW_RATE_D		= 0.005;	// 0.005
 
 // EMA filter parameters for proportional (P)  and derivative (D) vertical velocity controller inputs.
 // EMA = 0.1301 --> f_c = 200 Hz; EMA = 0.0674 --> f_c = 100 Hz;
-const float EMA_velocity_v_P	= 0.040;	// 0.040
+const float EMA_velocity_v_P	= 0.015;	// 0.015
 // EMA = 0.0139 --> f_c = 20 Hz; EMA = 0.0035 --> f_c = 5 Hz;
 const float EMA_velocity_v_D	= 0.005;	// 0.005
 
@@ -351,7 +351,7 @@ PID_controller pitch_rate_pid(P_PITCH_RATE, I_PITCH_RATE, D_PITCH_RATE, 0, 0, 25
 PID_controller yaw_rate_pid(P_YAW_RATE, I_YAW_RATE, D_YAW_RATE, 0, 0, 250, 100, EMA_YAW_RATE_P, EMA_YAW_RATE_D);
 
 // vertical velocity PID controller for altitude hold
-PID_controller velocity_v_pid(P_VELOCITY_V, I_VELOCITY_V, D_VELOCITY_V, 0, 0, 200, 200, EMA_velocity_v_P, EMA_velocity_v_D);
+PID_controller velocity_v_pid(P_VELOCITY_V, I_VELOCITY_V, D_VELOCITY_V, 0, 0, 250, 250, EMA_velocity_v_P, EMA_velocity_v_D);
 
 // variables to measure imu update time
 uint32_t t0, t;
@@ -531,7 +531,8 @@ void setup() {
 		//p.AddTimeGraph("Altitude", 1000, "Quadcopter", altitude, "Barometer", baroAltitude);
 		//p.AddTimeGraph("Relative acceleration in ned-frame", 1000, "a_ned_rel_q1", a_ned_rel_q1, "a_ned_rel_q2", a_ned_rel_q2, "a_ned_rel_q3", a_ned_rel_q3);
 		//p.AddTimeGraph("Quadcopter vertical velocity", 1000, "velocity_v", velocity_v, "velocity_v_sp", velocity_v_sp);
-		p.AddTimeGraph("z", 1000, "a", altitude, "bA", baroAltitude, "aS", altitude_sp, "v", velocity_v, "v_sp", velocity_v_sp);
+		//p.AddTimeGraph("alt", 1000, "a", altitude, "bA", baroAltitude, "aS", altitude_sp);
+		//p.AddTimeGraph("vel", 1000, "v", velocity_v, "v_sp", velocity_v_sp);
 	#endif
 }
 
@@ -657,7 +658,7 @@ void loop() {
 			
 			
 			// TODO: Remove this test code
-			//static float p_rate, i_rate, d_rate;
+			static float p_rate, i_rate, d_rate;
 			
 			/*p_rate = constrain(map((float) rc_channelValue[4], 1000, 2000, 1.75, 2.5), 1.75, 2.5);
 			//i_rate = constrain(map((float) rc_channelValue[5], 1000, 2000, 0.75, 1.75), 0.75, 1.75);
@@ -679,6 +680,13 @@ void loop() {
 			yaw_rate_pid.set_K_i(i_rate);
 			//yaw_rate_pid.set_K_d(0);*/
 			
+			p_rate = constrain(map((float) rc_channelValue[4], 1000, 2000, 250, 350), 250, 350);
+			i_rate = constrain(map((float) rc_channelValue[5], 1000, 2000, 5, 10), 5, 10);
+			//d_rate = constrain(map((float) rc_channelValue[5], 1000, 2000, -0.001, 0.01), 0, 0.01);
+			
+			velocity_v_pid.set_K_p(p_rate);
+			velocity_v_pid.set_K_i(i_rate);
+			//yaw_rate_pid.set_K_d(0);*/
 			
 			// calculate manipulated variables for attitude hold
 			roll_rate_mv = roll_rate_pid.get_mv(roll_rate_sp, roll_rate, dt_s);
@@ -760,7 +768,7 @@ void loop() {
 		}
 	#elif defined(PLOT)
 		// TODO: Check if this update rate is still too fast
-		if (micros() - t0_serial > 20000) {
+		if (micros() - t0_serial > 25000) {
 			t0_serial = micros();
 			// Plot data with "Processing"
 			p.Plot();
