@@ -433,7 +433,8 @@ void accelAngles(float& roll_angle_accel, float& pitch_angle_accel);
 // multiply two quaternions (Hamilton product)
 void qMultiply(float* q1, float* q2, float* result_q);
 
-// calculate altitude in m from acceleration, barometer altitude and pose
+// calculate altitude in m from accelerometer, barometer altitude and pose
+// TODO: Use this for position estimation by combining accelerometer, gps position and pose
 void calcAltitude();
 
 // estimate initial altitude
@@ -627,7 +628,7 @@ void loop() {
 		yaw_angle += 360;
 	}
 	
-	// calculate altitude in m from acceleration, barometer altitude and pose
+	// calculate altitude in m from accelerometer, barometer altitude and pose
 	calcAltitude();
 	
 	roll_rate = gx_rps * RAD2DEG;
@@ -694,6 +695,7 @@ void loop() {
 			yaw_rate_mv = yaw_rate_pid.get_mv(yaw_rate_sp, yaw_rate, dt_s);
 			
 			// do not hold altitude unless flight mode uses altitude hold and throttle stick is centered
+			// TODO: In altitude hold mode, switch rc input to control vertical velocity
 			if ((rc_channelValue[FMODE] != 2000) || (rc_channelValue[THROTTLE] < THROTTLE_DEADZONE_BOT) || (rc_channelValue[THROTTLE] > THROTTLE_DEADZONE_TOP)) {
 				altitude_sp = altitude;
 				velocity_v_sp = 0;
@@ -883,7 +885,7 @@ void qMultiply(float* q1, float* q2, float* result_q) {
 	result_q[3] = q1[0] * q2[3] + q1[1] * q2[2] - q1[2] * q2[1] + q1[3] * q2[0];
 }
 
-// calculate altitude in m from acceleration, barometer altitude and pose
+// calculate altitude in m from accelerometer, barometer altitude and pose
 void calcAltitude() {
 	// acceleration of gravity is m/s²
 	const float G = 9.81;
@@ -953,6 +955,7 @@ void estimateAltitude(float init_velocity_v) {
 		// TODO: Check if there is a benefit from magnetometer data
 		madgwickFilter.get_euler_quaternion(dt_s, ax, ay, az, gx_rps, gy_rps, gz_rps, 0, 0, 0, roll_angle, pitch_angle, yaw_angle, pose_q);
 		
+		// calculate altitude in m from accelerometer, barometer altitude and pose
 		calcAltitude();
 		
 		static uint32_t dt_baro;
@@ -1213,7 +1216,7 @@ void arm_failsafe(uint8_t fs_config) {
 	}
 }
 
-// shape throttle for a more linear behaviour between pilot input throttle and thrust
+// shape throttle to achieve less sensitivity around hover
 float shape_throttle(float throttle_in, float throttle_expo) {
 	static float throttle = 0;
 	
