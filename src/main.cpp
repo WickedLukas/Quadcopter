@@ -70,8 +70,8 @@
 #define PITCH		1
 #define YAW			3
 #define THROTTLE	2
-#define ARM			6	// disarmed: 1000, armed: 2000
-#define FMODE		8	// stable: 1000, stable with tilt compensated thrust: 1500, stable with tilt compensated thrust and altitude hold: 2000, acro (not implemented)
+#define ARM			6	// disarm: 1000, enable arming: 2000
+#define FMODE		8
 
 #define BETA_INIT	10		// Madgwick algorithm gain (2 * proportional gain (Kp)) during initial pose estimation - 10
 // TODO: Check if parameter needs to be changed (increased?) to reduce angle drift in noisy environment
@@ -91,9 +91,7 @@
 #define VELOCITY_V_LIMIT	2.5		// m/s
 
 // throttle when armed (slightly above esc/motor deadzone)
-#define THROTTLE_ARMED	1100
-// minimum throttle during flight (above THROTTLE_ARMED)
-#define THROTTLE_MIN	1300
+#define THROTTLE_ARMED	1125
 // Throttle to enter started state and begin PID calculations.
 // The throttle stick position is centered around this value.
 // To ensure a smooth start, this value should be close to the throttle necessary for take off.
@@ -103,6 +101,20 @@
 
 // throttle deadzone (altitude hold) in per cent of throttle range
 #define THROTTLE_DEADZONE_PCT 20
+
+// minimum time in microseconds a failsafe condition needs to be met, in order to activate it (except for FS_IMU)
+#define FS_TIME 500000
+
+// failsafe imu update time limit
+#define FS_IMU_DT_LIMIT 2000000
+
+// failsafe motion limits
+#define FS_MOTION_ANGLE_LIMIT 60
+#define FS_MOTION_RATE_LIMIT 450
+
+// failsafe control limits
+#define FS_CONTROL_ANGLE_DIFF 30
+#define FS_CONTROL_RATE_DIFF 120
 
 // throttle deadzone limits within which altitude hold is active
 const uint16_t THROTTLE_DEADZONE_BOT = 1000 + 10 * (50 - 0.5 * THROTTLE_DEADZONE_PCT);
@@ -155,26 +167,8 @@ const uint8_t FS_IMU		= 0b00000001;
 const uint8_t FS_MOTION		= 0b00000010;
 const uint8_t FS_CONTROL	= 0b00000100;
 
-// use imu and motion failsafe
-const uint8_t FS_CONFIG		= 0b00000011;
-
-// minimum time in microseconds a failsafe condition needs to be met, in order to activate it (except for FS_IMU)
-#define FS_TIME 500000
-
-// failsafe imu update time limit
-#define FS_IMU_DT_LIMIT 2000000
-
-// failsafe motion limits
-#define FS_MOTION_ANGLE_LIMIT 60
-#define FS_MOTION_RATE_LIMIT 450
-
-// failsafe control limits
-#define FS_CONTROL_ANGLE_DIFF 30
-#define FS_CONTROL_RATE_DIFF 120
-
-// factors for converting bettween radians and degrees
-const float RAD2DEG = (float) 4068 / 71;
-const float DEG2RAD = (float) 71 / 4068;
+// configure failsafe
+const uint8_t FS_CONFIG		= 0b00000011;	// imu and motion failsafe
 
 // list of error codes
 const uint8_t ERROR_IMU = 0b00000001;
@@ -183,6 +177,10 @@ const uint8_t ERROR_BAR = 0b00000100;
 // Stores the errors which occurred and disables arming.
 // A restart is required to reset the error and enable arming.
 uint8_t error_code;
+
+// factors for converting between radians and degrees
+const float RAD2DEG = (float) 4068 / 71;
+const float DEG2RAD = (float) 71 / 4068;
 
 // configuration data structure
 typedef struct {
@@ -217,8 +215,11 @@ float altitude_init = -1000;
 // pointer on an array of 10 received rc channel values [1000; 2000]
 uint16_t *rc_channelValue;
 
+// flight modes
+enum class FlightMode { Stabilize, TiltCompensation, AltitudeHold } fmode;
+
 // enum class for motor states
-enum class State {armed, disarmed, arming, disarming};
+enum class State { armed, disarmed, arming, disarming };
 
 // motor class
 class MotorsQuadcopter {
@@ -449,8 +450,8 @@ void disarmAndResetQuad();
 // arm/disarm on rc command and disarm on failsafe conditions
 void arm_failsafe(uint8_t fs_config);
 
-// shape throttle to achieve less sensitivity around hover
-float shape_throttle(float throttle_in, float throttle_expo);
+// map input from [in_min, in_max] to [out_min, out_max] and in_between to out_between
+float map3(float in, float in_min, float in_between, float in_max, float out_min, float out_between, float out_max);
 
 // generate exponential (cubic) curve
 // x = [-1, 1]; expo = [0, 1];
@@ -574,10 +575,10 @@ void loop() {
 		initSensors = true;
 		return;
 	}
-
+	
 	// arm/disarm on rc command or disarm on failsafe conditions
 	arm_failsafe(FS_CONFIG);
-
+	
 	// update time
 	t = micros();
 	dt = (t - t0);  // in us
@@ -590,7 +591,7 @@ void loop() {
 	
 	// reset imu interrupt
 	imuInterrupt = false;
-
+	
 	t0 = t;
 	
 	// read accel and gyro measurements
@@ -637,11 +638,80 @@ void loop() {
 	
 	// when armed, calculate flight setpoints, manipulated variables and control motors
 	if (motors.getState() == State::armed) {
-		// throttle output
-		throttle_out = shape_throttle(rc_channelValue[THROTTLE], THROTTLE_EXPO);
 		
-		// In order to ensure a smooth start, PID calculations are delayed until a minimum throttle value is applied.
+		// update flight mode
+		if (rc_channelValue[FMODE] == 1000) {
+			fmode = FlightMode::Stabilize;
+		}
+		else if (rc_channelValue[FMODE] == 1500) {
+			fmode = FlightMode::TiltCompensation;
+		}
+		else {	// rc_channelValue[FMODE] == 2000
+			fmode = FlightMode::AltitudeHold;
+		}
+		
+		// remember previous flight mode
+		static FlightMode fmode_last;
+		
+		// map throttle to [-1, 1]
+		static float throttle;
+		throttle = map(rc_channelValue[THROTTLE], 1000, 2000, -1, 1);
+		// apply expo to throttle for less sensitivity around hover
+		throttle = expo_curve(throttle, THROTTLE_EXPO);
+		
+		// In order to ensure a smooth start, PID calculations are delayed until hover throttle is reached.
 		if (started) {
+			if (fmode != fmode_last) {
+				if (fmode_last == FlightMode::AltitudeHold) {
+					// reset altitude hold
+					velocity_v_sp = 0;
+					velocity_v_pid.reset();
+					velocity_v_mv = 0;
+				}
+				
+				if (fmode == FlightMode::AltitudeHold) {
+					altitude_sp = altitude;
+				}
+			}
+			else {
+				switch (fmode) {
+					case FlightMode::Stabilize:
+						throttle_out = map3(throttle, -1, 0, 1, THROTTLE_ARMED, THROTTLE_HOVER, THROTTLE_LIMIT);
+						
+						break;
+					case FlightMode::TiltCompensation:
+						throttle = map3(throttle, -1, 0, 1, THROTTLE_ARMED, THROTTLE_HOVER, THROTTLE_LIMIT);
+						
+						// Tilt compensated thrust: Increase thrust when quadcopter is tilted, to compensate for height loss during horizontal movement.
+						// Note: In order to maintain stability, tilt compensated thrust is limited to the throttle limit.
+						throttle_out = constrain((float) (throttle - 1000) / (pose_q[0]*pose_q[0] - pose_q[1]*pose_q[1] - pose_q[2]*pose_q[2] + pose_q[3]*pose_q[3]) + 1000, 1000, THROTTLE_LIMIT);
+						
+						break;
+					case FlightMode::AltitudeHold:
+						// if throttle stick is not centered
+						if ((rc_channelValue[THROTTLE] < THROTTLE_DEADZONE_BOT) || (rc_channelValue[THROTTLE] > THROTTLE_DEADZONE_TOP)) {
+							// shape rc input to control vertical velocity
+							velocity_v_sp = shape_velocity(map(throttle, -1, 1, -VELOCITY_V_LIMIT, VELOCITY_V_LIMIT), ACCEL_V_MAX, velocity_v_sp);
+							
+							altitude_sp = altitude;
+						}
+						else {
+							// shape vertical velocity to hold altitude
+							velocity_v_sp = constrain(shape_position(altitude_sp - altitude, TIME_CONSTANT_ALTITUDE, ACCEL_V_MAX, velocity_v_sp), -VELOCITY_V_LIMIT, VELOCITY_V_LIMIT);
+						}
+						
+						// fix output throttle to hover value, so vertical velocity controller can take over smoothly
+						throttle_out = THROTTLE_HOVER;
+						
+						// calculate manipulated variable for vertical velocity
+						velocity_v_mv = velocity_v_pid.get_mv(velocity_v_sp, velocity_v, dt_s);
+						
+						break;
+					default:
+						break;
+				}
+			}
+			
 			// angle setpoints
 			roll_angle_sp = map((float) rc_channelValue[ROLL], 1000, 2000, -ROLL_ANGLE_LIMIT, ROLL_ANGLE_LIMIT);
 			pitch_angle_sp = map((float) rc_channelValue[PITCH], 1000, 2000, -PITCH_ANGLE_LIMIT, PITCH_ANGLE_LIMIT);
@@ -693,25 +763,10 @@ void loop() {
 			roll_rate_mv = roll_rate_pid.get_mv(roll_rate_sp, roll_rate, dt_s);
 			pitch_rate_mv = pitch_rate_pid.get_mv(pitch_rate_sp, pitch_rate, dt_s);
 			yaw_rate_mv = yaw_rate_pid.get_mv(yaw_rate_sp, yaw_rate, dt_s);
-			
-			// do not hold altitude unless flight mode uses altitude hold and throttle stick is centered
-			// TODO: In altitude hold mode, switch rc input to control vertical velocity
-			if ((rc_channelValue[FMODE] != 2000) || (rc_channelValue[THROTTLE] < THROTTLE_DEADZONE_BOT) || (rc_channelValue[THROTTLE] > THROTTLE_DEADZONE_TOP)) {
-				altitude_sp = altitude;
-				velocity_v_sp = 0;
-				
-				velocity_v_pid.reset();
-				velocity_v_mv = 0;
-			}
-			else {
-				// vertical velocity setpoint
-				velocity_v_sp = constrain(shape_position(altitude_sp - altitude, TIME_CONSTANT_ALTITUDE, ACCEL_V_MAX, velocity_v_sp), -VELOCITY_V_LIMIT, VELOCITY_V_LIMIT);
-				
-				// calculate manipulated variable for altitude hold
-				velocity_v_mv = velocity_v_pid.get_mv(velocity_v_sp, velocity_v, dt_s);
-			}
 		}
 		else {
+			throttle_out = map3(throttle, -1, 0, 1, THROTTLE_ARMED, THROTTLE_HOVER, THROTTLE_LIMIT);
+			
 			altitude_sp = altitude;
 			
 			if (throttle_out > THROTTLE_HOVER) {
@@ -719,6 +774,8 @@ void loop() {
 				DEBUG_PRINTLN("Started!");
 			}
 		}
+		
+		fmode_last = fmode;
 	}
 
 	// motor mixing
@@ -727,7 +784,7 @@ void loop() {
 		constrain(throttle_out + velocity_v_mv - roll_rate_mv - pitch_rate_mv - yaw_rate_mv, 1000, 2000),
 		constrain(throttle_out + velocity_v_mv - roll_rate_mv + pitch_rate_mv + yaw_rate_mv, 1000, 2000),
 		constrain(throttle_out + velocity_v_mv + roll_rate_mv + pitch_rate_mv - yaw_rate_mv, 1000, 2000));
-	
+		
 	// run serial print at a rate independent of the main loop (micros() - t0_serial = 16666 for 60 Hz update rate)
 	static uint32_t t0_serial = micros();
 	#ifdef DEBUG
@@ -1216,32 +1273,14 @@ void arm_failsafe(uint8_t fs_config) {
 	}
 }
 
-// shape throttle to achieve less sensitivity around hover
-float shape_throttle(float throttle_in, float throttle_expo) {
-	static float throttle = 0;
-	
-	// map throttle to [-1, 1]
-	throttle_in = map(throttle_in, 1000, 2000, -1, 1);
-	
-	if (throttle_in < 0) {
-		if (!started) {
-			throttle = map(expo_curve(throttle_in, throttle_expo), -1, 0, THROTTLE_ARMED, THROTTLE_HOVER);
-		}
-		else {
-			throttle = map(expo_curve(throttle_in, throttle_expo), -1, 0, THROTTLE_MIN, THROTTLE_HOVER);
-		}
+// map input from [in_min, in_max] to [out_min, out_max] and in_between to out_between
+float map3(float in, float in_min, float in_between, float in_max, float out_min, float out_between, float out_max) {
+	if (in < in_between) {
+		return (map(in, in_min, in_between, out_min, out_between));
 	}
 	else {
-		throttle = map(expo_curve(throttle_in, throttle_expo), 0, 1, THROTTLE_HOVER, THROTTLE_LIMIT);
+		return (map(in, in_between, in_max, out_between, out_max));
 	}
-
-	if ((rc_channelValue[FMODE] == 1500) || (rc_channelValue[FMODE] == 2000)) {
-		// Tilt compensated thrust: Increase thrust when quadcopter is tilted, to compensate for height loss during horizontal movement.
-		// Note: In order to maintain stability, tilt compensated thrust is limited to the throttle limit.
-		throttle = constrain((float) (throttle - 1000) / (pose_q[0]*pose_q[0] - pose_q[1]*pose_q[1] - pose_q[2]*pose_q[2] + pose_q[3]*pose_q[3]) + 1000, 1000, THROTTLE_LIMIT);
-	}
-	
-	return throttle;
 }
 
 // Generate exponential (cubic) curve.
