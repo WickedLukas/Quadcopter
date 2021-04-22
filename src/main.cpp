@@ -7,6 +7,7 @@
 #include "MadgwickAHRS.h"
 #include "ema_filter.h"
 #include "PID_controller.h"
+#include "KalmanFilter1D.h"
 
 #include "Plotter.h"
 #include "sendSerial.h"
@@ -74,13 +75,17 @@
 #define FMODE		8
 
 #define BETA_INIT	10		// Madgwick algorithm gain (2 * proportional gain (Kp)) during initial pose estimation - 10
-// TODO: Check if parameter needs to be changed (increased?) to reduce angle drift in noisy environment
 #define BETA		0.033	// Madgwick algorithm gain (2 * proportional gain (Kp)) - 0.041 MARG, 0.033 IMU
+
+// time constant for altitude filter
+// TC < 1: trust the acceleration measurement more
+// TC > 1: trust the position measurement more
+#define TC_ALTITUDE_FILTER		0.9	// 0.9
 
 // parameters to check if filtered angles converged during initialisation
 #define INIT_ANGLE_DIFFERENCE 0.5		// maximum angle difference between filtered angles and accelerometer angles (x- and y-axis) after initialisation
 #define INIT_RATE 0.05	// maximum angular rate of Madgwick-filtered angle (z-axis) after initialisation
-#define INIT_VELOCITY_V 0.50	// maximum vertical velocity after initialisation
+#define INIT_VELOCITY_V 0.20	// maximum vertical velocity after initialisation
 
 // flight setpoint limits
 #define YAW_RATE_LIMIT		120		// deg/s
@@ -125,16 +130,16 @@ const uint16_t THROTTLE_DEADZONE_TOP = 1000 + 10 * (50 + 0.5 * THROTTLE_DEADZONE
 //const float ACCEL_MIN_YAW = 10;
 const float ACCEL_MAX_ROLL_PITCH = 1100;	// 1100, 720
 const float ACCEL_MAX_YAW = 180;	// 270, 180
-// angle controller time constant
-const float TIME_CONSTANT_ANGLE = 0.15;
+// angle time constant
+const float TC_ANGLE = 0.15;
 
 // throttle expo parameter used to achieve less throttle sensitivity around hover
 const float THROTTLE_EXPO = 0.3;	// 0.3
 
-// altitude controller acceleration limits (m/ss)
+// vertical acceleration limit (m/ss)
 const float ACCEL_V_MAX = 1;
-// altitude controller time constant
-const float TIME_CONSTANT_ALTITUDE = 2;
+// altitude time constant
+const float TC_ALTITUDE = 2;
 
 // angular rate PID values
 const float P_ROLL_RATE = 2.000,	I_ROLL_RATE = 0.000,	D_ROLL_RATE = 0.020;	// 2.500, 0.000, 0.023 @ 0.006 EMA_RATE
@@ -146,7 +151,6 @@ const float P_VELOCITY_V = 250.000,	I_VELOCITY_V = 5.000,	D_VELOCITY_V = 0.000; 
 
 // Cut of frequency f_c: https://dsp.stackexchange.com/questions/40462/exponential-moving-average-cut-off-frequency)
 // EMA filter parameters for proportional (P) and derivative (D) rate controller inputs.
-// ! Filter angular rates (gyro) using notch filter or a band stop filter from two EMA filters with specified cut off frequencies.
 // EMA = 0.1301 --> f_c = 200 Hz; EMA = 0.0674 --> f_c = 100 Hz;
 const float EMA_ROLL_RATE_P		= 0.040;	// 0.040
 const float EMA_PITCH_RATE_P	= 0.040;	// 0.040
@@ -346,6 +350,9 @@ MotorsQuadcopter motors(MOTOR_PIN_1, MOTOR_PIN_2, MOTOR_PIN_3, MOTOR_PIN_4, MOTO
 // Madgwick filter object
 MADGWICK_AHRS madgwickFilter(BETA_INIT);
 
+// Kalman-Filter 
+KalmanFilter1D altitudeFilter(TC_ALTITUDE_FILTER);
+
 // rate PID controller
 PID_controller roll_rate_pid(P_ROLL_RATE, I_ROLL_RATE, D_ROLL_RATE, 0, 0, 250, 50, EMA_ROLL_RATE_P, EMA_ROLL_RATE_D);
 PID_controller pitch_rate_pid(P_PITCH_RATE, I_PITCH_RATE, D_PITCH_RATE, 0, 0, 250, 50, EMA_PITCH_RATE_P, EMA_PITCH_RATE_D);
@@ -392,9 +399,6 @@ float pose_q[4];	// quaternion
 // quadcopter altitude
 float altitude;
 
-// TODO: Remove this later
-float a_ned_rel_q0, a_ned_rel_q1, a_ned_rel_q2, a_ned_rel_q3;
-
 // z-axis pose offset to compensate for the sensor mounting orientation relative to the quadcopter frame
 float yaw_angle_offset = 90;
 
@@ -434,9 +438,8 @@ void accelAngles(float& roll_angle_accel, float& pitch_angle_accel);
 // multiply two quaternions (Hamilton product)
 void qMultiply(float* q1, float* q2, float* result_q);
 
-// calculate altitude in m from accelerometer, barometer altitude and pose
-// TODO: Use this for position estimation by combining accelerometer, gps position and pose
-void calcAltitude();
+// calculate acceleration in ned-frame relative to gravity using acceleration in sensor-frame and pose
+void calc_accel_ned_rel(float &a_n_rel, float &a_e_rel, float &a_d_rel);
 
 // estimate initial altitude
 void estimateAltitude(float init_velocity_v);
@@ -629,8 +632,13 @@ void loop() {
 		yaw_angle += 360;
 	}
 	
-	// calculate altitude in m from accelerometer, barometer altitude and pose
-	calcAltitude();
+	// calculate ned-acceleration relative to gravity in m/s²
+	static float a_n_rel, a_e_rel, a_d_rel;
+	calc_accel_ned_rel(a_n_rel, a_e_rel, a_d_rel);
+	
+	// get Kalman filtered altitude in m
+	altitudeFilter.update(a_d_rel, baroAltitude, dt_s);
+	altitude = altitudeFilter.get_position();
 	
 	roll_rate = gx_rps * RAD2DEG;
 	pitch_rate = gy_rps * RAD2DEG;
@@ -697,7 +705,7 @@ void loop() {
 						}
 						else {
 							// shape vertical velocity to hold altitude
-							velocity_v_sp = constrain(shape_position(altitude_sp - altitude, TIME_CONSTANT_ALTITUDE, ACCEL_V_MAX, velocity_v_sp), -VELOCITY_V_LIMIT, VELOCITY_V_LIMIT);
+							velocity_v_sp = constrain(shape_position(altitude_sp - altitude, TC_ALTITUDE, ACCEL_V_MAX, velocity_v_sp), -VELOCITY_V_LIMIT, VELOCITY_V_LIMIT);
 						}
 						
 						// fix output throttle to hover value, so vertical velocity controller can take over smoothly
@@ -717,8 +725,8 @@ void loop() {
 			pitch_angle_sp = map((float) rc_channelValue[PITCH], 1000, 2000, -PITCH_ANGLE_LIMIT, PITCH_ANGLE_LIMIT);
 			
 			// rate setpoints
-			roll_rate_sp = shape_position(roll_angle_sp - roll_angle, TIME_CONSTANT_ANGLE, ACCEL_MAX_ROLL_PITCH, roll_rate_sp);
-			pitch_rate_sp = shape_position(pitch_angle_sp - pitch_angle, TIME_CONSTANT_ANGLE, ACCEL_MAX_ROLL_PITCH, pitch_rate_sp);
+			roll_rate_sp = shape_position(roll_angle_sp - roll_angle, TC_ANGLE, ACCEL_MAX_ROLL_PITCH, roll_rate_sp);
+			pitch_rate_sp = shape_position(pitch_angle_sp - pitch_angle, TC_ANGLE, ACCEL_MAX_ROLL_PITCH, pitch_rate_sp);
 			
 			if (rc_channelValue[THROTTLE] < 1100) {
 				// if throttle is too low, disable setting a yaw rate, since it might cause problems when disarming
@@ -942,10 +950,10 @@ void qMultiply(float* q1, float* q2, float* result_q) {
 	result_q[3] = q1[0] * q2[3] + q1[1] * q2[2] - q1[2] * q2[1] + q1[3] * q2[0];
 }
 
-// calculate altitude in m from accelerometer, barometer altitude and pose
-void calcAltitude() {
+// calculate acceleration in ned-frame relative to gravity using acceleration in sensor-frame and pose
+void calc_accel_ned_rel(float &a_n_rel, float &a_e_rel, float &a_d_rel) {
 	// acceleration of gravity is m/s²
-	const float G = 9.81;
+	static const float G = 9.81;
 	
 	// acceleration quaternion in sensor-frame
 	static float a_q[4];
@@ -963,27 +971,10 @@ void calcAltitude() {
 	qMultiply(pose_q, a_q, helper_q);
 	qMultiply(helper_q, pose_q_conj, a_ned_q);
 	
-	// Calculate relative acceleration by removing gravity and transforming acceleration from bit to m/s²
-	a_ned_rel_q0 = a_ned_q[0] * accelRes * G;
-	a_ned_rel_q1 = a_ned_q[1] * accelRes * G;
-	a_ned_rel_q2 = a_ned_q[2] * accelRes * G;
-	a_ned_rel_q3 = (a_ned_q[3] * accelRes - 1) * G;
-	
-	// A Comparison of Complementary and Kalman Filtering
-	// WALTER T. HIGGINS, JR.
-	
-	// k1 = sqrt(2 * std_w / std_v)
-	// k2 = std_w / std_v
-	// std_w: standard deviation in the noise of the acceleration (0.10 m/s²)
-	// std_v: standard deviation in the noise of the barometer altitude (0.11 m)
-	
-	static const float ratio = 0.9;
-	
-	static const float k1 = sqrt(2 * ratio);	// 1.3484	
-	static const float k2 = ratio;				// 0.9091
-	
-	altitude += dt_s * velocity_v + (k1 + 0.5 * dt_s * k2) * dt_s * (baroAltitude - altitude) + 0.5 * dt_s * a_ned_rel_q3 * dt_s;
-	velocity_v += k2 * dt_s * (baroAltitude - altitude) + a_ned_rel_q3 * dt_s;
+	// get ned-acceleration relative to gravity in m/s²
+	a_n_rel = a_ned_q[1] * accelRes * G;
+	a_e_rel = a_ned_q[2] * accelRes * G;
+	a_d_rel = (a_ned_q[3] * accelRes - 1) * G;
 }
 
 // estimate initial altitude
@@ -1009,12 +1000,18 @@ void estimateAltitude(float init_velocity_v) {
 		imu.read_accel_gyro_rps(ax, ay, az, gx_rps, gy_rps, gz_rps);
 		imu.read_mag(mx, my, mz);
 		
-		// TODO: Check if there is a benefit from magnetometer data
+		// TODO: Check if magnetometer data from imu is reliable if motors are running
 		madgwickFilter.get_euler_quaternion(dt_s, ax, ay, az, gx_rps, gy_rps, gz_rps, 0, 0, 0, roll_angle, pitch_angle, yaw_angle, pose_q);
 		
-		// calculate altitude in m from accelerometer, barometer altitude and pose
-		calcAltitude();
+		// calculate ned-acceleration relative to gravity in m/s²
+		float a_n_rel, a_e_rel, a_d_rel;
+		calc_accel_ned_rel(a_n_rel, a_e_rel, a_d_rel);
 		
+		// get Kalman filtered altitude in m
+		altitudeFilter.update(a_d_rel, baroAltitude, dt_s);
+		altitude = altitudeFilter.get_position();
+		
+		// TODO: Use velocity from altitudeFilter to check if velocity converged. Therefor it has to be below a defined limit for a defined amount of time.
 		static uint32_t dt_baro;
 		if (barometerInterrupt) {
 			barometerInterrupt = false;
