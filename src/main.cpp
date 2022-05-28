@@ -399,14 +399,14 @@ float pose_q[4];	// quaternion
 // quadcopter altitude
 float altitude;
 
+// quadcopter vertical velocity
+float velocity_v;
+
 // z-axis pose offset to compensate for the sensor mounting orientation relative to the quadcopter frame
 float yaw_angle_offset = 90;
 
 // filtered gyro rates
 float roll_rate, pitch_rate, yaw_rate;
-
-// vertical velocity
-float velocity_v;
 
 // starts PID calculation when minimum throttle setpoint was reached
 bool started = false;
@@ -639,6 +639,7 @@ void loop() {
 	// get Kalman filtered altitude in m
 	altitudeFilter.update(a_d_rel, baroAltitude, dt_s);
 	altitude = altitudeFilter.get_position();
+	velocity_v = altitudeFilter.get_velocity();
 	
 	roll_rate = gx_rps * RAD2DEG;
 	pitch_rate = gy_rps * RAD2DEG;
