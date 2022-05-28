@@ -12,7 +12,7 @@
 
 #include "KalmanFilter1D.h"
 
-#include <Arduino.h>
+#include <math.h>
 
 // constructor
 KalmanFilter1D::KalmanFilter1D(float timeConstant) {

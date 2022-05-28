@@ -7,6 +7,8 @@
 
 #include "sendSerial.h"
 
+#include <Arduino.h>
+
 // send serial data to Processing
 void sendSerial(float dt, float angle_x, float angle_y, float angle_z) {
 	// send dt and angles

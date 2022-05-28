@@ -8,8 +8,6 @@
 #ifndef SENDSERIAL_H_
 #define SENDSERIAL_H_
 
-#include <Arduino.h>
-
 // send serial data to Processing
 void sendSerial(float dt, float angle_x, float angle_y, float angle_z);
 
