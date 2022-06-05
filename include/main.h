@@ -11,8 +11,21 @@
 // send imu data through serial (for example to visualize it in "Processing")
 //#define SEND_SERIAL
 
-#ifdef PLOT
-	Plotter p;
+// define which sensors shall be used
+#define USE_BAR // use barometer
+// TODO: Check if magnetometer data is reliable if motors are running. For GPS it is required, but else there is probably no benefit using it.
+#define USE_MAG // use magnetometer
+//#define USE_GPS // use GPS
+
+#if defined(USE_GPS) && (!defined(USE_MAG) || !defined(USE_BAR))
+#error If USE_GPS is defined USE_MAGNETOMETER and USE_BAR must be defined!
+#endif
+
+// z-axis pose offset to compensate for the sensor mounting orientation relative to the quadcopter frame
+#ifndef USE_MAG
+#define YAW_ANGLE_OFFSET 0
+#else
+#define YAW_ANGLE_OFFSET 90
 #endif
 
 // imu pins

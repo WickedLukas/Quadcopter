@@ -6,32 +6,47 @@
 #include "KalmanFilter1D.h"
 #include "sendSerial.h"
 
-#include "iBus.h"
-#include "ICM20948.h"
-#include "BMP388_DEV.h"
-#include "MadgwickAHRS.h"
-#include "ema_filter.h"
-#include "PID_controller.h"
-#include "Plotter.h"
+#include <iBus.h>
+#include <ICM20948.h>
+#ifdef USE_BAR
+#include <BMP388_DEV.h>
+#endif
+#include <MadgwickAHRS.h>
+#include <ema_filter.h>
+#include <PID_controller.h>
+#ifdef USE_GPS
+#include <NMEAGPS.h>
+#endif
+#include <Plotter.h>
 
 #include <Arduino.h>
 #include <EEPROM.h>
+
+#define debugPort Serial
+#define rcPort Serial2
+#define gpsPort Serial1
+
+#ifdef PLOT
+	Plotter p;
+#endif
 
 // Stores the errors which occurred and disables arming.
 // A restart is required to reset the error and enable arming.
 uint8_t error_code;
 
 // calibration data
-calibration_data calibration_eeprom;
+static calibration_data calibration_eeprom;
 
 // radio control (rc) object
-IBUS rc;
+static IBUS rc;
 
 // ICM-20948 imu object
 ICM20948_SPI imu(IMU_CS_PIN, IMU_SPI_PORT);
 
+#ifdef USE_BAR
 // BMP388 object
-BMP388_DEV bmp388;
+static BMP388_DEV bmp388;
+#endif
 
 // initial quadcopter z-axis angle - this should be initialised with an implausible value
 float yaw_angle_init = -1000;
@@ -46,21 +61,31 @@ uint16_t *rc_channelValue;
 enum class FlightMode { Stabilize, TiltCompensation, AltitudeHold } fmode;
 
 // motor objects
-MotorsQuad motors(MOTOR_PIN_1, MOTOR_PIN_2, MOTOR_PIN_3, MOTOR_PIN_4, MOTOR_PWM_RESOLUTION, MOTOR_PWM_FREQENCY);
+static MotorsQuad motors(MOTOR_PIN_1, MOTOR_PIN_2, MOTOR_PIN_3, MOTOR_PIN_4, MOTOR_PWM_RESOLUTION, MOTOR_PWM_FREQENCY);
 
 // Madgwick filter object
-MADGWICK_AHRS madgwickFilter(BETA_INIT);
+static MADGWICK_AHRS madgwickFilter(BETA_INIT);
 
-// Kalman-Filter 
-KalmanFilter1D altitudeFilter(TC_ALTITUDE_FILTER);
+#ifdef USE_BAR
+// Kalman-Filter
+static KalmanFilter1D altitudeFilter(TC_ALTITUDE_FILTER);
+#endif
 
 // rate PID controller
-PID_controller roll_rate_pid(P_ROLL_RATE, I_ROLL_RATE, D_ROLL_RATE, 0, 0, 250, 50, EMA_ROLL_RATE_P, EMA_ROLL_RATE_D);
-PID_controller pitch_rate_pid(P_PITCH_RATE, I_PITCH_RATE, D_PITCH_RATE, 0, 0, 250, 50, EMA_PITCH_RATE_P, EMA_PITCH_RATE_D);
-PID_controller yaw_rate_pid(P_YAW_RATE, I_YAW_RATE, D_YAW_RATE, 0, 0, 250, 100, EMA_YAW_RATE_P, EMA_YAW_RATE_D);
+static PID_controller roll_rate_pid(P_ROLL_RATE, I_ROLL_RATE, D_ROLL_RATE, 0, 0, 250, 50, EMA_ROLL_RATE_P, EMA_ROLL_RATE_D);
+static PID_controller pitch_rate_pid(P_PITCH_RATE, I_PITCH_RATE, D_PITCH_RATE, 0, 0, 250, 50, EMA_PITCH_RATE_P, EMA_PITCH_RATE_D);
+static PID_controller yaw_rate_pid(P_YAW_RATE, I_YAW_RATE, D_YAW_RATE, 0, 0, 250, 100, EMA_YAW_RATE_P, EMA_YAW_RATE_D);
 
 // vertical velocity PID controller for altitude hold
-PID_controller velocity_v_pid(P_VELOCITY_V, I_VELOCITY_V, D_VELOCITY_V, 0, 0, 250, 250, EMA_velocity_v_P, EMA_velocity_v_D);
+static PID_controller velocity_v_pid(P_VELOCITY_V, I_VELOCITY_V, D_VELOCITY_V, 0, 0, 250, 250, EMA_velocity_v_P, EMA_velocity_v_D);
+
+#ifdef USE_GPS
+// GPS parser
+static NMEAGPS gps;
+
+// GPS fix data
+static gps_fix fix;
+#endif
 
 // variables to measure imu update time
 uint32_t t0, t;
@@ -103,9 +128,6 @@ float altitude;
 // quadcopter vertical velocity
 float velocity_v;
 
-// z-axis pose offset to compensate for the sensor mounting orientation relative to the quadcopter frame
-float yaw_angle_offset = 90;
-
 // filtered gyro rates
 float roll_rate, pitch_rate, yaw_rate;
 
@@ -135,17 +157,21 @@ void setup() {
 	analogWriteResolution(8);
 	
 	#if defined(DEBUG) || defined(SEND_SERIAL)
-		// initialise serial for monitoring
-		Serial.begin(115200);
-		while (!Serial);
+		// initialise serial port for monitoring
+		debugPort.begin(115200);
+		while (!debugPort);
 	#endif
 	
-	// initialise serial2 for iBus communication
-	Serial2.begin(115200);
-	while (!Serial2);
+	// initialise serial port for iBus communication
+	rcPort.begin(115200);
+	while (!rcPort);
+
+	// initialise serial port for GPS
+	gpsPort.begin(115200);
+	while (!gpsPort);
 	
 	// initialise rc and return a pointer on the received rc channel values
-	rc_channelValue = rc.begin(Serial2);
+	rc_channelValue = rc.begin(rcPort);
 	
 	// initialise SPI for imu communication
 	IMU_SPI_PORT.begin();
@@ -167,6 +193,7 @@ void setup() {
 	// read accelerometer resolution in g/bit
 	imu.read_accelRes(accelRes);
 	
+#ifdef USE_BAR
 	// initialise BMP388 mode, pressure oversampling, temperature oversampling, IIR-Filter and standby time
 	if (!bmp388.begin(NORMAL_MODE, OVERSAMPLING_SKIP, OVERSAMPLING_SKIP, IIR_FILTER_32, TIME_STANDBY_5MS)) {
 		// barometer could not be initialised. Set error value, which will disable arming.
@@ -178,22 +205,23 @@ void setup() {
 	pinMode(BAROMETER_INTERRUPT_PIN, INPUT);
 	bmp388.enableInterrupt();
 	attachInterrupt(digitalPinToInterrupt(BAROMETER_INTERRUPT_PIN), barometerReady, RISING);
+#endif
 	
-	#ifdef PLOT
-		// ! Start plotter
-		p.Begin();
-		
-		// Add time graphs. Notice the effect of points displayed on the time scale
-		//p.AddTimeGraph("Angles", 1000, "r", roll_angle, "p", pitch_angle, "y", yaw_angle);
-		//p.AddTimeGraph("Rates", 1000, "roll_rate", roll_rate, "pitch_rate", pitch_rate, "yaw_rate", yaw_rate);
-		//p.AddTimeGraph("mv", 1000, "roll_rate_sp", roll_rate_sp, "pitch_rate_sp", pitch_rate_sp, "yaw_rate_sp", yaw_rate_sp);
-		//p.AddTimeGraph("mv", 1000, "roll_rate_mv", roll_rate_mv, "pitch_rate_mv", pitch_rate_mv, "yaw_rate_mv", yaw_rate_mv);
-		//p.AddTimeGraph("Altitude", 1000, "Quadcopter", altitude, "Barometer", baroAltitude);
-		//p.AddTimeGraph("Relative acceleration in ned-frame", 1000, "a_ned_rel_q1", a_ned_rel_q1, "a_ned_rel_q2", a_ned_rel_q2, "a_ned_rel_q3", a_ned_rel_q3);
-		//p.AddTimeGraph("Quadcopter vertical velocity", 1000, "velocity_v", velocity_v, "velocity_v_sp", velocity_v_sp);
-		//p.AddTimeGraph("alt", 1000, "a", altitude, "bA", baroAltitude, "aS", altitude_sp);
-		//p.AddTimeGraph("vel", 1000, "v", velocity_v, "v_sp", velocity_v_sp);
-	#endif
+#ifdef PLOT
+	// ! Start plotter
+	p.Begin();
+	
+	// Add time graphs. Notice the effect of points displayed on the time scale
+	//p.AddTimeGraph("Angles", 1000, "r", roll_angle, "p", pitch_angle, "y", yaw_angle);
+	//p.AddTimeGraph("Rates", 1000, "roll_rate", roll_rate, "pitch_rate", pitch_rate, "yaw_rate", yaw_rate);
+	//p.AddTimeGraph("mv", 1000, "roll_rate_sp", roll_rate_sp, "pitch_rate_sp", pitch_rate_sp, "yaw_rate_sp", yaw_rate_sp);
+	//p.AddTimeGraph("mv", 1000, "roll_rate_mv", roll_rate_mv, "pitch_rate_mv", pitch_rate_mv, "yaw_rate_mv", yaw_rate_mv);
+	//p.AddTimeGraph("Altitude", 1000, "Quadcopter", altitude, "Barometer", baroAltitude);
+	//p.AddTimeGraph("Relative acceleration in ned-frame", 1000, "a_ned_rel_q1", a_ned_rel_q1, "a_ned_rel_q2", a_ned_rel_q2, "a_ned_rel_q3", a_ned_rel_q3);
+	//p.AddTimeGraph("Quadcopter vertical velocity", 1000, "velocity_v", velocity_v, "velocity_v_sp", velocity_v_sp);
+	//p.AddTimeGraph("alt", 1000, "a", altitude, "bA", baroAltitude/*, "aS", altitude_sp*/);
+	//p.AddTimeGraph("vel", 1000, "v", velocity_v/*, "v_sp", velocity_v_sp*/);
+#endif
 }
 
 void loop() {
@@ -221,8 +249,10 @@ void loop() {
 	if (initSensors) {
 		// estimate initial pose
 		estimatePose(BETA_INIT, BETA, INIT_ANGLE_DIFFERENCE, INIT_RATE);
+#ifdef USE_BAR
 		// estimate initial altitude
 		estimateAltitude(INIT_VELOCITY_V);
+#endif
 		
 		initSensors = false;
 	}
@@ -255,6 +285,7 @@ void loop() {
 	// read accel and gyro measurements
 	imu.read_accel_gyro_rps(ax, ay, az, gx_rps, gy_rps, gz_rps);
 	
+#ifdef USE_MAG
 	// read magnetometer measurements and check when the last ones were read
 	static uint32_t dt_mag;
 	if (imu.read_mag(mx, my, mz)) {
@@ -268,25 +299,28 @@ void loop() {
 			DEBUG_PRINTLN("Magnetometer error!");
 		}
 	}
+#endif
 	
+#ifdef USE_BAR
 	if (barometerInterrupt) {  
 		barometerInterrupt = false;
 		bmp388.getAltitude(baroAltitude);
 	}
+#endif
 	
 	// perform sensor fusion with Madgwick filter to calculate pose
-	// TODO: Check if there is a benefit from magnetometer data
-	madgwickFilter.get_euler_quaternion(dt_s, ax, ay, az, gx_rps, gy_rps, gz_rps, 0, 0, 0, roll_angle, pitch_angle, yaw_angle, pose_q);
+	madgwickFilter.get_euler_quaternion(dt_s, ax, ay, az, gx_rps, gy_rps, gz_rps, mx, my, mz, roll_angle, pitch_angle, yaw_angle, pose_q);
 	
 	// apply offset to z-axis pose in order to compensate for the sensor mounting orientation relative to the quadcopter frame
-	yaw_angle += yaw_angle_offset;
+	yaw_angle += YAW_ANGLE_OFFSET;
 	if (yaw_angle > 180) {
 		yaw_angle -= 360;
 	}
 	else if (yaw_angle < -180) {
 		yaw_angle += 360;
 	}
-	
+
+#ifdef USE_BAR
 	// calculate ned-acceleration relative to gravity in m/s²
 	static float a_n_rel, a_e_rel, a_d_rel;
 	calc_accel_ned_rel(a_n_rel, a_e_rel, a_d_rel);
@@ -295,6 +329,7 @@ void loop() {
 	altitudeFilter.update(a_d_rel, baroAltitude, dt_s);
 	altitude = altitudeFilter.get_position();
 	velocity_v = altitudeFilter.get_velocity();
+#endif
 	
 	roll_rate = gx_rps * RAD2DEG;
 	pitch_rate = gy_rps * RAD2DEG;
@@ -311,7 +346,11 @@ void loop() {
 			fmode = FlightMode::TiltCompensation;
 		}
 		else {	// rc_channelValue[FMODE] == 2000
+#ifdef USE_BAR
 			fmode = FlightMode::AltitudeHold;
+#else
+			fmode = FlightMode::TiltCompensation;
+#endif
 		}
 		
 		// remember previous flight mode
@@ -415,6 +454,7 @@ void loop() {
 			yaw_rate_pid.set_K_i(i_rate);
 			//yaw_rate_pid.set_K_d(0);*/
 			
+			// TODO: Tune PID-controller for vertical velocity.
 			p_rate = constrain(map((float) rc_channelValue[4], 1000, 2000, 250, 350), 250, 350);
 			i_rate = constrain(map((float) rc_channelValue[5], 1000, 2000, 5, 10), 5, 10);
 			//d_rate = constrain(map((float) rc_channelValue[5], 1000, 2000, -0.001, 0.01), 0, 0.01);
@@ -448,55 +488,58 @@ void loop() {
 		constrain(throttle_out + velocity_v_mv - roll_rate_mv - pitch_rate_mv - yaw_rate_mv, 1000, 2000),
 		constrain(throttle_out + velocity_v_mv - roll_rate_mv + pitch_rate_mv + yaw_rate_mv, 1000, 2000),
 		constrain(throttle_out + velocity_v_mv + roll_rate_mv + pitch_rate_mv - yaw_rate_mv, 1000, 2000));
+
+#if defined(DEBUG) || defined(SEND_SERIAL) || defined(PLOT)
+// run serial print at a rate independent of the main loop (micros() - t0_serial = 16666 for 60 Hz update rate)
+static uint32_t t0_serial = micros();
+#endif
+
+#ifdef DEBUG
+	if (micros() - t0_serial > 16666) {
+		t0_serial = micros();
 		
-	// run serial print at a rate independent of the main loop (micros() - t0_serial = 16666 for 60 Hz update rate)
-	static uint32_t t0_serial = micros();
-	#ifdef DEBUG
-		if (micros() - t0_serial > 16666) {
-			t0_serial = micros();
-			
-			//DEBUG_PRINT(ax); DEBUG_PRINT("\t"); DEBUG_PRINT(ay); DEBUG_PRINT("\t"); DEBUG_PRINTLN(az);
-			//DEBUG_PRINT(gx_rps); DEBUG_PRINT("\t"); DEBUG_PRINT(gy_rps); DEBUG_PRINT("\t"); DEBUG_PRINTLN(gz_rps);
-			//DEBUG_PRINT(mx); DEBUG_PRINT("\t"); DEBUG_PRINT(my); DEBUG_PRINT("\t"); DEBUG_PRINTLN(mz);
-			
-			//static float roll_angle_accel, pitch_angle_accel;
-			//accelAngles(roll_angle_accel, pitch_angle_accel);
-			//DEBUG_PRINT(roll_angle_accel); DEBUG_PRINT("\t"); DEBUG_PRINTLN(pitch_angle_accel);
-			
-			//DEBUG_PRINT(map((float) rc_channelValue[ROLL], 1000, 2000, -ROLL_ANGLE_LIMIT, ROLL_ANGLE_LIMIT)); DEBUG_PRINT("\t"); DEBUG_PRINTLN(roll_angle_sp);
-			//DEBUG_PRINT(map((float) rc_channelValue[YAW], 1000, 2000, -YAW_RATE_LIMIT, YAW_RATE_LIMIT)); DEBUG_PRINT("\t"); DEBUG_PRINTLN(yaw_rate_sp);
-			//DEBUG_PRINT(map((float) rc_channelValue[THROTTLE], 1000, 2000, 1000, THROTTLE_LIMIT)); DEBUG_PRINT("\t"); DEBUG_PRINTLN(throttle_out);
-			//DEBUG_PRINT(map((float) (rc_channelValue[THROTTLE] - 1000) / (cos(roll_angle * DEG2RAD) * cos(pitch_angle * DEG2RAD)) + 1000, 1000, 2000, 1000, THROTTLE_LIMIT)); DEBUG_PRINT("\t"); DEBUG_PRINTLN(throttle_out);
-			
-			//DEBUG_PRINTLN(roll_rate_sp);
-			
-			//DEBUG_PRINT(roll_angle); DEBUG_PRINT("\t"); DEBUG_PRINT(pitch_angle); DEBUG_PRINT("\t"); DEBUG_PRINT(yaw_angle); DEBUG_PRINT("\t");
-			//DEBUG_PRINTLN(yaw_rate_sp);
-			//DEBUG_PRINT(roll_rate); DEBUG_PRINT("\t"); DEBUG_PRINT(pitch_rate); DEBUG_PRINT("\t"); DEBUG_PRINTLN(yaw_rate);
-			
-			//DEBUG_PRINTLN(dt);
-			//DEBUG_PRINTLN();
-			
-			// print channel values
-			/*for (int i=0; i<10 ; i++) {
-				DEBUG_PRINT(rc_channelValue[i]); DEBUG_PRINT("\t");
-			}
-			DEBUG_PRINTLN();*/
+		//DEBUG_PRINT(ax); DEBUG_PRINT("\t"); DEBUG_PRINT(ay); DEBUG_PRINT("\t"); DEBUG_PRINTLN(az);
+		//DEBUG_PRINT(gx_rps); DEBUG_PRINT("\t"); DEBUG_PRINT(gy_rps); DEBUG_PRINT("\t"); DEBUG_PRINTLN(gz_rps);
+		//DEBUG_PRINT(mx); DEBUG_PRINT("\t"); DEBUG_PRINT(my); DEBUG_PRINT("\t"); DEBUG_PRINTLN(mz);
+		
+		//static float roll_angle_accel, pitch_angle_accel;
+		//accelAngles(roll_angle_accel, pitch_angle_accel);
+		//DEBUG_PRINT(roll_angle_accel); DEBUG_PRINT("\t"); DEBUG_PRINTLN(pitch_angle_accel);
+		
+		//DEBUG_PRINT(map((float) rc_channelValue[ROLL], 1000, 2000, -ROLL_ANGLE_LIMIT, ROLL_ANGLE_LIMIT)); DEBUG_PRINT("\t"); DEBUG_PRINTLN(roll_angle_sp);
+		//DEBUG_PRINT(map((float) rc_channelValue[YAW], 1000, 2000, -YAW_RATE_LIMIT, YAW_RATE_LIMIT)); DEBUG_PRINT("\t"); DEBUG_PRINTLN(yaw_rate_sp);
+		//DEBUG_PRINT(map((float) rc_channelValue[THROTTLE], 1000, 2000, 1000, THROTTLE_LIMIT)); DEBUG_PRINT("\t"); DEBUG_PRINTLN(throttle_out);
+		//DEBUG_PRINT(map((float) (rc_channelValue[THROTTLE] - 1000) / (cos(roll_angle * DEG2RAD) * cos(pitch_angle * DEG2RAD)) + 1000, 1000, 2000, 1000, THROTTLE_LIMIT)); DEBUG_PRINT("\t"); DEBUG_PRINTLN(throttle_out);
+		
+		//DEBUG_PRINTLN(roll_rate_sp);
+		
+		//DEBUG_PRINT(roll_angle); DEBUG_PRINT("\t"); DEBUG_PRINT(pitch_angle); DEBUG_PRINT("\t"); DEBUG_PRINT(yaw_angle); DEBUG_PRINT("\t");
+		//DEBUG_PRINTLN(yaw_rate_sp);
+		//DEBUG_PRINT(roll_rate); DEBUG_PRINT("\t"); DEBUG_PRINT(pitch_rate); DEBUG_PRINT("\t"); DEBUG_PRINTLN(yaw_rate);
+		
+		//DEBUG_PRINTLN(dt);
+		//DEBUG_PRINTLN();
+		
+		// print channel values
+		/*for (int i=0; i<10 ; i++) {
+			DEBUG_PRINT(rc_channelValue[i]); DEBUG_PRINT("\t");
 		}
-	#elif defined(SEND_SERIAL)
-		if (micros() - t0_serial > 16666) {
-			t0_serial = micros();
-			// Visualize data with "Processing"
-			sendSerial(dt, roll_angle, pitch_angle, yaw_angle);
-		}
-	#elif defined(PLOT)
-		// TODO: Check if this update rate is still too fast
-		if (micros() - t0_serial > 25000) {
-			t0_serial = micros();
-			// Plot data with "Processing"
-			p.Plot();
-		}
-	#endif
+		DEBUG_PRINTLN();*/
+	}
+#elif defined(SEND_SERIAL)
+	if (micros() - t0_serial > 16666) {
+		t0_serial = micros();
+		// Visualize data with "Processing"
+		sendSerial(dt, roll_angle, pitch_angle, yaw_angle);
+	}
+#elif defined(PLOT)
+	// TODO: Check if this update rate is still too fast
+	if (micros() - t0_serial > 25000) {
+		t0_serial = micros();
+		// Plot data with "Processing"
+		p.Plot();
+	}
+#endif
 }
 
 // estimate initial pose
@@ -526,10 +569,11 @@ void estimatePose(float beta_init, float beta, float init_angleDifference, float
 		
 		// read imu measurements
 		imu.read_accel_gyro_rps(ax, ay, az, gx_rps, gy_rps, gz_rps);
+#ifdef USE_MAG
 		imu.read_mag(mx, my, mz);
+#endif
 		
-		// TODO: Check if there is a benefit from magnetometer data. For GPS it is required however.
-		madgwickFilter.get_euler_quaternion(dt_s, ax, ay, az, gx_rps, gy_rps, gz_rps, 0, 0, 0, roll_angle, pitch_angle, yaw_angle, pose_q);
+		madgwickFilter.get_euler_quaternion(dt_s, ax, ay, az, gx_rps, gy_rps, gz_rps, mx, my, mz, roll_angle, pitch_angle, yaw_angle, pose_q);
 		
 		accelAngles(roll_angle_accel, pitch_angle_accel);
 		
@@ -565,6 +609,7 @@ void accelAngles(float& roll_angle_accel, float& pitch_angle_accel) {
 	pitch_angle_accel = atan2(-ax, sqrt(pow(ay, 2) + pow(az, 2))) * RAD2DEG;
 }
 
+#ifdef USE_BAR
 // estimate initial altitude
 void estimateAltitude(float init_velocity_v) {
 	DEBUG_PRINTLN(F("Estimating initial altitude. Keep device at rest ..."));
@@ -586,10 +631,11 @@ void estimateAltitude(float init_velocity_v) {
 		
 		// read imu measurements
 		imu.read_accel_gyro_rps(ax, ay, az, gx_rps, gy_rps, gz_rps);
+#ifdef USE_MAG
 		imu.read_mag(mx, my, mz);
+#endif
 		
-		// TODO: Check if magnetometer data from imu is reliable if motors are running
-		madgwickFilter.get_euler_quaternion(dt_s, ax, ay, az, gx_rps, gy_rps, gz_rps, 0, 0, 0, roll_angle, pitch_angle, yaw_angle, pose_q);
+		madgwickFilter.get_euler_quaternion(dt_s, ax, ay, az, gx_rps, gy_rps, gz_rps, mx, my, mz, roll_angle, pitch_angle, yaw_angle, pose_q);
 		
 		// calculate ned-acceleration relative to gravity in m/s²
 		float a_n_rel, a_e_rel, a_d_rel;
@@ -599,7 +645,7 @@ void estimateAltitude(float init_velocity_v) {
 		altitudeFilter.update(a_d_rel, baroAltitude, dt_s);
 		altitude = altitudeFilter.get_position();
 		
-		// TODO: Use velocity from altitudeFilter to check if velocity converged. Therefor it has to be below a defined limit for a defined amount of time.
+		// TODO: Use velocity from altitudeFilter instead, in order to check if velocity converged. Therefor it has to be below a defined limit for a defined amount of time.
 		static uint32_t dt_baro;
 		if (barometerInterrupt) {
 			barometerInterrupt = false;
@@ -622,7 +668,9 @@ void estimateAltitude(float init_velocity_v) {
 		dt_baro += dt;
 	}
 }
+#endif
 
+#ifdef USE_BAR
 // calculate acceleration in ned-frame relative to gravity using acceleration in sensor-frame and pose
 void calc_accel_ned_rel(float &a_n_rel, float &a_e_rel, float &a_d_rel) {
 	// acceleration of gravity is m/s²
@@ -657,6 +705,7 @@ void qMultiply(float* q1, float* q2, float* result_q) {
 	result_q[2] = q1[0] * q2[2] - q1[1] * q2[3] + q1[2] * q2[0] + q1[3] * q2[1];
 	result_q[3] = q1[0] * q2[3] + q1[1] * q2[2] - q1[2] * q2[1] + q1[3] * q2[0];
 }
+#endif
 
 // arm/disarm on rc command or disarm on failsafe conditions
 void arm_failsafe(uint8_t fs_config) {
