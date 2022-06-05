@@ -1,5 +1,4 @@
 #include "main.h"
-#include "common.h"
 #include "calibration.h"
 #include "MotorsQuad.h"
 #include "shapeTrajectory.h"
@@ -35,18 +34,20 @@
 uint8_t error_code;
 
 // calibration data
-static calibration_data calibration_eeprom;
+calibration_data calibration_eeprom;
 
 // radio control (rc) object
-static IBUS rc;
+IBUS rc;
 
 // ICM-20948 imu object
 ICM20948_SPI imu(IMU_CS_PIN, IMU_SPI_PORT);
 
 #ifdef USE_BAR
 // BMP388 object
-static BMP388_DEV bmp388;
+BMP388_DEV bmp388;
 #endif
+
+bool initialiseQuad = true; // initialise quadcopter after power on
 
 // initial quadcopter z-axis angle - this should be initialised with an implausible value
 float yaw_angle_init = -1000;
@@ -61,30 +62,30 @@ uint16_t *rc_channelValue;
 enum class FlightMode { Stabilize, TiltCompensation, AltitudeHold } fmode;
 
 // motor objects
-static MotorsQuad motors(MOTOR_PIN_1, MOTOR_PIN_2, MOTOR_PIN_3, MOTOR_PIN_4, MOTOR_PWM_RESOLUTION, MOTOR_PWM_FREQENCY);
+MotorsQuad motors(MOTOR_PIN_1, MOTOR_PIN_2, MOTOR_PIN_3, MOTOR_PIN_4, MOTOR_PWM_RESOLUTION, MOTOR_PWM_FREQENCY);
 
 // Madgwick filter object
-static MADGWICK_AHRS madgwickFilter(BETA_INIT);
+MADGWICK_AHRS madgwickFilter(BETA_INIT);
 
 #ifdef USE_BAR
 // Kalman-Filter
-static KalmanFilter1D altitudeFilter(TC_ALTITUDE_FILTER);
+KalmanFilter1D altitudeFilter(TC_ALTITUDE_FILTER);
 #endif
 
 // rate PID controller
-static PID_controller roll_rate_pid(P_ROLL_RATE, I_ROLL_RATE, D_ROLL_RATE, 0, 0, 250, 50, EMA_ROLL_RATE_P, EMA_ROLL_RATE_D);
-static PID_controller pitch_rate_pid(P_PITCH_RATE, I_PITCH_RATE, D_PITCH_RATE, 0, 0, 250, 50, EMA_PITCH_RATE_P, EMA_PITCH_RATE_D);
-static PID_controller yaw_rate_pid(P_YAW_RATE, I_YAW_RATE, D_YAW_RATE, 0, 0, 250, 100, EMA_YAW_RATE_P, EMA_YAW_RATE_D);
+PID_controller roll_rate_pid(P_ROLL_RATE, I_ROLL_RATE, D_ROLL_RATE, 0, 0, 250, 50, EMA_ROLL_RATE_P, EMA_ROLL_RATE_D);
+PID_controller pitch_rate_pid(P_PITCH_RATE, I_PITCH_RATE, D_PITCH_RATE, 0, 0, 250, 50, EMA_PITCH_RATE_P, EMA_PITCH_RATE_D);
+PID_controller yaw_rate_pid(P_YAW_RATE, I_YAW_RATE, D_YAW_RATE, 0, 0, 250, 100, EMA_YAW_RATE_P, EMA_YAW_RATE_D);
 
 // vertical velocity PID controller for altitude hold
-static PID_controller velocity_v_pid(P_VELOCITY_V, I_VELOCITY_V, D_VELOCITY_V, 0, 0, 250, 250, EMA_velocity_v_P, EMA_velocity_v_D);
+PID_controller velocity_v_pid(P_VELOCITY_V, I_VELOCITY_V, D_VELOCITY_V, 0, 0, 250, 250, EMA_velocity_v_P, EMA_velocity_v_D);
 
 #ifdef USE_GPS
 // GPS parser
-static NMEAGPS gps;
+NMEAGPS gps;
 
 // GPS fix data
-static gps_fix fix;
+gps_fix fix;
 #endif
 
 // variables to measure imu update time
@@ -162,11 +163,11 @@ void setup() {
 		while (!debugPort);
 	#endif
 	
-	// initialise serial port for iBus communication
+	// initialise serial port for rc (iBus) communication
 	rcPort.begin(115200);
 	while (!rcPort);
 
-	// initialise serial port for GPS
+	// initialise serial port for gps
 	gpsPort.begin(115200);
 	while (!gpsPort);
 	
@@ -187,7 +188,7 @@ void setup() {
 	if (!imu.init(calibration_eeprom.offset_gx_1000dps, calibration_eeprom.offset_gy_1000dps, calibration_eeprom.offset_gz_1000dps, calibration_eeprom.offset_ax_32g, calibration_eeprom.offset_ay_32g, calibration_eeprom.offset_az_32g, calibration_eeprom.offset_mx, calibration_eeprom.offset_my, calibration_eeprom.offset_mz, calibration_eeprom.scale_mx, calibration_eeprom.scale_my, calibration_eeprom.scale_mz)) {
 		// IMU could not be initialised. Set error value, which will disable arming.
 		error_code = error_code | ERROR_IMU;
-		DEBUG_PRINTLN("IMU error: Initialisation failed!");
+		DEBUG_PRINTLN(F("IMU error: Initialisation failed!"));
 	}
 	
 	// read accelerometer resolution in g/bit
@@ -198,7 +199,7 @@ void setup() {
 	if (!bmp388.begin(NORMAL_MODE, OVERSAMPLING_SKIP, OVERSAMPLING_SKIP, IIR_FILTER_32, TIME_STANDBY_5MS)) {
 		// barometer could not be initialised. Set error value, which will disable arming.
 		error_code = error_code | ERROR_BAR;
-		DEBUG_PRINTLN("BAR error: Initialisation failed!");
+		DEBUG_PRINTLN(F("BAR error: Initialisation failed!"));
 	}
 	
 	// setup interrupt pin for BMP388
@@ -225,13 +226,19 @@ void setup() {
 }
 
 void loop() {
+	// * update LED
 	if (error_code != 0) {
 		// blink LED very fast to indicate an error occurrence
-		updateLED(LED_PIN, 1, 250);
+		updateLED(LED_PIN, 1, 200);
 	}
 	else if (motors.getState() == MotorsQuad::State::armed) {
 		// blink LED normally to indicate armed status
 		updateLED(LED_PIN, 1, 1000);
+	}
+	else if (initialiseQuad)
+	{
+		// blink LED fast to indicate quadcopter initialisation
+		updateLED(LED_PIN, 1, 500);
 	}
 	else if (motors.getState() == MotorsQuad::State::disarmed) {
 		// turn off LED to indicate disarmed status
@@ -242,73 +249,55 @@ void loop() {
 		updateLED(LED_PIN, 2);
 	}
 	
-	// update rc
+	// * update radio control (rc)
 	rc.update();
-	
-	static bool initSensors = true;
-	if (initSensors) {
-		// estimate initial pose
-		estimatePose(BETA_INIT, BETA, INIT_ANGLE_DIFFERENCE, INIT_RATE);
-#ifdef USE_BAR
-		// estimate initial altitude
-		estimateAltitude(INIT_VELOCITY_V);
-#endif
-		
-		initSensors = false;
-	}
-	
-	// if disarmed, check for calibration request from rc and execute it
+
+	// * perform calibration, if motors are disarmed and rc calibration request was received
 	if (calibration(motors, imu, rc_channelValue, calibration_eeprom)) {
-		// calibration was performed and sensors need to be initialised again
-		initSensors = true;
-		return;
+		// reinitialise quadcopter, because calibration was performed
+		initialiseQuad = true;
 	}
-	
-	// arm/disarm on rc command or disarm on failsafe conditions
-	arm_failsafe(FS_CONFIG);
-	
+
 	// update time
 	t = micros();
 	dt = (t - t0);  // in us
 	dt_s = (float) (dt) * 1.e-6;	// in s
+
+	// * arm/disarm on rc command or disarm on failsafe conditions
+	arm_failsafe(FS_CONFIG);
 	
 	// continue if imu interrupt has fired
 	if (!imuInterrupt) {
 		return;
 	}
-	
-	// reset imu interrupt
-	imuInterrupt = false;
+	imuInterrupt = false; // reset imu interrupt
 	
 	t0 = t;
 	
-	// read accel and gyro measurements
+	// * read accel and gyro measurements
 	imu.read_accel_gyro_rps(ax, ay, az, gx_rps, gy_rps, gz_rps);
 	
 #ifdef USE_MAG
-	// read magnetometer measurements and check when the last ones were read
-	static uint32_t dt_mag;
-	if (imu.read_mag(mx, my, mz)) {
+	// * read magnetometer
+	static uint32_t dt_mag = 0;
+	if (((error_code & ERROR_MAG) != ERROR_MAG) && imu.read_mag(mx, my, mz)) {
 		dt_mag = 0;
 	}
-	else {
+	else if (!initialiseQuad) {
+		// check if magnetometer is still working
 		dt_mag += dt;
 		if ((dt_mag > FS_IMU_DT_LIMIT) && ((error_code & ERROR_MAG) != ERROR_MAG)) {
-			// Limit for magnetometer update time exceeded. Set error value, which will disable arming.
+			// Too much time has passed since the last magnetometer reading. Set error value, which will disable arming.
 			error_code = error_code | ERROR_MAG;
-			DEBUG_PRINTLN("Magnetometer error!");
+
+			mx = my = mz = 0; // error handling
+
+			DEBUG_PRINTLN(F("Magnetometer error!"));
 		}
 	}
 #endif
 	
-#ifdef USE_BAR
-	if (barometerInterrupt) {  
-		barometerInterrupt = false;
-		bmp388.getAltitude(baroAltitude);
-	}
-#endif
-	
-	// perform sensor fusion with Madgwick filter to calculate pose
+	// * calculate pose from sensor data using Madgwick filter
 	madgwickFilter.get_euler_quaternion(dt_s, ax, ay, az, gx_rps, gy_rps, gz_rps, mx, my, mz, roll_angle, pitch_angle, yaw_angle, pose_q);
 	
 	// apply offset to z-axis pose in order to compensate for the sensor mounting orientation relative to the quadcopter frame
@@ -321,23 +310,70 @@ void loop() {
 	}
 
 #ifdef USE_BAR
-	// calculate ned-acceleration relative to gravity in m/s²
+	static uint32_t dt_bar = 0;
+	// * get altitude from barometer
+	if (barometerInterrupt) {
+		barometerInterrupt = false;
+		bmp388.getAltitude(baroAltitude);
+
+		dt_bar = 0;
+	}
+	else if (!initialiseQuad) {
+		// check if barometer is still working
+		dt_bar += dt;
+		if ((dt_bar > FS_IMU_DT_LIMIT) && ((error_code & ERROR_BAR) != ERROR_BAR)) {
+			// Too much time has passed since the last barometer reading. Set error value, which will disable arming.
+			error_code = error_code | ERROR_BAR;
+			DEBUG_PRINTLN(F("Barometer error!"));
+		}
+	}
+
+	// * calculate Kalman filtered altitude in m
 	static float a_n_rel, a_e_rel, a_d_rel;
-	calc_accel_ned_rel(a_n_rel, a_e_rel, a_d_rel);
-	
-	// get Kalman filtered altitude in m
+	calc_accel_ned_rel(a_n_rel, a_e_rel, a_d_rel); // get ned-acceleration relative to gravity in m/s²
+
 	altitudeFilter.update(a_d_rel, baroAltitude, dt_s);
 	altitude = altitudeFilter.get_position();
 	velocity_v = altitudeFilter.get_velocity();
 #endif
 	
+	// * initialise quadcopter after first run or calibration
+	if (initialiseQuad) {
+		static uint8_t sensorStatus = 0;
+
+		switch (sensorStatus)
+		{
+			case 0:
+				// estimate initial pose
+				if (estimatePose(BETA_INIT, BETA, INIT_ANGLE_DIFFERENCE, INIT_RATE)) {
+					++sensorStatus;
+				}
+				break;
+
+#ifdef USE_BAR
+			case 1:
+				// estimate initial altitude
+				if (estimateAltitude(INIT_VELOCITY_V)) {
+					++sensorStatus;
+				}
+				break;
+#endif
+
+			default:
+				// quadcopter initialisation successful
+				sensorStatus = 0;
+				initialiseQuad = false;
+				break;
+		}
+		return;
+	}
+	
 	roll_rate = gx_rps * RAD2DEG;
 	pitch_rate = gy_rps * RAD2DEG;
 	yaw_rate = gz_rps * RAD2DEG;
 	
-	// when armed, calculate flight setpoints, manipulated variables and control motors
+	// * calculate flight setpoints, manipulated variables and control motors, when armed
 	if (motors.getState() == MotorsQuad::State::armed) {
-		
 		// update flight mode
 		if (rc_channelValue[FMODE] == 1000) {
 			fmode = FlightMode::Stabilize;
@@ -347,7 +383,15 @@ void loop() {
 		}
 		else {	// rc_channelValue[FMODE] == 2000
 #ifdef USE_BAR
-			fmode = FlightMode::AltitudeHold;
+			// use AltitudeHold, but switch to Stabilize on barometer failure
+			if ((error_code & ERROR_BAR) != ERROR_BAR)
+			{
+				fmode = FlightMode::AltitudeHold;
+			}
+			else
+			{
+				fmode = FlightMode::Stabilize;
+			}
 #else
 			fmode = FlightMode::TiltCompensation;
 #endif
@@ -362,7 +406,7 @@ void loop() {
 		// apply expo to throttle for less sensitivity around hover
 		throttle = expo_curve(throttle, THROTTLE_EXPO);
 		
-		// In order to ensure a smooth start, PID calculations are delayed until hover throttle is reached.
+		// in order to ensure a smooth start, PID calculations are delayed until hover throttle is reached
 		if (started) {
 			if (fmode != fmode_last) {
 				if (fmode_last == FlightMode::AltitudeHold) {
@@ -475,7 +519,7 @@ void loop() {
 			
 			if (throttle_out > THROTTLE_HOVER) {
 				started = true;
-				DEBUG_PRINTLN("Started!");
+				DEBUG_PRINTLN(F("Started!"));
 			}
 		}
 		
@@ -543,64 +587,61 @@ static uint32_t t0_serial = micros();
 }
 
 // estimate initial pose
-void estimatePose(float beta_init, float beta, float init_angleDifference, float init_rate) {
-	// angles calculated from accelerometer
-	float roll_angle_accel, pitch_angle_accel;
+bool estimatePose(float beta_init, float beta, float init_angleDifference, float init_rate) {
 
-	// set higher beta value to speed up pose estimation
-	madgwickFilter.set_beta(beta_init);
-	
-	DEBUG_PRINTLN(F("Estimating initial pose. Keep device at rest ..."));
-	while (1) {
-		while (!imuInterrupt) {
-			// wait for next imu interrupt
-		}
-		// reset imu interrupt flag
-		imuInterrupt = false;
-		
-		// blink LED fast to indicate pose estimation
-		updateLED(LED_PIN, 1, 500);
-		
-		// update time
-		t = micros();
-		dt = (t - t0);	// in us
-		dt_s = (float) (dt) * 1.e-6;	// in s
-		t0 = t;
-		
-		// read imu measurements
-		imu.read_accel_gyro_rps(ax, ay, az, gx_rps, gy_rps, gz_rps);
-#ifdef USE_MAG
-		imu.read_mag(mx, my, mz);
-#endif
-		
-		madgwickFilter.get_euler_quaternion(dt_s, ax, ay, az, gx_rps, gy_rps, gz_rps, mx, my, mz, roll_angle, pitch_angle, yaw_angle, pose_q);
-		
-		accelAngles(roll_angle_accel, pitch_angle_accel);
-		
-		// pose is estimated if filtered x- and y-axis angles, as well as z-axis angular velocity, converged
-		if ((abs(roll_angle_accel - roll_angle) < init_angleDifference) && (abs(pitch_angle_accel - pitch_angle) < init_angleDifference)
-		&& ((abs(yaw_angle - yaw_angle_init) / dt_s) < init_rate)) {
-			// reduce beta value, since filtered angles have stabilized during initialisation
-			madgwickFilter.set_beta(beta);
-			
-			DEBUG_PRINTLN(F("Initial pose estimated."));
-			DEBUG_PRINTLN2(abs(roll_angle_accel - roll_angle), 6);
-			DEBUG_PRINTLN2(abs(pitch_angle_accel - pitch_angle), 6);
-			DEBUG_PRINTLN2(abs(yaw_angle - yaw_angle_init) / dt_s, 6);
-			
+	static state estimatePose_state = state::init;
+
+	switch (estimatePose_state)
+	{
+		case state::init:
+			DEBUG_PRINTLN(F("Estimating initial pose. Keep device at rest ..."));
+
+			// set higher beta value to speed up pose estimation
+			madgwickFilter.set_beta(beta_init);
+
+			estimatePose_state = state::busy;
 			break;
-		}
-		yaw_angle_init = yaw_angle;
-		
-		// run serial print at a rate independent of the main loop
-		static uint32_t t0_serial = micros();
-		if (micros() - t0_serial > 16666) {
-			t0_serial = micros();
+
+		case state::busy:
+			// angles calculated from accelerometer
+			float roll_angle_accel, pitch_angle_accel;
+			accelAngles(roll_angle_accel, pitch_angle_accel);
 			
-			DEBUG_PRINT(roll_angle_accel); DEBUG_PRINT("\t"); DEBUG_PRINTLN(pitch_angle_accel);
-			DEBUG_PRINT(roll_angle); DEBUG_PRINT("\t"); DEBUG_PRINT(pitch_angle); DEBUG_PRINT("\t"); DEBUG_PRINTLN(yaw_angle);
-		}
+			// pose is estimated if filtered x- and y-axis angles, as well as z-axis angular velocity, converged
+			if ((abs(roll_angle_accel - roll_angle) < init_angleDifference) && (abs(pitch_angle_accel - pitch_angle) < init_angleDifference)
+			&& ((abs(yaw_angle - yaw_angle_init) / dt_s) < init_rate)) {
+				// reduce beta value, since filtered angles have stabilized during initialisation
+				madgwickFilter.set_beta(beta);
+
+				estimatePose_state = state::init;
+				
+				DEBUG_PRINTLN(F("Initial pose estimated."));
+				DEBUG_PRINTLN2(abs(roll_angle_accel - roll_angle), 6);
+				DEBUG_PRINTLN2(abs(pitch_angle_accel - pitch_angle), 6);
+				DEBUG_PRINTLN2(abs(yaw_angle - yaw_angle_init) / dt_s, 6);
+				
+				return true;
+			}
+			yaw_angle_init = yaw_angle;
+			
+#ifdef DEBUG
+			// run serial print at a rate independent of the main loop
+			static uint32_t t_serial = 0;
+			if (t_serial > 100000) {
+				DEBUG_PRINT(roll_angle_accel); DEBUG_PRINT("\t"); DEBUG_PRINTLN(pitch_angle_accel);
+				DEBUG_PRINT(roll_angle); DEBUG_PRINT("\t"); DEBUG_PRINT(pitch_angle); DEBUG_PRINT("\t"); DEBUG_PRINTLN(yaw_angle);
+
+				t_serial = 0;
+			}
+			t_serial += dt;
+#endif
+			break;
+
+		default:	
+			break;
 	}
+
+	return false;
 }
 
 // calculate accelerometer x and y angles in degrees
@@ -611,62 +652,47 @@ void accelAngles(float& roll_angle_accel, float& pitch_angle_accel) {
 
 #ifdef USE_BAR
 // estimate initial altitude
-void estimateAltitude(float init_velocity_v) {
-	DEBUG_PRINTLN(F("Estimating initial altitude. Keep device at rest ..."));
-	while (1) {
-		while (!imuInterrupt) {
-			// wait for next imu interrupt
-		}
-		// reset imu interrupt flag
-		imuInterrupt = false;
-		
-		// blink LED fast to indicate altitude estimation
-		updateLED(LED_PIN, 1, 500);
-		
-		// update time
-		t = micros();
-		dt = (t - t0);	// in us
-		dt_s = (float) (dt) * 1.e-6;	// in s
-		t0 = t;
-		
-		// read imu measurements
-		imu.read_accel_gyro_rps(ax, ay, az, gx_rps, gy_rps, gz_rps);
-#ifdef USE_MAG
-		imu.read_mag(mx, my, mz);
-#endif
-		
-		madgwickFilter.get_euler_quaternion(dt_s, ax, ay, az, gx_rps, gy_rps, gz_rps, mx, my, mz, roll_angle, pitch_angle, yaw_angle, pose_q);
-		
-		// calculate ned-acceleration relative to gravity in m/s²
-		float a_n_rel, a_e_rel, a_d_rel;
-		calc_accel_ned_rel(a_n_rel, a_e_rel, a_d_rel);
-		
-		// get Kalman filtered altitude in m
-		altitudeFilter.update(a_d_rel, baroAltitude, dt_s);
-		altitude = altitudeFilter.get_position();
-		
-		// TODO: Use velocity from altitudeFilter instead, in order to check if velocity converged. Therefor it has to be below a defined limit for a defined amount of time.
-		static uint32_t dt_baro;
-		if (barometerInterrupt) {
-			barometerInterrupt = false;
-			bmp388.getAltitude(baroAltitude);
-			
+bool estimateAltitude(float init_velocity_v) {
+
+	static state estimateAltitude_state = state::init;
+
+	switch (estimateAltitude_state)
+	{
+		case state::init:
+			DEBUG_PRINTLN(F("Estimating initial altitude. Keep device at rest ..."));
+
+			estimateAltitude_state = state::busy;
+			break;
+
+		case state::busy:
+			static uint32_t dt_baro = 0;
+	
 			if (dt_baro > 1000000) {
-				DEBUG_PRINTLN(altitude);
-				
 				// altitude is estimated if vertical velocity converged
+				// TODO: Use velocity from altitudeFilter instead
 				if ((abs(altitude - altitude_init) * 1000000 / dt_baro) < init_velocity_v) {
+					estimateAltitude_state = state::init;
+
 					DEBUG_PRINTLN(F("Initial altitude estimated."));
 					DEBUG_PRINTLN2(abs(altitude - altitude_init) * 1000000 / dt_baro, 2);
 					
-					break;
+					return true;
 				}
+				
 				altitude_init = altitude;
 				dt_baro = 0;
+
+				DEBUG_PRINTLN(altitude);
 			}
-		}
-		dt_baro += dt;
+			dt_baro += dt;
+
+			break;
+
+		default:
+			break;
 	}
+
+	return false;
 }
 #endif
 
@@ -717,7 +743,7 @@ void arm_failsafe(uint8_t fs_config) {
 	
 	// -------------------- arm and disarm on rc command
 	static uint32_t t_arm = 0, t_disarm = 0;
-	if (rc_channelValue[ARM] == 2000) {	// arm switch needs to be set to enable arming, else disarm and reset
+	if (rc_channelValue[ARM] == 2000 && !initialiseQuad) {	// arm switch needs to be set and quadcopter needs to be initialised to enable arming
 		if ((rc_channelValue[THROTTLE] < 1100) && (((rc_channelValue[ROLL] > 1400) && (rc_channelValue[ROLL] < 1600)) && ((rc_channelValue[PITCH] > 1400) && (rc_channelValue[PITCH] < 1600)))) {
 			if ((rc_channelValue[YAW] > 1900)  && (motors.getState() == MotorsQuad::State::disarmed)) {
 				// hold left stick bottom-right and keep right stick centered (2s) to complete arming
@@ -769,7 +795,7 @@ void arm_failsafe(uint8_t fs_config) {
 				// limit for imu update time exceeded
 				disarmAndResetQuad();
 				error_code = error_code | ERROR_IMU;
-				DEBUG_PRINTLN("IMU failsafe caused by major IMU error!");
+				DEBUG_PRINTLN(F("IMU failsafe caused by major IMU error!"));
 			}
 		}
 		
@@ -784,7 +810,7 @@ void arm_failsafe(uint8_t fs_config) {
 				else if ((t_arm_failsafe - t_fs_motion) > FS_TIME) {
 					disarmAndResetQuad();
 					t_fs_motion = 0;
-					DEBUG_PRINTLN("Motion failsafe!");
+					DEBUG_PRINTLN(F("Motion failsafe!"));
 				}
 			}
 			else {
@@ -808,7 +834,7 @@ void arm_failsafe(uint8_t fs_config) {
 					else if ((t_arm_failsafe - t_fs_control) > FS_TIME) {
 						disarmAndResetQuad();
 						t_fs_control = 0;
-						DEBUG_PRINTLN("Control failsafe!");
+						DEBUG_PRINTLN(F("Control failsafe!"));
 					}
 				}
 				else {
@@ -819,9 +845,6 @@ void arm_failsafe(uint8_t fs_config) {
 				t_fs_control = 0;
 			}
 		}
-		
-		// TODO: add additional failsafes here
-		
 	}
 }
 

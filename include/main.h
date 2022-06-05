@@ -1,10 +1,13 @@
 #ifndef MAIN_H_
 #define MAIN_H_
 
+#include "common.h"
+
 #include <stdint.h>
 
 // TODO: Tune parameters for altitude hold mode (barometer filter settings, PID, ...)
 
+// Note: Only define one: DEBUG (common.h) or PLOT or SEND_SERIAL.
 // plot through Processing
 //#define PLOT
 
@@ -22,7 +25,7 @@
 #endif
 
 // z-axis pose offset to compensate for the sensor mounting orientation relative to the quadcopter frame
-#ifndef USE_MAG
+#ifdef USE_MAG
 #define YAW_ANGLE_OFFSET 0
 #else
 #define YAW_ANGLE_OFFSET 90
@@ -158,14 +161,17 @@ const uint8_t ERROR_BAR = 0b00000100;
 const float RAD2DEG = (float) 4068 / 71;
 const float DEG2RAD = (float) 71 / 4068;
 
+// state of initial estimation
+enum class state {init, busy};
+
 // estimate initial pose
-void estimatePose(float beta_init, float beta, float init_angleDifference, float init_rate);
+bool estimatePose(float beta_init, float beta, float init_angleDifference, float init_rate);
 
 // calculate accelerometer x and y angles in degrees
 void accelAngles(float& roll_angle_accel, float& pitch_angle_accel);
 
 // estimate initial altitude
-void estimateAltitude(float init_velocity_v);
+bool estimateAltitude(float init_velocity_v);
 
 // calculate acceleration in ned-frame relative to gravity using acceleration in sensor-frame and pose
 void calc_accel_ned_rel(float &a_n_rel, float &a_e_rel, float &a_d_rel);

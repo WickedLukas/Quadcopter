@@ -43,7 +43,7 @@ void MotorsQuad::output(uint16_t pwm1, uint16_t pwm2, uint16_t pwm3, uint16_t pw
         if (micros() - t0_arming > ARMING_DISARMING_TIME)
         {
             m_state = State::armed;
-            DEBUG_PRINTLN("Armed!");
+            DEBUG_PRINTLN(F("Armed!"));
         }
         else
         {
@@ -55,7 +55,7 @@ void MotorsQuad::output(uint16_t pwm1, uint16_t pwm2, uint16_t pwm3, uint16_t pw
         if (micros() - t0_disarming > ARMING_DISARMING_TIME)
         {
             m_state = State::disarmed;
-            DEBUG_PRINTLN("Disarmed!");
+            DEBUG_PRINTLN(F("Disarmed!"));
         }
         else
         {
@@ -97,7 +97,7 @@ void MotorsQuad::init_pin(uint8_t pin) {
 
 // analogWrite to all motors
 void MotorsQuad::analogWriteMotors(uint16_t pwm1, uint16_t pwm2, uint16_t pwm3, uint16_t pwm4) {
-	#if !defined(DEBUG) && !defined(SEND_SERIAL) // control motors only if debug modes are turned off
+	#ifndef DEBUG // do not run motors when debugging
 		analogWrite(m_motor1_pin, pwm1);
 		analogWrite(m_motor2_pin, pwm2);
 		analogWrite(m_motor3_pin, pwm3);
