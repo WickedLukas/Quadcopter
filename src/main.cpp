@@ -525,6 +525,12 @@ void loop() {
 		
 		fmode_last = fmode;
 	}
+	else if (motors.getState() == MotorsQuad::State::disarmed)
+	{
+		// store yaw angle and altitude before the quadcopter gets armed
+		yaw_angle_init = yaw_angle;
+		altitude_init = altitude;
+	}
 
 	// motor mixing
 	motors.output(
@@ -619,8 +625,6 @@ bool initPose(float beta_init, float beta, float init_angleDifference, float ini
 				DEBUG_PRINTLN2(abs(roll_angle_accel - roll_angle), 6);
 				DEBUG_PRINTLN2(abs(pitch_angle_accel - pitch_angle), 6);
 				DEBUG_PRINTLN2(abs(yaw_angle - yaw_angle_init) / dt_s, 6);
-
-				yaw_angle_init = yaw_angle;
 				
 				return true;
 			}
@@ -678,11 +682,8 @@ bool initAltitude(float init_velocity_v) {
 					DEBUG_PRINTLN(F("Initial altitude estimated."));
 					DEBUG_PRINTLN2(abs(altitude - altitude_init) * 1000000 / dt_baro, 2);
 
-					altitude_init = altitude;
-
 					return true;
 				}
-				
 				altitude_init = altitude;
 				dt_baro = 0;
 
