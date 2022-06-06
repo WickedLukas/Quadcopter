@@ -1,4 +1,5 @@
 #include "main.h"
+#include "common.h"
 #include "calibration.h"
 #include "MotorsQuad.h"
 #include "shapeTrajectory.h"
@@ -10,67 +11,52 @@
 #ifdef USE_BAR
 #include <BMP388_DEV.h>
 #endif
-#include <MadgwickAHRS.h>
-#include <ema_filter.h>
-#include <PID_controller.h>
 #ifdef USE_GPS
 #include <NMEAGPS.h>
 #endif
+#include <MadgwickAHRS.h>
+#include <ema_filter.h>
+#include <PID_controller.h>
 #include <Plotter.h>
 
 #include <Arduino.h>
 #include <EEPROM.h>
 
-#define debugPort Serial
-#define rcPort Serial2
-#define gpsPort Serial1
+// ! Motors are disabled when MOTORS_OFF is defined inside "common.h".
+// ! Debug options can be enabled within "common.h"
+// ! Parameters can be set inside "main.h".
 
 #ifdef PLOT
 	Plotter p;
 #endif
 
-// Stores the errors which occurred and disables arming.
-// A restart is required to reset the error and enable arming.
-uint8_t error_code;
-
-// calibration data
-calibration_data calibration_eeprom;
-
-// radio control (rc) object
+// radio control (rc)
 IBUS rc;
 
-// ICM-20948 imu object
+// inertial measurement unit (imu)
 ICM20948_SPI imu(IMU_CS_PIN, IMU_SPI_PORT);
 
-#ifdef USE_BAR
-// BMP388 object
-BMP388_DEV bmp388;
-#endif
-
-bool initialiseQuad = true; // initialise quadcopter after power on
-
-// initial quadcopter z-axis angle - this should be initialised with an implausible value
-float yaw_angle_init = -1000;
-
-// initial quadcopter altitude - this should be initialised with an implausible value
-float altitude_init = -1000;
-
-// pointer on an array of 10 received rc channel values [1000; 2000]
-uint16_t *rc_channelValue;
-
-// flight modes
-enum class FlightMode { Stabilize, TiltCompensation, AltitudeHold } fmode;
-
-// motor objects
-MotorsQuad motors(MOTOR_PIN_1, MOTOR_PIN_2, MOTOR_PIN_3, MOTOR_PIN_4, MOTOR_PWM_RESOLUTION, MOTOR_PWM_FREQENCY);
-
-// Madgwick filter object
+// Madgwick filter for pose estimation
 MADGWICK_AHRS madgwickFilter(BETA_INIT);
 
 #ifdef USE_BAR
-// Kalman-Filter
+// barometer
+BMP388_DEV barometer;
+
+// 1D-Kalman-Filter to calculate altitude by combining vertical acceleration and barometer altitude
 KalmanFilter1D altitudeFilter(TC_ALTITUDE_FILTER);
 #endif
+
+#ifdef USE_GPS
+// gps parser
+NMEAGPS gps;
+
+// gps fix data
+gps_fix fix;
+#endif
+
+// quadcopter motors
+MotorsQuad motors(MOTOR_PIN_1, MOTOR_PIN_2, MOTOR_PIN_3, MOTOR_PIN_4, MOTOR_PWM_RESOLUTION, MOTOR_PWM_FREQUENCY);
 
 // rate PID controller
 PID_controller roll_rate_pid(P_ROLL_RATE, I_ROLL_RATE, D_ROLL_RATE, 0, 0, 250, 50, EMA_ROLL_RATE_P, EMA_ROLL_RATE_D);
@@ -80,13 +66,26 @@ PID_controller yaw_rate_pid(P_YAW_RATE, I_YAW_RATE, D_YAW_RATE, 0, 0, 250, 100, 
 // vertical velocity PID controller for altitude hold
 PID_controller velocity_v_pid(P_VELOCITY_V, I_VELOCITY_V, D_VELOCITY_V, 0, 0, 250, 250, EMA_velocity_v_P, EMA_velocity_v_D);
 
-#ifdef USE_GPS
-// GPS parser
-NMEAGPS gps;
+// flight modes
+enum class FlightMode { Stabilize, TiltCompensation, AltitudeHold } fmode;
 
-// GPS fix data
-gps_fix fix;
-#endif
+// calibration data
+calibration_data calibration_eeprom;
+
+bool initialised = false; // initialise quadcopter (pose, altitude, ...) after power on
+
+// initial quadcopter z-axis angle - this should be initialised with an implausible value
+float yaw_angle_init = -1000;
+
+// initial quadcopter altitude - this should be initialised with an implausible value
+float altitude_init = -1000;
+
+// Stores which errors occurred and disables arming.
+// A power cycle is required to reset errors and enable arming.
+uint8_t error_code;
+
+// pointer on an array of 10 received rc channel values [1000; 2000]
+uint16_t *rc_channelValue;
 
 // variables to measure imu update time
 uint32_t t0, t;
@@ -159,8 +158,8 @@ void setup() {
 	
 	#if defined(DEBUG) || defined(SEND_SERIAL)
 		// initialise serial port for monitoring
-		debugPort.begin(115200);
-		while (!debugPort);
+		Serial.begin(115200);
+		while (!Serial);
 	#endif
 	
 	// initialise serial port for rc (iBus) communication
@@ -177,7 +176,7 @@ void setup() {
 	// initialise SPI for imu communication
 	IMU_SPI_PORT.begin();
 	
-	// setup interrupt pin for imu
+	// setup imu interrupt pin
 	pinMode(IMU_INTERRUPT_PIN, INPUT);
 	attachInterrupt(digitalPinToInterrupt(IMU_INTERRUPT_PIN), imuReady, FALLING);
 	
@@ -186,8 +185,8 @@ void setup() {
 	
 	// initialise imu
 	if (!imu.init(calibration_eeprom.offset_gx_1000dps, calibration_eeprom.offset_gy_1000dps, calibration_eeprom.offset_gz_1000dps, calibration_eeprom.offset_ax_32g, calibration_eeprom.offset_ay_32g, calibration_eeprom.offset_az_32g, calibration_eeprom.offset_mx, calibration_eeprom.offset_my, calibration_eeprom.offset_mz, calibration_eeprom.scale_mx, calibration_eeprom.scale_my, calibration_eeprom.scale_mz)) {
-		// IMU could not be initialised. Set error value, which will disable arming.
-		error_code = error_code | ERROR_IMU;
+		// imu could not be initialised
+		error_code = error_code | ERROR_IMU; // set error value to disable arming
 		DEBUG_PRINTLN(F("IMU error: Initialisation failed!"));
 	}
 	
@@ -195,16 +194,16 @@ void setup() {
 	imu.read_accelRes(accelRes);
 	
 #ifdef USE_BAR
-	// initialise BMP388 mode, pressure oversampling, temperature oversampling, IIR-Filter and standby time
-	if (!bmp388.begin(NORMAL_MODE, OVERSAMPLING_SKIP, OVERSAMPLING_SKIP, IIR_FILTER_32, TIME_STANDBY_5MS)) {
-		// barometer could not be initialised. Set error value, which will disable arming.
-		error_code = error_code | ERROR_BAR;
+	// initialise barometer with mode, pressure oversampling, temperature oversampling, IIR-Filter and standby time
+	if (!barometer.begin(NORMAL_MODE, OVERSAMPLING_SKIP, OVERSAMPLING_SKIP, IIR_FILTER_32, TIME_STANDBY_5MS)) {
+		// barometer could not be initialised
+		error_code = error_code | ERROR_BAR; // set error value to disable arming
 		DEBUG_PRINTLN(F("BAR error: Initialisation failed!"));
 	}
 	
-	// setup interrupt pin for BMP388
+	// setup barometer interrupt pin
 	pinMode(BAROMETER_INTERRUPT_PIN, INPUT);
-	bmp388.enableInterrupt();
+	barometer.enableInterrupt();
 	attachInterrupt(digitalPinToInterrupt(BAROMETER_INTERRUPT_PIN), barometerReady, RISING);
 #endif
 	
@@ -235,7 +234,7 @@ void loop() {
 		// blink LED normally to indicate armed status
 		updateLED(LED_PIN, 1, 1000);
 	}
-	else if (initialiseQuad)
+	else if (!initialised)
 	{
 		// blink LED fast to indicate quadcopter initialisation
 		updateLED(LED_PIN, 1, 500);
@@ -255,18 +254,18 @@ void loop() {
 	// * perform calibration, if motors are disarmed and rc calibration request was received
 	if (calibration(motors, imu, rc_channelValue, calibration_eeprom)) {
 		// reinitialise quadcopter, because calibration was performed
-		initialiseQuad = true;
+		initialised = false;
 	}
+
+	// * arm/disarm on rc command or disarm on failsafe conditions
+	arm_failsafe(FS_CONFIG);
 
 	// update time
 	t = micros();
 	dt = (t - t0);  // in us
 	dt_s = (float) (dt) * 1.e-6;	// in s
-
-	// * arm/disarm on rc command or disarm on failsafe conditions
-	arm_failsafe(FS_CONFIG);
 	
-	// continue if imu interrupt has fired
+	// * continue if imu interrupt has fired
 	if (!imuInterrupt) {
 		return;
 	}
@@ -283,7 +282,7 @@ void loop() {
 	if (((error_code & ERROR_MAG) != ERROR_MAG) && imu.read_mag(mx, my, mz)) {
 		dt_mag = 0;
 	}
-	else if (!initialiseQuad) {
+	else if (initialised) {
 		// check if magnetometer is still working
 		dt_mag += dt;
 		if ((dt_mag > FS_IMU_DT_LIMIT) && ((error_code & ERROR_MAG) != ERROR_MAG)) {
@@ -314,16 +313,17 @@ void loop() {
 	// * get altitude from barometer
 	if (barometerInterrupt) {
 		barometerInterrupt = false;
-		bmp388.getAltitude(baroAltitude);
+		barometer.getAltitude(baroAltitude);
 
 		dt_bar = 0;
 	}
-	else if (!initialiseQuad) {
+	else if (initialised) {
 		// check if barometer is still working
 		dt_bar += dt;
 		if ((dt_bar > FS_IMU_DT_LIMIT) && ((error_code & ERROR_BAR) != ERROR_BAR)) {
 			// Too much time has passed since the last barometer reading. Set error value, which will disable arming.
 			error_code = error_code | ERROR_BAR;
+			
 			DEBUG_PRINTLN(F("Barometer error!"));
 		}
 	}
@@ -338,7 +338,7 @@ void loop() {
 #endif
 	
 	// * initialise quadcopter after first run or calibration
-	if (initialiseQuad) {
+	if (!initialised) {
 		static uint8_t sensorStatus = 0;
 
 		switch (sensorStatus)
@@ -362,7 +362,7 @@ void loop() {
 			default:
 				// quadcopter initialisation successful
 				sensorStatus = 0;
-				initialiseQuad = false;
+				initialised = true;
 				break;
 		}
 		return;
@@ -743,7 +743,7 @@ void arm_failsafe(uint8_t fs_config) {
 	
 	// -------------------- arm and disarm on rc command
 	static uint32_t t_arm = 0, t_disarm = 0;
-	if (rc_channelValue[ARM] == 2000 && !initialiseQuad) {	// arm switch needs to be set and quadcopter needs to be initialised to enable arming
+	if (rc_channelValue[ARM] == 2000 && initialised) {	// arm switch needs to be set and quadcopter needs to be initialised to enable arming
 		if ((rc_channelValue[THROTTLE] < 1100) && (((rc_channelValue[ROLL] > 1400) && (rc_channelValue[ROLL] < 1600)) && ((rc_channelValue[PITCH] > 1400) && (rc_channelValue[PITCH] < 1600)))) {
 			if ((rc_channelValue[YAW] > 1900)  && (motors.getState() == MotorsQuad::State::disarmed)) {
 				// hold left stick bottom-right and keep right stick centered (2s) to complete arming
