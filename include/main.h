@@ -155,13 +155,13 @@ const float DEG2RAD = (float)71 / 4068;
 enum class state { init, busy };
 
 // estimate initial pose
-bool estimatePose(float beta_init, float beta, float init_angleDifference, float init_rate);
+bool initPose(float beta_init, float beta, float init_angleDifference, float init_rate);
 
 // calculate accelerometer x and y angles in degrees
 void accelAngles(float &roll_angle_accel, float &pitch_angle_accel);
 
 // estimate initial altitude
-bool estimateAltitude(float init_velocity_v);
+bool initAltitude(float init_velocity_v);
 
 // calculate acceleration in ned-frame relative to gravity using acceleration in sensor-frame and pose
 void calc_accel_ned_rel(float &a_n_rel, float &a_e_rel, float &a_d_rel);

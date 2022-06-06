@@ -345,7 +345,7 @@ void loop() {
 		{
 			case 0:
 				// estimate initial pose
-				if (estimatePose(BETA_INIT, BETA, INIT_ANGLE_DIFFERENCE, INIT_RATE)) {
+				if (initPose(BETA_INIT, BETA, INIT_ANGLE_DIFFERENCE, INIT_RATE)) {
 					++sensorStatus;
 				}
 				break;
@@ -353,7 +353,7 @@ void loop() {
 #ifdef USE_BAR
 			case 1:
 				// estimate initial altitude
-				if (estimateAltitude(INIT_VELOCITY_V)) {
+				if (initAltitude(INIT_VELOCITY_V)) {
 					++sensorStatus;
 				}
 				break;
@@ -587,11 +587,11 @@ static uint32_t t0_serial = micros();
 }
 
 // estimate initial pose
-bool estimatePose(float beta_init, float beta, float init_angleDifference, float init_rate) {
+bool initPose(float beta_init, float beta, float init_angleDifference, float init_rate) {
 
-	static state estimatePose_state = state::init;
+	static state initPose_state = state::init;
 
-	switch (estimatePose_state)
+	switch (initPose_state)
 	{
 		case state::init:
 			DEBUG_PRINTLN(F("Estimating initial pose. Keep device at rest ..."));
@@ -599,7 +599,7 @@ bool estimatePose(float beta_init, float beta, float init_angleDifference, float
 			// set higher beta value to speed up pose estimation
 			madgwickFilter.set_beta(beta_init);
 
-			estimatePose_state = state::busy;
+			initPose_state = state::busy;
 			break;
 
 		case state::busy:
@@ -607,18 +607,20 @@ bool estimatePose(float beta_init, float beta, float init_angleDifference, float
 			float roll_angle_accel, pitch_angle_accel;
 			accelAngles(roll_angle_accel, pitch_angle_accel);
 			
-			// pose is estimated if filtered x- and y-axis angles, as well as z-axis angular velocity, converged
+			// initial pose is estimated if filtered x- and y-axis angles, as well as z-axis angular velocity, converged
 			if ((abs(roll_angle_accel - roll_angle) < init_angleDifference) && (abs(pitch_angle_accel - pitch_angle) < init_angleDifference)
 			&& ((abs(yaw_angle - yaw_angle_init) / dt_s) < init_rate)) {
 				// reduce beta value, since filtered angles have stabilized during initialisation
 				madgwickFilter.set_beta(beta);
 
-				estimatePose_state = state::init;
+				initPose_state = state::init;
 				
 				DEBUG_PRINTLN(F("Initial pose estimated."));
 				DEBUG_PRINTLN2(abs(roll_angle_accel - roll_angle), 6);
 				DEBUG_PRINTLN2(abs(pitch_angle_accel - pitch_angle), 6);
 				DEBUG_PRINTLN2(abs(yaw_angle - yaw_angle_init) / dt_s, 6);
+
+				yaw_angle_init = yaw_angle;
 				
 				return true;
 			}
@@ -652,30 +654,32 @@ void accelAngles(float& roll_angle_accel, float& pitch_angle_accel) {
 
 #ifdef USE_BAR
 // estimate initial altitude
-bool estimateAltitude(float init_velocity_v) {
+bool initAltitude(float init_velocity_v) {
 
-	static state estimateAltitude_state = state::init;
+	static state initAltitude_state = state::init;
 
-	switch (estimateAltitude_state)
+	switch (initAltitude_state)
 	{
 		case state::init:
 			DEBUG_PRINTLN(F("Estimating initial altitude. Keep device at rest ..."));
 
-			estimateAltitude_state = state::busy;
+			initAltitude_state = state::busy;
 			break;
 
 		case state::busy:
 			static uint32_t dt_baro = 0;
 	
 			if (dt_baro > 1000000) {
-				// altitude is estimated if vertical velocity converged
+				// initial altitude is estimated if vertical velocity converged
 				// TODO: Use velocity from altitudeFilter instead
 				if ((abs(altitude - altitude_init) * 1000000 / dt_baro) < init_velocity_v) {
-					estimateAltitude_state = state::init;
+					initAltitude_state = state::init;
 
 					DEBUG_PRINTLN(F("Initial altitude estimated."));
 					DEBUG_PRINTLN2(abs(altitude - altitude_init) * 1000000 / dt_baro, 2);
-					
+
+					altitude_init = altitude;
+
 					return true;
 				}
 				
@@ -696,7 +700,6 @@ bool estimateAltitude(float init_velocity_v) {
 }
 #endif
 
-#ifdef USE_BAR
 // calculate acceleration in ned-frame relative to gravity using acceleration in sensor-frame and pose
 void calc_accel_ned_rel(float &a_n_rel, float &a_e_rel, float &a_d_rel) {
 	// acceleration of gravity is m/s²
@@ -731,7 +734,6 @@ void qMultiply(float* q1, float* q2, float* result_q) {
 	result_q[2] = q1[0] * q2[2] - q1[1] * q2[3] + q1[2] * q2[0] + q1[3] * q2[1];
 	result_q[3] = q1[0] * q2[3] + q1[1] * q2[2] - q1[2] * q2[1] + q1[3] * q2[0];
 }
-#endif
 
 // arm/disarm on rc command or disarm on failsafe conditions
 void arm_failsafe(uint8_t fs_config) {
