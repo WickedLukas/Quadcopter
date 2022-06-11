@@ -758,7 +758,7 @@ bool initAltitude(float init_velocity_v) {
 					initAltitude_state = state::init;
 
 					DEBUG_PRINTLN(F("Initial altitude estimated."));
-					DEBUG_PRINTLN2(abs(altitude - altitude_init) * 1000000 / dt_baro, 2);
+					DEBUG_PRINTLN2(abs(altitude - altitude_init) * 1000000 / dt_altitude, 2);
 
 					return true;
 				}
@@ -779,7 +779,7 @@ bool initAltitude(float init_velocity_v) {
 }
 
 // calculate acceleration in ned-frame relative to gravity using acceleration in sensor-frame and pose
-void calc_accel_ned_rel(float &a_n_rel, float &a_e_rel, float &a_d_rel) {
+void calc_accel_ned_rel(float &a_n_relative, float &a_e_relative, float &a_d_relative) {
 	// acceleration of gravity is m/s²
 	static const float G = 9.81;
 	
@@ -800,9 +800,9 @@ void calc_accel_ned_rel(float &a_n_rel, float &a_e_rel, float &a_d_rel) {
 	qMultiply(helper_q, pose_q_conj, a_ned_q);
 	
 	// get ned-acceleration relative to gravity in m/s²
-	a_n_rel = a_ned_q[1] * accelRes * G;
-	a_e_rel = a_ned_q[2] * accelRes * G;
-	a_d_rel = (a_ned_q[3] * accelRes - 1) * G;
+	a_n_relative = a_ned_q[1] * accelRes * G;
+	a_e_relative = a_ned_q[2] * accelRes * G;
+	a_d_relative = (a_ned_q[3] * accelRes - 1) * G;
 }
 
 // multiply two quaternions (Hamilton product)
