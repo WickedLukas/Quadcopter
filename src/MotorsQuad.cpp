@@ -97,7 +97,7 @@ void MotorsQuad::init_pin(uint8_t pin) {
 
 // analogWrite to all motors
 void MotorsQuad::analogWriteMotors(uint16_t pwm1, uint16_t pwm2, uint16_t pwm3, uint16_t pwm4) {
-	#if !defined(MOTORS_OFF) // for safety, MOTORS_OFF can be defined to prevent motors from running
+	#ifndef MOTORS_OFF // for safety, MOTORS_OFF can be defined to prevent motors from running
 		analogWrite(m_motor1_pin, pwm1);
 		analogWrite(m_motor2_pin, pwm2);
 		analogWrite(m_motor3_pin, pwm3);

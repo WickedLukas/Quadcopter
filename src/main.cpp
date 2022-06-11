@@ -53,6 +53,13 @@ NMEAGPS gps;
 
 // gps fix data
 gps_fix fix;
+
+// 1D-Kalman-Filter to calculate the north/east distance from to the launch position by combining acceleration and gps measurements
+KalmanFilter1D distanceFilter_north(TC_DISTANCE_FILTER);
+KalmanFilter1D distanceFilter_east(TC_DISTANCE_FILTER);
+
+// quadcopter launch location (before arming)
+NeoGPS::Location_t launch_location;
 #endif
 
 // quadcopter motors
@@ -115,18 +122,24 @@ int16_t ax, ay, az;
 float gx_rps, gy_rps, gz_rps;
 int16_t mx, my, mz;
 
-// barometer altitude measurement
-float baroAltitude;
-
 // quadcopter pose
 float roll_angle, pitch_angle, yaw_angle;	// euler angles
 float pose_q[4];	// quaternion
+
+// barometer altitude measurement
+float baroAltitude;
 
 // quadcopter altitude
 float altitude;
 
 // quadcopter vertical velocity
 float velocity_v;
+
+// gps distance from launch measurement
+float gpsDistance_north, gpsDistance_east;
+
+// quadcopter distance from launch
+float distance_north, distance_east;
 
 // filtered gyro rates
 float roll_rate, pitch_rate, yaw_rate;
@@ -178,7 +191,6 @@ void setup() {
 	
 	// setup imu interrupt pin
 	pinMode(IMU_INTERRUPT_PIN, INPUT);
-	attachInterrupt(digitalPinToInterrupt(IMU_INTERRUPT_PIN), imuReady, FALLING);
 	
 	// get calibration data from EEPROM
 	EEPROM.get(ADDRESS_EEPROM, calibration_eeprom);
@@ -186,7 +198,7 @@ void setup() {
 	// initialise imu
 	if (!imu.init(calibration_eeprom.offset_gx_1000dps, calibration_eeprom.offset_gy_1000dps, calibration_eeprom.offset_gz_1000dps, calibration_eeprom.offset_ax_32g, calibration_eeprom.offset_ay_32g, calibration_eeprom.offset_az_32g, calibration_eeprom.offset_mx, calibration_eeprom.offset_my, calibration_eeprom.offset_mz, calibration_eeprom.scale_mx, calibration_eeprom.scale_my, calibration_eeprom.scale_mz)) {
 		// imu could not be initialised
-		error_code = error_code | ERROR_IMU; // set error value to disable arming
+		error_code |= ERROR_IMU; // set error value to disable arming
 		DEBUG_PRINTLN(F("IMU error: Initialisation failed!"));
 	}
 	
@@ -197,13 +209,18 @@ void setup() {
 	// initialise barometer with mode, pressure oversampling, temperature oversampling, IIR-Filter and standby time
 	if (!barometer.begin(NORMAL_MODE, OVERSAMPLING_SKIP, OVERSAMPLING_SKIP, IIR_FILTER_32, TIME_STANDBY_5MS)) {
 		// barometer could not be initialised
-		error_code = error_code | ERROR_BAR; // set error value to disable arming
+		error_code |= ERROR_BAR; // set error value to disable arming
 		DEBUG_PRINTLN(F("BAR error: Initialisation failed!"));
 	}
 	
 	// setup barometer interrupt pin
 	pinMode(BAROMETER_INTERRUPT_PIN, INPUT);
 	barometer.enableInterrupt();
+#endif
+
+	// attach interrupts
+	attachInterrupt(digitalPinToInterrupt(IMU_INTERRUPT_PIN), imuReady, FALLING);
+#ifdef USE_BAR
 	attachInterrupt(digitalPinToInterrupt(BAROMETER_INTERRUPT_PIN), barometerReady, RISING);
 #endif
 	
@@ -216,27 +233,31 @@ void setup() {
 	//p.AddTimeGraph("Rates", 1000, "roll_rate", roll_rate, "pitch_rate", pitch_rate, "yaw_rate", yaw_rate);
 	//p.AddTimeGraph("mv", 1000, "roll_rate_sp", roll_rate_sp, "pitch_rate_sp", pitch_rate_sp, "yaw_rate_sp", yaw_rate_sp);
 	//p.AddTimeGraph("mv", 1000, "roll_rate_mv", roll_rate_mv, "pitch_rate_mv", pitch_rate_mv, "yaw_rate_mv", yaw_rate_mv);
-	//p.AddTimeGraph("Altitude", 1000, "Quadcopter", altitude, "Barometer", baroAltitude);
-	//p.AddTimeGraph("Relative acceleration in ned-frame", 1000, "a_ned_rel_q1", a_ned_rel_q1, "a_ned_rel_q2", a_ned_rel_q2, "a_ned_rel_q3", a_ned_rel_q3);
-	//p.AddTimeGraph("Quadcopter vertical velocity", 1000, "velocity_v", velocity_v, "velocity_v_sp", velocity_v_sp);
-	//p.AddTimeGraph("alt", 1000, "a", altitude, "bA", baroAltitude/*, "aS", altitude_sp*/);
-	//p.AddTimeGraph("vel", 1000, "v", velocity_v/*, "v_sp", velocity_v_sp*/);
+
+	//p.AddTimeGraph("Relative ned-acceleration", 1000, "a_n_rel", a_n_rel, "a_e_rel", a_e_rel, "a_d_rel", a_d_rel);
+
+	//p.AddTimeGraph("alt", 1000, "A", altitude, "bA", baroAltitude);
+	//p.AddTimeGraph("alt", 1000, "A", altitude, "bA", baroAltitude/*, "aS", altitude_sp*/);
+	//p.AddTimeGraph("v_vel", 1000, "V", velocity_v/*, "V_sp", velocity_v_sp*/);
+
+	//p.AddTimeGraph("dist", 1000, "gD_n", gpsDistance_north, "D_n", distance_north);
+	//p.AddTimeGraph("dist", 1000, "gD_e", gpsDistance_east, "D_e", distance_east);
 #endif
 }
 
 void loop() {
 	// * update LED
-	if (error_code != 0) {
-		// blink LED very fast to indicate an error occurrence
+	if ((error_code & !ERROR_GPS) != 0) {
+		// blink LED very fast to indicate an error occurrence except gps
 		updateLED(LED_PIN, 1, 200);
 	}
 	else if (motors.getState() == MotorsQuad::State::armed) {
 		// blink LED normally to indicate armed status
 		updateLED(LED_PIN, 1, 1000);
 	}
-	else if (!initialised)
+	else if (!initialised || (error_code == ERROR_GPS))
 	{
-		// blink LED fast to indicate quadcopter initialisation
+		// blink LED fast to indicate quadcopter initialisation or gps search
 		updateLED(LED_PIN, 1, 500);
 	}
 	else if (motors.getState() == MotorsQuad::State::disarmed) {
@@ -285,9 +306,9 @@ void loop() {
 	else if (initialised) {
 		// check if magnetometer is still working
 		dt_mag += dt;
-		if ((dt_mag > FS_IMU_DT_LIMIT) && ((error_code & ERROR_MAG) != ERROR_MAG)) {
+		if ((dt_mag > SENSOR_DT_LIMIT) && ((error_code & ERROR_MAG) != ERROR_MAG)) {
 			// Too much time has passed since the last magnetometer reading. Set error value, which will disable arming.
-			error_code = error_code | ERROR_MAG;
+			error_code |= ERROR_MAG;
 
 			mx = my = mz = 0; // error handling
 
@@ -308,45 +329,101 @@ void loop() {
 		yaw_angle += 360;
 	}
 
+#if defined(USE_BAR) || defined(USE_GPS)
+	static float a_n_rel, a_e_rel, a_d_rel;
+	calc_accel_ned_rel(a_n_rel, a_e_rel, a_d_rel); // get ned-acceleration relative to gravity in m/s²
+#endif
+
 #ifdef USE_BAR
-	static uint32_t dt_bar = 0;
 	// * get altitude from barometer
+	static uint32_t dt_bar = 0;
 	if (barometerInterrupt) {
 		barometerInterrupt = false;
-		barometer.getAltitude(baroAltitude);
-
 		dt_bar = 0;
+
+		barometer.getAltitude(baroAltitude);
 	}
 	else if (initialised) {
 		// check if barometer is still working
 		dt_bar += dt;
-		if ((dt_bar > FS_IMU_DT_LIMIT) && ((error_code & ERROR_BAR) != ERROR_BAR)) {
+		if ((dt_bar > SENSOR_DT_LIMIT) && ((error_code & ERROR_BAR) != ERROR_BAR)) {
 			// Too much time has passed since the last barometer reading. Set error value, which will disable arming.
-			error_code = error_code | ERROR_BAR;
+			error_code |= ERROR_BAR;
 			
 			DEBUG_PRINTLN(F("Barometer error!"));
 		}
 	}
 
-	// * calculate Kalman filtered altitude in m
-	static float a_n_rel, a_e_rel, a_d_rel;
-	calc_accel_ned_rel(a_n_rel, a_e_rel, a_d_rel); // get ned-acceleration relative to gravity in m/s²
-
+	// * calculate quadcopter altitude in m
 	altitudeFilter.update(a_d_rel, baroAltitude, dt_s);
 	altitude = altitudeFilter.get_position();
 	velocity_v = altitudeFilter.get_velocity();
 #endif
+
+#ifdef USE_GPS
+	// * get location from gps
+	static uint32_t dt_gps = 0;
+	if (gps.available(gpsPort))
+	{
+		dt_gps = 0;
+
+		fix = gps.read();
+
+		// set error code in order to disable arming as long as there is no solid gps fix
+		if (fix.valid.satellites && fix.satellites > 7 && fix.valid.hdop && fix.hdop < 5000 && fix.valid.location) {
+
+			if ((error_code & ERROR_GPS) == ERROR_GPS) {
+				error_code &= !ERROR_GPS; // delete error value to enable arming and RTL
+
+				DEBUG_PRINTLN(F("Solid GPS fix!"));
+			}
+
+			// update launch location if the quadcopter is disarmed
+			if (motors.getState() == MotorsQuad::State::disarmed) {
+				launch_location = fix.location;
+			}
+		}
+		else if ((error_code & ERROR_GPS) != ERROR_GPS) {
+			error_code |= ERROR_GPS; // set error value to disable arming and RTL
+
+			DEBUG_PRINTLN(F("No solid GPS fix! Arming and RTL are disabled."));
+		}
+
+		if ((motors.getState() != MotorsQuad::State::disarmed) && (motors.getState() != MotorsQuad::State::disarming) && fix.valid.location) {
+			// get a distance in north/east direction by holding latitude/longitude for a simple short distance approximation
+			gpsDistance_north = launch_location.DistanceRadians(NeoGPS::Location_t(fix.location.lat(), launch_location.lon())) * NeoGPS::Location_t::EARTH_RADIUS_KM * 1000;
+			gpsDistance_east = launch_location.DistanceRadians(NeoGPS::Location_t(launch_location.lat(), fix.location.lon())) * NeoGPS::Location_t::EARTH_RADIUS_KM * 1000;
+
+			// * calculate quadcopter launch distance in m
+			distanceFilter_north.update(a_n_rel, gpsDistance_north, dt_s);
+			distanceFilter_east.update(a_e_rel, gpsDistance_east, dt_s);
+
+			distance_north = distanceFilter_north.get_position();
+			distance_east = distanceFilter_east.get_position();
+		}
+	}
+	else {
+		// check if gps is still working
+		dt_gps += dt;
+		if ((dt_gps > SENSOR_DT_LIMIT) && ((error_code & ERROR_GPS) != ERROR_GPS)) {
+			// Too much time has passed since the last gps reading. Set error value, which will disable arming.
+			error_code |= ERROR_GPS;
+			
+			DEBUG_PRINTLN(F("GPS error!"));
+		}
+	}
+#endif
 	
 	// * initialise quadcopter after first run or calibration
 	if (!initialised) {
-		static uint8_t sensorStatus = 0;
+		static uint8_t initStatus = 0;
 
-		switch (sensorStatus)
+		switch (initStatus)
 		{
 			case 0:
 				// estimate initial pose
 				if (initPose(BETA_INIT, BETA, INIT_ANGLE_DIFFERENCE, INIT_RATE)) {
-					++sensorStatus;
+					++initStatus;
 				}
 				break;
 
@@ -354,14 +431,14 @@ void loop() {
 			case 1:
 				// estimate initial altitude
 				if (initAltitude(INIT_VELOCITY_V)) {
-					++sensorStatus;
+					++initStatus;
 				}
 				break;
 #endif
 
 			default:
 				// quadcopter initialisation successful
-				sensorStatus = 0;
+				initStatus = 0;
 				initialised = true;
 				break;
 		}
@@ -656,10 +733,8 @@ void accelAngles(float& roll_angle_accel, float& pitch_angle_accel) {
 	pitch_angle_accel = atan2(-ax, sqrt(pow(ay, 2) + pow(az, 2))) * RAD2DEG;
 }
 
-#ifdef USE_BAR
 // estimate initial altitude
 bool initAltitude(float init_velocity_v) {
-
 	static state initAltitude_state = state::init;
 
 	switch (initAltitude_state)
@@ -671,12 +746,12 @@ bool initAltitude(float init_velocity_v) {
 			break;
 
 		case state::busy:
-			static uint32_t dt_baro = 0;
+			static uint32_t dt_altitude = 0;
 	
-			if (dt_baro > 1000000) {
+			if (dt_altitude > 1000000) {
 				// initial altitude is estimated if vertical velocity converged
 				// TODO: Use velocity from altitudeFilter instead
-				if ((abs(altitude - altitude_init) * 1000000 / dt_baro) < init_velocity_v) {
+				if ((abs(altitude - altitude_init) * 1000000 / dt_altitude) < init_velocity_v) {
 					initAltitude_state = state::init;
 
 					DEBUG_PRINTLN(F("Initial altitude estimated."));
@@ -685,11 +760,11 @@ bool initAltitude(float init_velocity_v) {
 					return true;
 				}
 				altitude_init = altitude;
-				dt_baro = 0;
+				dt_altitude = 0;
 
 				DEBUG_PRINTLN(altitude);
 			}
-			dt_baro += dt;
+			dt_altitude += dt;
 
 			break;
 
@@ -699,7 +774,6 @@ bool initAltitude(float init_velocity_v) {
 
 	return false;
 }
-#endif
 
 // calculate acceleration in ned-frame relative to gravity using acceleration in sensor-frame and pose
 void calc_accel_ned_rel(float &a_n_rel, float &a_e_rel, float &a_d_rel) {
@@ -797,7 +871,7 @@ void arm_failsafe(uint8_t fs_config) {
 			if (dt > FS_IMU_DT_LIMIT) {
 				// limit for imu update time exceeded
 				disarmAndResetQuad();
-				error_code = error_code | ERROR_IMU;
+				error_code |= ERROR_IMU;
 				DEBUG_PRINTLN(F("IMU failsafe caused by major IMU error!"));
 			}
 		}
@@ -871,6 +945,17 @@ void disarmAndResetQuad() {
 		pitch_rate_pid.reset();
 		yaw_rate_pid.reset();
 		velocity_v_pid.reset();
+
+#ifdef USE_BAR
+		// reset altitude filter
+		altitudeFilter.reset();
+#endif
+
+#ifdef USE_GPS
+		// reset distance from launch filter
+		distanceFilter_north.reset();
+		distanceFilter_east.reset();
+#endif
 		
 		roll_rate_mv = 0;
 		pitch_rate_mv = 0;

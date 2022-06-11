@@ -16,9 +16,9 @@
 
 // z-axis pose offset to compensate for the sensor mounting orientation relative to the quadcopter frame
 #ifdef USE_MAG
-#define YAW_ANGLE_OFFSET 0
+    #define YAW_ANGLE_OFFSET 0
 #else
-#define YAW_ANGLE_OFFSET 90
+    #define YAW_ANGLE_OFFSET 90
 #endif
 
 // imu pins
@@ -50,6 +50,11 @@
 // TC > 1: trust the position measurement more
 #define TC_ALTITUDE_FILTER 0.9 // 0.9
 
+// time constant for distance filter
+// TC < 1: trust the acceleration measurement more
+// TC > 1: trust the position measurement more
+#define TC_DISTANCE_FILTER 0.9 // 0.9
+
 // parameters to check if filtered angles converged during initialisation
 #define INIT_ANGLE_DIFFERENCE 0.5 // maximum angle difference between filtered angles and accelerometer angles (x- and y-axis) after initialisation
 #define INIT_RATE 0.05            // maximum angular rate of Madgwick-filtered angle (z-axis) after initialisation
@@ -74,6 +79,9 @@
 
 // throttle deadzone (altitude hold) in per cent of throttle range
 #define THROTTLE_DEADZONE_PCT 20
+
+// sensor update time limit
+#define SENSOR_DT_LIMIT 2000000
 
 // minimum time in microseconds a failsafe condition needs to be met, in order to activate it (except for FS_IMU)
 #define FS_TIME 500000
@@ -146,6 +154,7 @@ const uint8_t FS_CONFIG = 0b00000011; // imu and motion failsafe
 const uint8_t ERROR_IMU = 0b00000001;
 const uint8_t ERROR_MAG = 0b00000010;
 const uint8_t ERROR_BAR = 0b00000100;
+const uint8_t ERROR_GPS = 0b00001000;
 
 // factors for converting between radians and degrees
 const float RAD2DEG = (float)4068 / 71;
