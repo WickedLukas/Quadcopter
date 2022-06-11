@@ -126,6 +126,9 @@ int16_t mx, my, mz;
 float roll_angle, pitch_angle, yaw_angle;	// euler angles
 float pose_q[4];	// quaternion
 
+// ned-acceleration relative to gravity
+float a_n_rel, a_e_rel, a_d_rel;
+
 // barometer altitude measurement
 float baroAltitude;
 
