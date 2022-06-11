@@ -333,7 +333,6 @@ void loop() {
 	}
 
 #if defined(USE_BAR) || defined(USE_GPS)
-	static float a_n_rel, a_e_rel, a_d_rel;
 	calc_accel_ned_rel(a_n_rel, a_e_rel, a_d_rel); // get ned-acceleration relative to gravity in m/s²
 #endif
 
@@ -392,17 +391,10 @@ void loop() {
 			DEBUG_PRINTLN(F("No solid GPS fix! Arming and RTL are disabled."));
 		}
 
-		if ((motors.getState() != MotorsQuad::State::disarmed) && (motors.getState() != MotorsQuad::State::disarming) && fix.valid.location) {
+		if (fix.valid.location) {
 			// get a distance in north/east direction by holding latitude/longitude for a simple short distance approximation
 			gpsDistance_north = launch_location.DistanceRadians(NeoGPS::Location_t(fix.location.lat(), launch_location.lon())) * NeoGPS::Location_t::EARTH_RADIUS_KM * 1000;
 			gpsDistance_east = launch_location.DistanceRadians(NeoGPS::Location_t(launch_location.lat(), fix.location.lon())) * NeoGPS::Location_t::EARTH_RADIUS_KM * 1000;
-
-			// * calculate quadcopter launch distance in m
-			distanceFilter_north.update(a_n_rel, gpsDistance_north, dt_s);
-			distanceFilter_east.update(a_e_rel, gpsDistance_east, dt_s);
-
-			distance_north = distanceFilter_north.get_position();
-			distance_east = distanceFilter_east.get_position();
 		}
 	}
 	else {
@@ -414,6 +406,15 @@ void loop() {
 			
 			DEBUG_PRINTLN(F("GPS error!"));
 		}
+	}
+
+	if ((motors.getState() != MotorsQuad::State::disarmed) && (motors.getState() != MotorsQuad::State::disarming)) {
+		// * calculate quadcopter launch distance in m
+		distanceFilter_north.update(a_n_rel, gpsDistance_north, dt_s);
+		distanceFilter_east.update(a_e_rel, gpsDistance_east, dt_s);
+	
+		distance_north = distanceFilter_north.get_position();
+		distance_east = distanceFilter_east.get_position();
 	}
 #endif
 	
