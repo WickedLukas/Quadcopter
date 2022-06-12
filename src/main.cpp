@@ -54,10 +54,6 @@ NMEAGPS gps;
 // gps fix data
 gps_fix fix;
 
-// 1D-Kalman-Filter to calculate the north/east distance from to the launch position by combining acceleration and gps measurements
-KalmanFilter1D distanceFilter_north(TC_DISTANCE_FILTER);
-KalmanFilter1D distanceFilter_east(TC_DISTANCE_FILTER);
-
 // quadcopter launch location (before arming)
 NeoGPS::Location_t launch_location;
 #endif
@@ -137,9 +133,6 @@ float altitude;
 
 // quadcopter vertical velocity
 float velocity_v;
-
-// gps distance from launch location
-float gpsDistance_north, gpsDistance_east;
 
 // quadcopter distance from launch location
 float distance_north, distance_east;
@@ -249,12 +242,13 @@ void setup() {
 	//p.AddTimeGraph("alt", 1000, "A", altitude, "bA", baroAltitude/*, "aS", altitude_sp*/);
 	//p.AddTimeGraph("v_vel", 1000, "V", velocity_v/*, "V_sp", velocity_v_sp*/);
 
-	//p.AddTimeGraph("dist", 1000, "gD_n", gpsDistance_north, "D_n", distance_north);
-	//p.AddTimeGraph("dist", 1000, "gD_e", gpsDistance_east, "D_e", distance_east);
+	//p.AddTimeGraph("dist", 1000, "gD_n", distance_north, "gD_e", distance_east);
 
-	//p.AddTimeGraph("ned_accel_distance", 1000, "a_n_rel", a_n_rel, "a_e_rel", a_e_rel, "gD_n", gpsDistance_north, "gD_e", gpsDistance_east);
+	//p.AddTimeGraph("ned_accel_distance", 1000, "a_n_rel", a_n_rel, "a_e_rel", a_e_rel, "gD_n", distance_north, "gD_e", distance_east);
 
 	//p.AddTimeGraph("yawHeading", 1000, "yaw", yaw_angle, "heading", heading);
+
+	//p.AddTimeGraph("bearing", 1000, "bearing", bearing);
 #endif
 }
 
@@ -341,10 +335,6 @@ void loop() {
 		yaw_angle += 360;
 	}
 
-#if defined(USE_BAR) || defined(USE_GPS)
-	calc_accel_ned_rel(a_n_rel, a_e_rel, a_d_rel); // get ned-acceleration relative to gravity in m/s²
-#endif
-
 #ifdef USE_BAR
 	// * get altitude from barometer
 	static uint32_t dt_bar = 0;
@@ -364,6 +354,9 @@ void loop() {
 			DEBUG_PRINTLN(F("Barometer error!"));
 		}
 	}
+
+	// get ned-acceleration relative to gravity in m/s²
+	calc_accel_ned_rel(a_n_rel, a_e_rel, a_d_rel);
 
 	// * calculate quadcopter altitude in m
 	altitudeFilter.update(a_d_rel, baroAltitude, dt_s);
@@ -401,8 +394,8 @@ void loop() {
 
 		if (fix.valid.location) {
 			// get a distance from launch location in north/east direction by holding latitude/longitude for a simple short distance approximation
-			gpsDistance_north = launch_location.DistanceRadians(NeoGPS::Location_t(fix.location.lat(), launch_location.lon())) * NeoGPS::Location_t::EARTH_RADIUS_KM * 1000;
-			gpsDistance_east = launch_location.DistanceRadians(NeoGPS::Location_t(launch_location.lat(), fix.location.lon())) * NeoGPS::Location_t::EARTH_RADIUS_KM * 1000;
+			distance_north = launch_location.DistanceRadians(NeoGPS::Location_t(fix.location.lat(), launch_location.lon())) * NeoGPS::Location_t::EARTH_RADIUS_KM * 1000;
+			distance_east = launch_location.DistanceRadians(NeoGPS::Location_t(launch_location.lat(), fix.location.lon())) * NeoGPS::Location_t::EARTH_RADIUS_KM * 1000;
 
 			// get bearing to launch location (clockwise from north)
 			bearing = fix.location.BearingToDegrees(launch_location);
@@ -422,15 +415,6 @@ void loop() {
 
 			DEBUG_PRINTLN(F("GPS error!"));
 		}
-	}
-
-	if (motors.getState() == MotorsQuad::State::armed) {
-		// * calculate quadcopter launch distance in m
-		distanceFilter_north.update(a_n_rel, gpsDistance_north, dt_s);
-		distanceFilter_east.update(a_e_rel, gpsDistance_east, dt_s);
-
-		distance_north = distanceFilter_north.get_position();
-		distance_east = distanceFilter_east.get_position();
 	}
 #endif
 
@@ -961,12 +945,6 @@ void disarmAndResetQuad() {
 #ifdef USE_BAR
 	// reset altitude filter
 	altitudeFilter.reset();
-#endif
-
-#ifdef USE_GPS
-	// reset distance from launch filter
-	distanceFilter_north.reset();
-	distanceFilter_east.reset();
 #endif
 
 	roll_rate_mv = 0;

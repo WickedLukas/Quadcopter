@@ -8,7 +8,7 @@
 // define which sensors shall be used
 #define USE_BAR // use barometer
 #define USE_MAG // use magnetometer // TODO: Check if magnetometer data is reliable when motors are running.
-//#define USE_GPS // use GPS // TODO: Calculate yaw angle from compass and gps heading using KalmanFilter1D.
+#define USE_GPS // use GPS
 
 #if defined(USE_GPS) && (!defined(USE_MAG) || !defined(USE_BAR))
 #error If USE_GPS is defined USE_MAGNETOMETER and USE_BAR must be defined!
@@ -49,11 +49,6 @@
 // TC < 1: trust the acceleration measurement more
 // TC > 1: trust the position measurement more
 #define TC_ALTITUDE_FILTER 0.9 // 0.9
-
-// time constant for distance filter
-// TC < 1: trust the acceleration measurement more
-// TC > 1: trust the position measurement more
-#define TC_DISTANCE_FILTER 0.9 // 0.9
 
 // parameters to check if filtered angles converged during initialisation
 #define INIT_ANGLE_DIFFERENCE 0.5 // maximum angle difference between filtered angles and accelerometer angles (x- and y-axis) after initialisation
