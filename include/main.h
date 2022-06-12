@@ -8,7 +8,7 @@
 // define which sensors shall be used
 #define USE_BAR // use barometer
 #define USE_MAG // use magnetometer // TODO: Check if magnetometer data is reliable when motors are running.
-//#define USE_GPS // use GPS
+//#define USE_GPS // use GPS // TODO: Calculate yaw angle from compass and gps heading using KalmanFilter1D.
 
 #if defined(USE_GPS) && (!defined(USE_MAG) || !defined(USE_BAR))
 #error If USE_GPS is defined USE_MAGNETOMETER and USE_BAR must be defined!

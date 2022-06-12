@@ -334,10 +334,10 @@ void loop() {
 
 	// apply offset to z-axis pose in order to compensate for the sensor mounting orientation relative to the quadcopter frame
 	yaw_angle += YAW_ANGLE_OFFSET;
-	if (yaw_angle > 180) {
+	if (yaw_angle > 360) {
 		yaw_angle -= 360;
 	}
-	else if (yaw_angle < -180) {
+	else if (yaw_angle < 0) {
 		yaw_angle += 360;
 	}
 
