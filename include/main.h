@@ -158,6 +158,9 @@ const float DEG2RAD = (float)71 / 4068;
 // state of initial estimation
 enum class state { init, busy };
 
+// keep yaw angle within [0, 360)
+void limitYawAngleRange(float &yaw_angle);
+
 // estimate initial pose
 bool initPose(float beta_init, float beta, float init_angleDifference, float init_rate);
 

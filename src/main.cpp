@@ -328,12 +328,11 @@ void loop() {
 
 	// apply offset to z-axis pose in order to compensate for the sensor mounting orientation relative to the quadcopter frame
 	yaw_angle += YAW_ANGLE_OFFSET;
-	if (yaw_angle > 360) {
-		yaw_angle -= 360;
-	}
-	else if (yaw_angle < 0) {
-		yaw_angle += 360;
-	}
+#ifdef USE_GPS
+	// this is necessary to match the gps heading
+	yaw_angle = -yaw_angle;
+#endif
+	limitYawAngleRange(yaw_angle);
 
 #ifdef USE_BAR
 	// * get altitude from barometer
