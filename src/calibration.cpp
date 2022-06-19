@@ -22,7 +22,7 @@ bool calibration(MotorsQuad &motors, ICM20948_SPI &imu, uint16_t* rc_channelValu
 				}
 				else if ((t_imuCalibration - t_calibrateGyro) > 2000000) {
 					updateLED(LED_PIN, 2); // turn on LED to indicate calibration
-					imu.calibrate_gyro(imuInterrupt, 5.0, 1, calibration_eeprom.offset_gx_1000dps, calibration_eeprom.offset_gy_1000dps, calibration_eeprom.offset_gz_1000dps);
+					imu.calibrate_gyro(imuInterrupt, 5.0, 1, calibration_eeprom.gyroOffset_1000dps_xyz);
 					EEPROM.put(ADDRESS_EEPROM, calibration_eeprom);
 					t_calibrateGyro = 0;
 					updateLED(LED_PIN, 0); // turn off LED
@@ -42,7 +42,7 @@ bool calibration(MotorsQuad &motors, ICM20948_SPI &imu, uint16_t* rc_channelValu
 				}
 				else if ((t_imuCalibration - t_calibrateAccel) > 2000000) {
 					updateLED(LED_PIN, 2); // turn on LED to indicate calibration
-					imu.calibrate_accel(imuInterrupt, 5.0, 16, calibration_eeprom.offset_ax_32g, calibration_eeprom.offset_ay_32g, calibration_eeprom.offset_az_32g);
+					imu.calibrate_accel(imuInterrupt, 5.0, 16, calibration_eeprom.accelOffset_32g_xyz);
 					EEPROM.put(ADDRESS_EEPROM, calibration_eeprom);
 					t_calibrateAccel = 0;
 					updateLED(LED_PIN, 0); // turn off LED
@@ -62,7 +62,7 @@ bool calibration(MotorsQuad &motors, ICM20948_SPI &imu, uint16_t* rc_channelValu
 				}
 				else if ((t_imuCalibration - t_calibrateMag) > 2000000) {
 					updateLED(LED_PIN, 2); // turn on LED to indicate calibration
-					imu.calibrate_mag(imuInterrupt, 60, 500, calibration_eeprom.offset_mx, calibration_eeprom.offset_my, calibration_eeprom.offset_mz, calibration_eeprom.scale_mx, calibration_eeprom.scale_my, calibration_eeprom.scale_mz);
+					imu.calibrate_mag(imuInterrupt, 60, 500, calibration_eeprom.magOffset_xyz, calibration_eeprom.magScale_xyz);
 					EEPROM.put(ADDRESS_EEPROM, calibration_eeprom);
 					t_calibrateMag = 0;
 					updateLED(LED_PIN, 0); // turn off LED

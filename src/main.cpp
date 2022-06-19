@@ -80,14 +80,14 @@ calibration_data calibration_eeprom;
 // flag used to initialise the quadcopter pose and altitude after power on or calibration
 bool initialised = false;
 
-// initial quadcopter z-axis angle which has to be initialised with an implausible value
-float yaw_angle_init = -1000;
+// initial quadcopter z-axis angle
+float yaw_angle_init;
 
-// initial quadcopter altitude which has to be be initialised with an implausible value
-float altitude_init = -1000;
+// initial quadcopter altitude
+float altitude_init;
 
-// maximum quadcopter altitude which has to be be initialised with the lowest altitude possible
-float altitude_max = -10000;
+// maximum quadcopter altitude
+float altitude_max;
 
 // Stores which errors occurred. Each bit belongs to a certain error.
 // If the errorcode is unequal zero, arming is disabled.
@@ -214,7 +214,7 @@ void setup() {
 	EEPROM.get(ADDRESS_EEPROM, calibration_eeprom);
 
 	// initialise imu
-	if (!imu.init(calibration_eeprom.offset_gx_1000dps, calibration_eeprom.offset_gy_1000dps, calibration_eeprom.offset_gz_1000dps, calibration_eeprom.offset_ax_32g, calibration_eeprom.offset_ay_32g, calibration_eeprom.offset_az_32g, calibration_eeprom.offset_mx, calibration_eeprom.offset_my, calibration_eeprom.offset_mz, calibration_eeprom.scale_mx, calibration_eeprom.scale_my, calibration_eeprom.scale_mz)) {
+	if (!imu.init(calibration_eeprom.gyroOffset_1000dps_xyz, calibration_eeprom.accelOffset_32g_xyz, calibration_eeprom.magOffset_xyz, calibration_eeprom.magScale_xyz)) {
 		// imu could not be initialised
 		error_code |= ERROR_IMU; // set error value to disable arming
 		DEBUG_PRINTLN(F("IMU error: Initialisation failed!"));
@@ -462,6 +462,14 @@ void loop() {
 
 		switch (initStatus) {
 			case 0:
+				t0 = micros();
+				yaw_angle_init = -1000; // reset initial quadcopter z-axis angle
+				altitude_init = -1000;  // reset initial quadcopter altitude
+				disarmAndResetQuad();
+				
+				++initStatus;
+				break;
+			case 1:
 				// estimate initial pose
 				if (initPose(BETA_INIT, BETA, INIT_ANGLE_DIFFERENCE, INIT_RATE, dt_s)) {
 					++initStatus;
@@ -469,7 +477,7 @@ void loop() {
 				break;
 
 #ifdef USE_BAR
-			case 1:
+			case 2:
 				// estimate initial altitude
 				if (initAltitude(INIT_VELOCITY_V, dt_s)) {
 					++initStatus;
@@ -1109,10 +1117,8 @@ void disarmAndResetQuad() {
 	velocity_x_pid.reset();
 	velocity_y_pid.reset();
 
-#ifdef USE_BAR
 	// reset altitude filter
 	altitudeFilter.reset();
-#endif
 
 	roll_rate_mv = 0;
 	pitch_rate_mv = 0;

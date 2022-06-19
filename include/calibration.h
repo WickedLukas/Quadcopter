@@ -9,13 +9,13 @@
 // calibration data structure
 typedef struct {
 	// gyroscope offsets in full scale format
-	int16_t offset_gx_1000dps, offset_gy_1000dps, offset_gz_1000dps;
+	int16_t gyroOffset_1000dps_xyz[3];
 	// accelerometer offsets in full scale format
-	int16_t offset_ax_32g, offset_ay_32g, offset_az_32g;
+	int16_t accelOffset_32g_xyz[3];
 	// magnetometer hard iron distortion correction
-	float offset_mx, offset_my, offset_mz;
+	float magOffset_xyz[3];
 	// magnetometer soft iron distortion correction
-	float scale_mx, scale_my, scale_mz;
+	float magScale_xyz[3];
 } calibration_data;
 
 // calibrate gyroscope, accelerometer or magnetometer on rc command and return true if any calibration was performed
