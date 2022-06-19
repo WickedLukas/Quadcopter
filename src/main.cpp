@@ -1,9 +1,9 @@
 #include "main.h"
 #include "common.h"
 #include "calibration.h"
-#include "MotorsQuad.h"
+#include "motorsQuad.h"
 #include "shapeTrajectory.h"
-#include "KalmanFilter1D.h"
+#include "kalmanFilter1D.h"
 #include "sendSerial.h"
 
 #include <iBus.h>

@@ -1,7 +1,7 @@
 #ifndef CALIBRATION_H_
 #define CALIBRATION_H_
 
-#include "MotorsQuad.h"
+#include "motorsQuad.h"
 #include "ICM20948.h"
 
 #include <stdint.h>
