@@ -61,7 +61,8 @@
 #define ROLL_ANGLE_LIMIT 30  // deg
 #define PITCH_ANGLE_LIMIT 30 // deg
 
-#define VELOCITY_V_LIMIT 2.5 // m/s
+#define VELOCITY_V_LIMIT 2.5  // m/s
+#define VELOCITY_XY_LIMIT 2.5 // m/s
 
 // throttle when armed (slightly above esc/motor deadzone)
 #define THROTTLE_ARMED 1125
@@ -102,16 +103,21 @@ const uint16_t THROTTLE_DEADZONE_TOP = 1000 + 10 * (50 + 0.5 * THROTTLE_DEADZONE
 const float ACCEL_MAX_ROLL_PITCH = 1100; // 1100, 720
 const float ACCEL_MAX_YAW = 180;         // 270, 180
 
-// angle time constant
-const float TC_ANGLE = 0.15;
+// angle time constants
+const float TC_ROLL_PITCH_ANGLE = 0.15; // 0.15
+const float TC_YAW_ANGLE = 0.15;
 
 // throttle expo parameter used to achieve less throttle sensitivity around hover
 const float THROTTLE_EXPO = 0.3; // 0.3
 
 // vertical acceleration limit (m/ss)
 const float ACCEL_V_MAX = 1;
+// horizontal acceleration limit (m/ss)
+const float ACCEL_H_MAX = 1;
 // altitude time constant
 const float TC_ALTITUDE = 2;
+// distance time constant
+const float TC_DISTANCE = 2;
 
 // angular rate PID values
 const float P_ROLL_RATE = 2.000, I_ROLL_RATE = 0.000, D_ROLL_RATE = 0.020;    // 2.500, 0.000, 0.023 @ 0.006 EMA_RATE
@@ -120,6 +126,9 @@ const float P_YAW_RATE = 3.500, I_YAW_RATE = 2.000, D_YAW_RATE = 0.000;       //
 
 // vertical velocity PID values for altitude hold
 const float P_VELOCITY_V = 250.000, I_VELOCITY_V = 5.000, D_VELOCITY_V = 0.000; // 250.000, 5.000, 0.000
+
+// horizontal velocity PID values for return to launch
+const float P_VELOCITY_H = 5.000, I_VELOCITY_H = 0.1, D_VELOCITY_H = 0.000;
 
 // Cut of frequency f_c: https://dsp.stackexchange.com/questions/40462/exponential-moving-average-cut-off-frequency)
 // EMA filter parameters for proportional (P) and derivative (D) rate controller inputs.
@@ -137,6 +146,20 @@ const float EMA_YAW_RATE_D = 0.005;   // 0.005
 const float EMA_VELOCITY_V_P = 0.015; // 0.015
 // EMA = 0.0139 --> f_c = 20 Hz; EMA = 0.0035 --> f_c = 5 Hz;
 const float EMA_VELOCITY_V_D = 0.005; // 0.005
+
+// EMA filter parameters for proportional (P) and derivative (D) horizontal velocity controller inputs (F_s = 10).
+// EMA = 0.4559 --> f_c = 1 Hz;
+const float EMA_VELOCITY_H_P = 0.6;
+const float EMA_VELOCITY_H_D = 0.3;
+
+// EMA filter parameter for quadcopter heading (F_s = 10).
+// EMA = 0.4559 --> f_c = 1 Hz;
+const float EMA_HEADING = 0.5;
+
+// the altitude for returning to launch is calculated by adding this offset to the maximum altitude reached during flight
+const float RTL_RETURN_OFFSET = 0; 
+// the altitude for descending after returning to launch is calculated by adding this offset to the initial altitude
+const float RTL_DESCEND_OFFSET = 10;
 
 // failsafe configuration
 const uint8_t FS_IMU = 0b00000001;
