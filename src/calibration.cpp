@@ -11,8 +11,8 @@ bool calibration(MotorsQuad &motors, ICM20948_SPI &imu, uint16_t* rc_channelValu
 	
 	static uint32_t t_calibrateGyro = 0, t_calibrateAccel = 0, t_calibrateMag = 0;
 	if (motors.getState() == MotorsQuad::State::disarmed) {
-		if ((rc_channelValue[PITCH] < 1100) && (rc_channelValue[ROLL] > 1400) && (rc_channelValue[ROLL] < 1600)) {
-			if ((rc_channelValue[THROTTLE] < 1100) && (rc_channelValue[YAW] < 1100)) {
+		if ((rc_channelValue[PITCH] < 1050) && (rc_channelValue[ROLL] > 1450) && (rc_channelValue[ROLL] < 1550)) {
+			if ((rc_channelValue[THROTTLE] < 1050) && (rc_channelValue[YAW] < 1050)) {
 				// hold right stick bottom center and left stick bottom-left to start gyro calibration	(2s)
 				t_calibrateAccel = 0;
 				t_calibrateMag = 0;
@@ -32,7 +32,7 @@ bool calibration(MotorsQuad &motors, ICM20948_SPI &imu, uint16_t* rc_channelValu
 					return false;
 				}
 			}
-			else if ((rc_channelValue[THROTTLE] > 1900) && (rc_channelValue[YAW] < 1100)) {
+			else if ((rc_channelValue[THROTTLE] > 1950) && (rc_channelValue[YAW] < 1050)) {
 				// hold right stick bottom center and left stick top-left to start accel calibration	(2s)
 				t_calibrateGyro = 0;
 				t_calibrateMag = 0;
@@ -52,7 +52,7 @@ bool calibration(MotorsQuad &motors, ICM20948_SPI &imu, uint16_t* rc_channelValu
 					return false;
 				}
 			}
-			else if ((rc_channelValue[THROTTLE] > 1900) && (rc_channelValue[YAW] > 1900)) {
+			else if ((rc_channelValue[THROTTLE] > 1950) && (rc_channelValue[YAW] > 1950)) {
 				// hold right stick bottom center and left stick top-right to start mag calibration	(2s)
 				t_calibrateGyro = 0;
 				t_calibrateAccel = 0;

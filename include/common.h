@@ -52,10 +52,23 @@ extern uint8_t error_code;
 // imu interrupt
 extern volatile bool imuInterrupt;
 
+// conversion factors between radians and degrees
+const float RAD2DEG = (float)4068 / 71;
+const float DEG2RAD = (float)71 / 4068;
+
 // update LED
 // mode: 0		off
 // mode: 1		blink
 // mode: > 1	on
 void updateLED(uint8_t pin, uint8_t mode, uint32_t interval_ms = 1000);
+
+// adjust angle range to [min, max)
+void adjustAngleRange(const float &min, const float &max, float &angle);
+
+// transform quaternion from body- to ned-frame using the pose quaternion
+void body2nedFrame(const float *pose_q, const float *q_body, float *q_ned_result);
+
+// multiply two quaternions (Hamilton product)
+void qMultiply(const float *q1, const float *q2, float *result_q);
 
 #endif

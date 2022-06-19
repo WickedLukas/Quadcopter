@@ -75,13 +75,13 @@
 // throttle deadzone (altitude hold) in per cent of throttle range
 #define THROTTLE_DEADZONE_PCT 20
 
-// sensor update time limit
+// minimum time in microseconds for no sensor update in order to set error an errorcode
 #define SENSOR_DT_LIMIT 2000000
 
-// minimum time in microseconds a failsafe condition needs to be met, in order to activate it (except for FS_IMU)
-#define FS_TIME 500000
+// minimum time in microseconds the motion or control failsafe conditions need to be met in order to enter failsafe
+#define FS_MOTION_CONTROL_DT_LIMIT 500000
 
-// failsafe imu update time limit
+// minimum time in microseconds for no imu update in order to enter failsafe
 #define FS_IMU_DT_LIMIT 2000000
 
 // failsafe motion limits
@@ -101,6 +101,7 @@ const uint16_t THROTTLE_DEADZONE_TOP = 1000 + 10 * (50 + 0.5 * THROTTLE_DEADZONE
 //const float ACCEL_MIN_YAW = 10;
 const float ACCEL_MAX_ROLL_PITCH = 1100; // 1100, 720
 const float ACCEL_MAX_YAW = 180;         // 270, 180
+
 // angle time constant
 const float TC_ANGLE = 0.15;
 
@@ -131,11 +132,11 @@ const float EMA_ROLL_RATE_D = 0.005;  // 0.005
 const float EMA_PITCH_RATE_D = 0.005; // 0.005
 const float EMA_YAW_RATE_D = 0.005;   // 0.005
 
-// EMA filter parameters for proportional (P)  and derivative (D) vertical velocity controller inputs.
+// EMA filter parameters for proportional (P) and derivative (D) vertical velocity controller inputs (F_s = 9000).
 // EMA = 0.1301 --> f_c = 200 Hz; EMA = 0.0674 --> f_c = 100 Hz;
-const float EMA_velocity_v_P = 0.015; // 0.015
+const float EMA_VELOCITY_V_P = 0.015; // 0.015
 // EMA = 0.0139 --> f_c = 20 Hz; EMA = 0.0035 --> f_c = 5 Hz;
-const float EMA_velocity_v_D = 0.005; // 0.005
+const float EMA_VELOCITY_V_D = 0.005; // 0.005
 
 // failsafe configuration
 const uint8_t FS_IMU = 0b00000001;
@@ -151,15 +152,8 @@ const uint8_t ERROR_MAG = 0b00000010;
 const uint8_t ERROR_BAR = 0b00000100;
 const uint8_t ERROR_GPS = 0b00001000;
 
-// factors for converting between radians and degrees
-const float RAD2DEG = (float)4068 / 71;
-const float DEG2RAD = (float)71 / 4068;
-
 // state of initial estimation
 enum class state { init, busy };
-
-// keep yaw angle within [0, 360)
-void limitYawAngleRange(float &yaw_angle);
 
 // estimate initial pose
 bool initPose(float beta_init, float beta, float init_angleDifference, float init_rate);
@@ -170,11 +164,8 @@ void accelAngles(float &roll_angle_accel, float &pitch_angle_accel);
 // estimate initial altitude
 bool initAltitude(float init_velocity_v);
 
-// calculate acceleration in ned-frame relative to gravity using acceleration in sensor-frame and pose
-void calc_accel_ned_rel(float &a_n_rel, float &a_e_rel, float &a_d_rel);
-
-// multiply two quaternions (Hamilton product)
-void qMultiply(float *q1, float *q2, float *result_q);
+// calculate the acceleration in ned-frame relative to gravity
+void accel_ned_rel(float &a_n_rel, float &a_e_rel, float &a_d_rel);
 
 // arm/disarm on rc command and disarm on failsafe conditions
 void arm_failsafe(uint8_t fs_config);

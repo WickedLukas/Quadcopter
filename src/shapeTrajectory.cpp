@@ -63,4 +63,3 @@ float shape_velocity(float desired_velocity_sp, float accel_max, float last_velo
 	delta_velocity = accel_max * dt_s;
 	return constrain(desired_velocity_sp, last_velocity_sp - delta_velocity, last_velocity_sp + delta_velocity);
 }
-
