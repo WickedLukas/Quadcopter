@@ -179,19 +179,19 @@ const uint8_t ERROR_GPS = 0b00001000;
 enum class state { init, busy };
 
 // estimate initial pose
-bool initPose(float beta_init, float beta, float init_angleDifference, float init_rate);
+bool initPose(float beta_init, float beta, float init_angleDifference, float init_rate, float dt_s);
 
 // calculate accelerometer x and y angles in degrees
 void accelAngles(float &roll_angle_accel, float &pitch_angle_accel);
 
 // estimate initial altitude
-bool initAltitude(float init_velocity_v);
+bool initAltitude(float init_velocity_v, float dt_s);
 
 // calculate the acceleration in ned-frame relative to gravity
 void accel_ned_rel(float &a_n_rel, float &a_e_rel, float &a_d_rel);
 
 // arm/disarm on rc command and disarm on failsafe conditions
-void arm_failsafe(uint8_t fs_config);
+void arm_failsafe(uint8_t fs_config, int32_t dt);
 
 // disarm and reset quadcopter
 void disarmAndResetQuad();

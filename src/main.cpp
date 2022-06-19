@@ -11,12 +11,8 @@
 #include <MadgwickAHRS.h>
 #include <ema_filter.h>
 #include <PID_controller.h>
-#ifdef USE_BAR
 #include <BMP388_DEV.h>
-#endif
-#ifdef USE_GPS
 #include <NMEAGPS.h>
-#endif
 #include <Plotter.h>
 
 #include <Arduino.h>
@@ -42,7 +38,7 @@ MADGWICK_AHRS madgwickFilter(BETA_INIT);
 // barometer
 BMP388_DEV barometer;
 
-// 1D-Kalman-Filter to calculate altitude by combining vertical acceleration and barometer altitude
+// 1D-Kalman-Filter combining barometer altitude and vertical acceleration into altitude
 KalmanFilter1D altitudeFilter(TC_ALTITUDE_FILTER);
 
 // gps parser
@@ -51,13 +47,13 @@ NMEAGPS gps;
 // gps fix data
 gps_fix fix;
 
-// quadcopter launch location (before arming)
+// launch location determined before arming
 NeoGPS::Location_t launch_location;
 
 // location where RTL mode was entered
 NeoGPS::Location_t rtl_location;
 
-// quadcopter motors
+// motors
 MotorsQuad motors(MOTOR_PIN_1, MOTOR_PIN_2, MOTOR_PIN_3, MOTOR_PIN_4, MOTOR_PWM_RESOLUTION, MOTOR_PWM_FREQUENCY);
 
 // rate PID controller
@@ -81,30 +77,25 @@ enum class RtlState { Climb, Return, Descend } rtlState;
 // calibration data
 calibration_data calibration_eeprom;
 
-bool initialised = false; // initialise quadcopter (pose, altitude, ...) after power on
+// flag used to initialise the quadcopter pose and altitude after power on or calibration
+bool initialised = false;
 
-// initial quadcopter z-axis angle - this should be initialised with an implausible value
+// initial quadcopter z-axis angle which has to be initialised with an implausible value
 float yaw_angle_init = -1000;
 
-// initial quadcopter altitude - this should be initialised with an implausible value
+// initial quadcopter altitude which has to be be initialised with an implausible value
 float altitude_init = -1000;
 
-// maximum quadcopter altitude
+// maximum quadcopter altitude which has to be be initialised with the lowest altitude possible
 float altitude_max = -10000;
 
-// Stores which errors occurred and disables arming.
+// Stores which errors occurred. Each bit belongs to a certain error.
+// If the errorcode is unequal zero, arming is disabled.
 // A power cycle is required to reset errors and enable arming.
 uint8_t error_code;
 
 // pointer on an array of 10 received rc channel values [1000; 2000]
 uint16_t *rc_channelValue;
-
-// variables to measure imu update time
-uint32_t t0, t;
-// measured imu update time in microseconds
-int32_t dt;
-// measured imu update time in seconds
-float dt_s;
 
 // throttle output
 float throttle_out;
@@ -144,10 +135,10 @@ float altitude;
 // vertical velocity
 float velocity_v;
 
-// north and east velocities
+// velocities in ned-frame
 float velocity_north, velocity_east;
 
-// velocity in body-frame
+// velocities in body-frame
 float velocity_x, velocity_y; 
 
 // distance from launch location in ned-frame
@@ -159,7 +150,7 @@ float distance_x, distance_y;
 // heading
 float heading;
 
-// gps only provides a valid heading when moving at roughly pedestrian speed
+// gps heading is only valid when moving (at roughly pedestrian speed)
 bool heading_valid;
 
 // bearing to launch location (clockwise from north)
@@ -171,7 +162,7 @@ float yaw_angle_corrected;
 // filtered gyro rates
 float roll_rate, pitch_rate, yaw_rate;
 
-// starts PID calculation when minimum throttle setpoint was reached
+// PID calculations are delayed until started flag becomes true, which happens when minimum throttle is reached
 bool started = false;
 
 // imu interrupt
@@ -193,7 +184,7 @@ void setup() {
 	// turn off LED
 	updateLED(LED_PIN, 0);
 
-	// set default resolution for analog write, in order to go back to it after running motors with different resolution
+	// set default resolution for analog write, which is different from the one used for motor actuation
 	analogWriteResolution(8);
 
 #if defined(DEBUG) || defined(SEND_SERIAL)
@@ -278,6 +269,10 @@ void setup() {
 }
 
 void loop() {
+	static uint32_t t0, t; // variables to measure the imu update time
+	static int32_t dt;     // measured imu update time in microseconds
+	static float dt_s;     // measured imu update time in seconds
+
 	// * update LED
 	if ((error_code & !ERROR_GPS) != 0) {
 		// blink LED very fast to indicate an error occurrence except gps
@@ -310,7 +305,7 @@ void loop() {
 	}
 
 	// * arm/disarm on rc command or disarm on failsafe conditions
-	arm_failsafe(FS_CONFIG);
+	arm_failsafe(FS_CONFIG, dt);
 
 	// update time
 	t = micros();
@@ -468,7 +463,7 @@ void loop() {
 		switch (initStatus) {
 			case 0:
 				// estimate initial pose
-				if (initPose(BETA_INIT, BETA, INIT_ANGLE_DIFFERENCE, INIT_RATE)) {
+				if (initPose(BETA_INIT, BETA, INIT_ANGLE_DIFFERENCE, INIT_RATE, dt_s)) {
 					++initStatus;
 				}
 				break;
@@ -476,7 +471,7 @@ void loop() {
 #ifdef USE_BAR
 			case 1:
 				// estimate initial altitude
-				if (initAltitude(INIT_VELOCITY_V)) {
+				if (initAltitude(INIT_VELOCITY_V, dt_s)) {
 					++initStatus;
 				}
 				break;
@@ -840,8 +835,7 @@ void loop() {
 }
 
 // estimate initial pose
-bool initPose(float beta_init, float beta, float init_angleDifference, float init_rate) {
-
+bool initPose(float beta_init, float beta, float init_angleDifference, float init_rate, float dt_s) {
 	static state initPose_state = state::init;
 
 	switch (initPose_state) {
@@ -878,14 +872,14 @@ bool initPose(float beta_init, float beta, float init_angleDifference, float ini
 
 #ifdef DEBUG
 			// run serial print at a rate independent of the main loop
-			static uint32_t t_serial = 0;
-			if (t_serial > 100000) {
+			static float t_serial_s = 0;
+			if (t_serial_s > 1e-1) {
 				DEBUG_PRINT(roll_angle_accel); DEBUG_PRINT("\t"); DEBUG_PRINTLN(pitch_angle_accel);
 				DEBUG_PRINT(roll_angle); DEBUG_PRINT("\t"); DEBUG_PRINT(pitch_angle); DEBUG_PRINT("\t"); DEBUG_PRINTLN(yaw_angle);
 
-				t_serial = 0;
+				t_serial_s = 0;
 			}
-			t_serial += dt;
+			t_serial_s += dt_s;
 #endif
 			break;
 
@@ -903,7 +897,7 @@ void accelAngles(float &roll_angle_accel, float &pitch_angle_accel) {
 }
 
 // estimate initial altitude
-bool initAltitude(float init_velocity_v) {
+bool initAltitude(float init_velocity_v, float dt_s) {
 	static state initAltitude_state = state::init;
 
 	switch (initAltitude_state) {
@@ -914,25 +908,25 @@ bool initAltitude(float init_velocity_v) {
 			break;
 
 		case state::busy:
-			static uint32_t dt_altitude = 0;
+			static uint32_t dt_altitude_s = 0;
 
-			if (dt_altitude > 1000000) {
+			if (dt_altitude_s > 1) {
 				// initial altitude is estimated if vertical velocity converged
 				// TODO: Use velocity from altitudeFilter instead
-				if ((abs(altitude - altitude_init) * 1000000 / dt_altitude) < init_velocity_v) {
+				if ((abs(altitude - altitude_init) / dt_altitude_s) < init_velocity_v) {
 					initAltitude_state = state::init;
 
 					DEBUG_PRINTLN(F("Initial altitude estimated."));
-					DEBUG_PRINTLN2(abs(altitude - altitude_init) * 1000000 / dt_altitude, 2);
+					DEBUG_PRINTLN2(abs(altitude - altitude_init) / dt_altitude_s, 2);
 
 					return true;
 				}
 				altitude_init = altitude;
-				dt_altitude = 0;
+				dt_altitude_s = 0;
 
 				DEBUG_PRINTLN(altitude);
 			}
-			dt_altitude += dt;
+			dt_altitude_s += dt_s;
 
 			break;
 
@@ -963,7 +957,7 @@ void accel_ned_rel(float &a_n_relative, float &a_e_relative, float &a_d_relative
 }
 
 // arm/disarm on rc command or disarm on failsafe conditions
-void arm_failsafe(uint8_t fs_config) {
+void arm_failsafe(uint8_t fs_config, int32_t dt) {
 	static uint32_t t_arm_failsafe;
 	t_arm_failsafe = micros();
 
