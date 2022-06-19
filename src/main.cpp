@@ -667,6 +667,7 @@ void loop() {
 
 			if (fMode == FlightMode::ReturnToLaunch)
 			{
+#ifdef USE_GPS
 				// Calculate heading corrected yaw angle.
 				// Note: The correction can only make sense if the movement necessary to determine the heading is not caused by wind, so the quadcopter needs to be tilted.
 				static float correction;
@@ -701,6 +702,7 @@ void loop() {
 
 				// yaw rate setpoint
 				yaw_rate_sp = shape_position(yaw_angle_error, TC_YAW_ANGLE, ACCEL_MAX_YAW, yaw_rate_sp, dt_s);
+#endif
 			}
 			else
 			{
