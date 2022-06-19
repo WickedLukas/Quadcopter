@@ -908,7 +908,7 @@ bool initAltitude(float init_velocity_v, float dt_s) {
 			break;
 
 		case state::busy:
-			static uint32_t dt_altitude_s = 0;
+			static float dt_altitude_s = 0;
 
 			if (dt_altitude_s > 1) {
 				// initial altitude is estimated if vertical velocity converged
