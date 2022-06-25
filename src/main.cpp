@@ -250,6 +250,7 @@ void setup() {
 	p.Begin();
 
 	// Add time graphs. Notice the effect of points displayed on the time scale
+	//p.AddTimeGraph("throttle_out", 1000, "throttle_out", throttle_out);
 	//p.AddTimeGraph("Angles", 1000, "r", roll_angle, "p", pitch_angle, "y", yaw_angle);
 	//p.AddTimeGraph("Rates", 1000, "roll_rate", roll_rate, "pitch_rate", pitch_rate, "yaw_rate", yaw_rate);
 	//p.AddTimeGraph("mv", 1000, "roll_rate_sp", roll_rate_sp, "pitch_rate_sp", pitch_rate_sp, "yaw_rate_sp", yaw_rate_sp);
@@ -268,6 +269,7 @@ void setup() {
 	//p.AddTimeGraph("yawHeading", 1000, "yaw", yaw_angle, "heading", heading);
 
 	//p.AddTimeGraph("bearing", 1000, "bearing", bearing);
+	//p.AddTimeGraph("RTL", 1000, "yaw", yaw_angle, "heading", heading, "bearing", bearing, "yaw_angle_corrected", yaw_angle_corrected);
 #endif
 }
 
@@ -533,7 +535,7 @@ void loop() {
 
 		// map throttle to [-1, 1]
 		static float throttle;
-		throttle = map(rc_channelValue[THROTTLE], 1000, 2000, -1, 1);
+		throttle = map((float) rc_channelValue[THROTTLE], 1000, 2000, -1, 1);
 		// apply expo to throttle for less sensitivity around hover
 		throttle = expo_curve(throttle, THROTTLE_EXPO);
 
@@ -588,11 +590,11 @@ void loop() {
 
 						break;
 					case FlightMode::TiltCompensation:
-						throttle = map3(throttle, -1, 0, 1, THROTTLE_ARMED, THROTTLE_HOVER, THROTTLE_LIMIT);
+						throttle_out = map3(throttle, -1, 0, 1, THROTTLE_ARMED, THROTTLE_HOVER, THROTTLE_LIMIT);
 
 						// Tilt compensated thrust: Increase thrust when quadcopter is tilted, to compensate for height loss during horizontal movement.
 						// Note: In order to maintain stability, tilt compensated thrust is limited to the throttle limit.
-						throttle_out = constrain((float)(throttle - 1000) / (pose_q[0] * pose_q[0] - pose_q[1] * pose_q[1] - pose_q[2] * pose_q[2] + pose_q[3] * pose_q[3]) + 1000, 1000, THROTTLE_LIMIT);
+						throttle_out = constrain((float)(throttle_out - 1000) / (pose_q[0] * pose_q[0] - pose_q[1] * pose_q[1] - pose_q[2] * pose_q[2] + pose_q[3] * pose_q[3]) + 1000, 1000, THROTTLE_LIMIT);
 
 						break;
 					case FlightMode::AltitudeHold:
