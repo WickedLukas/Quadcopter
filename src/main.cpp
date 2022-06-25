@@ -519,25 +519,27 @@ void loop() {
 		}
 		else { // rc_channelValue[FMODE] == 2000
 #ifdef USE_BAR
-			// use AltitudeHold, but switch to Stabilize on barometer failure
+			// use AltitudeHold, but switch to TiltCompensation on barometer failure
 			if (!(error_code & ERROR_BAR)) {
 				fMode = FlightMode::AltitudeHold;
 			} else {
-				fMode = FlightMode::Stabilize;
+				fMode = FlightMode::TiltCompensation;
 			}
 #else
 			fMode = FlightMode::TiltCompensation;
 #endif
 		}
 
-		// remember previous flight mode
-		static FlightMode fMode_last;
-
-		// map throttle to [-1, 1]
 		static float throttle;
+		// map throttle to [-1, 1]
 		throttle = map((float) rc_channelValue[THROTTLE], 1000, 2000, -1, 1);
 		// apply expo to throttle for less sensitivity around hover
 		throttle = expo_curve(throttle, THROTTLE_EXPO);
+		// map throttle through THROTTLE_ARMED, THROTTLE_HOVER and THROTTLE_LIMIT
+		throttle = map3(throttle, -1, 0, 1, THROTTLE_ARMED, THROTTLE_HOVER, THROTTLE_LIMIT);
+
+		// remember previous flight mode
+		static FlightMode fMode_last;
 
 		// in order to ensure a smooth start, PID calculations are delayed until hover throttle is reached
 		if (started) {
@@ -586,22 +588,25 @@ void loop() {
 			else {
 				switch (fMode) {
 					case FlightMode::Stabilize:
-						throttle_out = map3(throttle, -1, 0, 1, THROTTLE_ARMED, THROTTLE_HOVER, THROTTLE_LIMIT);
+						throttle_out = throttle;
 
 						break;
 					case FlightMode::TiltCompensation:
-						throttle_out = map3(throttle, -1, 0, 1, THROTTLE_ARMED, THROTTLE_HOVER, THROTTLE_LIMIT);
-
-						// Tilt compensated thrust: Increase thrust when quadcopter is tilted, to compensate for height loss during horizontal movement.
+						// Tilt compensated thrust: Increase thrust when the quadcopter is tilted, to compensate height loss during horizontal movement.
 						// Note: In order to maintain stability, tilt compensated thrust is limited to the throttle limit.
-						throttle_out = constrain((float)(throttle_out - 1000) / (pose_q[0] * pose_q[0] - pose_q[1] * pose_q[1] - pose_q[2] * pose_q[2] + pose_q[3] * pose_q[3]) + 1000, 1000, THROTTLE_LIMIT);
+						throttle_out = constrain((float)(throttle - 1000) / (pose_q[0] * pose_q[0] - pose_q[1] * pose_q[1] - pose_q[2] * pose_q[2] + pose_q[3] * pose_q[3]) + 1000, 1000, THROTTLE_LIMIT);
 
 						break;
 					case FlightMode::AltitudeHold:
-						// if throttle stick is not centered
-						if ((rc_channelValue[THROTTLE] < THROTTLE_DEADZONE_BOT) || (rc_channelValue[THROTTLE] > THROTTLE_DEADZONE_TOP)) {
-							// shape rc input to control vertical velocity
-							velocity_v_sp = shape_velocity(map(throttle, -1, 1, -VELOCITY_V_LIMIT, VELOCITY_V_LIMIT), ACCEL_V_MAX, velocity_v_sp, dt_s);
+						if (rc_channelValue[THROTTLE] < THROTTLE_DEADZONE_BOT) {
+							// shape rc input to control downwards velocity
+							velocity_v_sp = shape_velocity(map(rc_channelValue[THROTTLE], 1000, THROTTLE_DEADZONE_BOT, -VELOCITY_V_LIMIT, 0), ACCEL_V_MAX, velocity_v_sp, dt_s);
+
+							altitude_sp = altitude;
+						}
+						else if (rc_channelValue[THROTTLE] > THROTTLE_DEADZONE_TOP) {
+							// shape rc input to control upwards velocity
+							velocity_v_sp = shape_velocity(map(rc_channelValue[THROTTLE], THROTTLE_DEADZONE_TOP, 2000, 0, VELOCITY_V_LIMIT), ACCEL_V_MAX, velocity_v_sp, dt_s);
 
 							altitude_sp = altitude;
 						}
@@ -679,8 +684,7 @@ void loop() {
 				}
 			}
 
-			if (fMode == FlightMode::ReturnToLaunch)
-			{
+			if (fMode == FlightMode::ReturnToLaunch) {
 #ifdef USE_GPS
 				// Calculate heading corrected yaw angle.
 				// Note: The correction can only make sense if the movement necessary to determine the heading is not caused by wind, so the quadcopter needs to be tilted.
@@ -711,8 +715,7 @@ void loop() {
 				yaw_rate_sp = shape_position(yawToBearing_error, TC_YAW_ANGLE, ACCEL_MAX_YAW, yaw_rate_sp, dt_s);
 #endif
 			}
-			else
-			{
+			else {
 				// roll and pitch angle setpoints
 				roll_angle_sp = map((float)rc_channelValue[ROLL], 1000, 2000, -ROLL_ANGLE_LIMIT, ROLL_ANGLE_LIMIT);
 				pitch_angle_sp = map((float)rc_channelValue[PITCH], 1000, 2000, -PITCH_ANGLE_LIMIT, PITCH_ANGLE_LIMIT);
@@ -768,10 +771,9 @@ void loop() {
 			yaw_rate_mv = yaw_rate_pid.get_mv(yaw_rate_sp, yaw_rate, dt_s);
 		}
 		else {
-			throttle_out = map3(throttle, -1, 0, 1, THROTTLE_ARMED, THROTTLE_HOVER, THROTTLE_LIMIT);
-
 			altitude_sp = altitude;
 
+			throttle_out = throttle;
 			if (throttle_out > THROTTLE_HOVER) {
 				started = true;
 				DEBUG_PRINTLN(F("Started!"));
