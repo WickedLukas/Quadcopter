@@ -159,6 +159,9 @@ float bearing;
 // heading corrected yaw angle
 float yaw_angle_corrected;
 
+// yaw to bearing angle error
+float yawToBearing_error;
+
 // filtered gyro rates
 float roll_rate, pitch_rate, yaw_rate;
 
@@ -618,6 +621,8 @@ void loop() {
 						distance_north = launchDistance_north;
 						distance_east = launchDistance_east;
 
+						yawToBearing_error = 0;
+
 						// rtl state machine
 						switch (rtlState) {
 							case RtlState::Climb:
@@ -638,6 +643,13 @@ void loop() {
 								// descend when the launch location is reached
 								if ((abs(distance_north) < 5) && (abs(distance_east) < 5)) {
 									rtlState = RtlState::Descend;
+								}
+								else {
+									// turn the quadcopter to face the launch location
+									yawToBearing_error = yaw_angle_corrected - bearing;
+
+									// adjust the yaw to bearing angle error range to [-180, 180) in order to make sure the quadcopter turns the shortest way to reach the bearing angle
+									adjustAngleRange(-180, 180, yawToBearing_error);
 								}
 								break;
 
@@ -693,15 +705,8 @@ void loop() {
 				roll_angle_sp = velocity_x_pid.get_mv(velocity_x_sp, velocity_x, dt_s);
 				pitch_angle_sp = velocity_y_pid.get_mv(velocity_y_sp, velocity_y, dt_s);
 
-				// turn the quadcopter to face the launch location
-				static float yaw_angle_error;
-				yaw_angle_error = yaw_angle_corrected - bearing;
-
-				// adjust the yaw angle error range to [-180, 180) in order to make sure the quadcopter turns the shortest way to reach the bearing angle
-				adjustAngleRange(-180, 180, yaw_angle_error); 
-
 				// yaw rate setpoint
-				yaw_rate_sp = shape_position(yaw_angle_error, TC_YAW_ANGLE, ACCEL_MAX_YAW, yaw_rate_sp, dt_s);
+				yaw_rate_sp = shape_position(yawToBearing_error, TC_YAW_ANGLE, ACCEL_MAX_YAW, yaw_rate_sp, dt_s);
 #endif
 			}
 			else
