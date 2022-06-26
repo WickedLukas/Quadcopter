@@ -511,24 +511,32 @@ void loop() {
 		}
 
 		// update flight mode
-		if (rc_channelValue[FMODE] == 1000) {
-			fMode = FlightMode::Stabilize;
-		}
-		else if (rc_channelValue[FMODE] == 1500) {
-			fMode = FlightMode::TiltCompensation;
-		}
-		else { // rc_channelValue[FMODE] == 2000
-#ifdef USE_BAR
-			// use AltitudeHold, but switch to TiltCompensation on barometer failure
-			if (!(error_code & ERROR_BAR)) {
-				fMode = FlightMode::AltitudeHold;
-			} else {
+		switch (rc_channelValue[FMODE])
+		{
+			case 1000:
+				fMode = FlightMode::Stabilize;
+				break;
+
+			case 1500:
 				fMode = FlightMode::TiltCompensation;
-			}
+				break;
+
+			default: // rc_channelValue[FMODE] == 2000
+#ifdef USE_BAR
+				// use AltitudeHold, but switch to TiltCompensation on barometer failure
+				if (!(error_code & ERROR_BAR)) {
+					fMode = FlightMode::AltitudeHold;
+				} else {
+					fMode = FlightMode::TiltCompensation;
+				}
 #else
-			fMode = FlightMode::TiltCompensation;
+				fMode = FlightMode::TiltCompensation;
 #endif
+				break;
 		}
+
+		// last flight mode
+		static FlightMode fMode_last;
 
 		static float throttle;
 		// map throttle to [-1, 1]
@@ -537,9 +545,6 @@ void loop() {
 		throttle = expo_curve(throttle, THROTTLE_EXPO);
 		// map throttle through THROTTLE_ARMED, THROTTLE_HOVER and THROTTLE_LIMIT
 		throttle = map3(throttle, -1, 0, 1, THROTTLE_ARMED, THROTTLE_HOVER, THROTTLE_LIMIT);
-
-		// remember previous flight mode
-		static FlightMode fMode_last;
 
 		// in order to ensure a smooth start, PID calculations are delayed until hover throttle is reached
 		if (started) {
@@ -589,14 +594,14 @@ void loop() {
 				switch (fMode) {
 					case FlightMode::Stabilize:
 						throttle_out = throttle;
-
 						break;
+
 					case FlightMode::TiltCompensation:
 						// Tilt compensated thrust: Increase thrust when the quadcopter is tilted, to compensate height loss during horizontal movement.
 						// Note: In order to maintain stability, tilt compensated thrust is limited to the throttle limit.
 						throttle_out = constrain((float)(throttle - 1000) / (pose_q[0] * pose_q[0] - pose_q[1] * pose_q[1] - pose_q[2] * pose_q[2] + pose_q[3] * pose_q[3]) + 1000, 1000, THROTTLE_LIMIT);
-
 						break;
+
 					case FlightMode::AltitudeHold:
 						if (rc_channelValue[THROTTLE] < THROTTLE_DEADZONE_BOT) {
 							// shape rc input to control downwards velocity
@@ -620,8 +625,8 @@ void loop() {
 
 						// calculate manipulated variable for vertical velocity
 						velocity_v_mv = velocity_v_pid.get_mv(velocity_v_sp, velocity_v, dt_s);
-
 						break;
+
 #ifdef USE_GPS
 					case FlightMode::ReturnToLaunch:
 						// distance to the launch location
