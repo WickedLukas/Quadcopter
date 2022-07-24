@@ -713,8 +713,8 @@ void loop() {
 				velocity_y = velocity_north * (-sin(yaw_angle_corrected * DEG2RAD)) + velocity_east * cos(yaw_angle_corrected * DEG2RAD); 
 
 				// calculate angle setpoints from velocity error for angle PID controller (cascade controller)
-				roll_angle_sp = velocity_x_pid.get_mv(velocity_x_sp, velocity_x, dt_s);
-				pitch_angle_sp = velocity_y_pid.get_mv(velocity_y_sp, velocity_y, dt_s);
+				pitch_angle_sp = velocity_x_pid.get_mv(velocity_x_sp, velocity_x, dt_s);
+				roll_angle_sp = velocity_y_pid.get_mv(velocity_y_sp, velocity_y, dt_s);
 
 				// yaw rate setpoint
 				yaw_rate_sp = shape_position(yawToBearing_error, TC_YAW_ANGLE, ACCEL_MAX_YAW, yaw_rate_sp, dt_s);
