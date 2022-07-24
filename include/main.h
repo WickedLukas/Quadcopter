@@ -58,11 +58,10 @@
 // flight setpoint limits
 #define YAW_RATE_LIMIT 120 // deg/s
 
-#define ROLL_ANGLE_LIMIT 30  // deg
-#define PITCH_ANGLE_LIMIT 30 // deg
+#define ROLL_PITCH_ANGLE_LIMIT 30 // deg
 
 #define VELOCITY_V_LIMIT 2.5  // m/s
-#define VELOCITY_XY_LIMIT 2.5 // m/s
+#define VELOCITY_XY_LIMIT 2.5 // m/s // TODO: Increase this to 5.0 m/s later.
 
 // throttle when armed (slightly above esc/motor deadzone)
 #define THROTTLE_ARMED 1125
@@ -115,9 +114,9 @@ const float ACCEL_V_MAX = 1;
 // horizontal acceleration limit (m/ss)
 const float ACCEL_H_MAX = 1;
 // altitude time constant
-const float TC_ALTITUDE = 2;
+const float TC_ALTITUDE = 1;
 // distance time constant
-const float TC_DISTANCE = 2;
+const float TC_DISTANCE = 1;
 
 // angular rate PID values
 const float P_ROLL_RATE = 2.000, I_ROLL_RATE = 0.000, D_ROLL_RATE = 0.020;    // 2.500, 0.000, 0.023 @ 0.006 EMA_RATE
@@ -125,10 +124,10 @@ const float P_PITCH_RATE = 2.000, I_PITCH_RATE = 0.000, D_PITCH_RATE = 0.020; //
 const float P_YAW_RATE = 3.500, I_YAW_RATE = 2.000, D_YAW_RATE = 0.000;       // 3.500, 2.000, 0.000
 
 // vertical velocity PID values for altitude hold
-const float P_VELOCITY_V = 250.000, I_VELOCITY_V = 5.000, D_VELOCITY_V = 0.000; // 250.000, 5.000, 0.000
+const float P_VELOCITY_V = 250.000, I_VELOCITY_V = 5.000, D_VELOCITY_V = 0.000; // 250.000, 5.000, 0.000 // TODO: Tune PID. Integral part is probably far too low. (try P: 450 and I: 900)
 
 // horizontal velocity PID values for return to launch
-const float P_VELOCITY_H = 5.000, I_VELOCITY_H = 0.1, D_VELOCITY_H = 0.000;
+const float P_VELOCITY_H = 5.000, I_VELOCITY_H = 0.1, D_VELOCITY_H = 0.000; // TODO: Tune PID. Integral part is probably far too low.
 
 // Cut of frequency f_c: https://dsp.stackexchange.com/questions/40462/exponential-moving-average-cut-off-frequency)
 // EMA filter parameters for proportional (P) and derivative (D) rate controller inputs.

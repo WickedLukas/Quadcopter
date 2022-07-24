@@ -62,11 +62,11 @@ PID_controller pitch_rate_pid(P_PITCH_RATE, I_PITCH_RATE, D_PITCH_RATE, 0, 0, 25
 PID_controller yaw_rate_pid(P_YAW_RATE, I_YAW_RATE, D_YAW_RATE, 0, 0, 250, 100, EMA_YAW_RATE_P, EMA_YAW_RATE_D);
 
 // vertical velocity PID controller for altitude hold
-PID_controller velocity_v_pid(P_VELOCITY_V, I_VELOCITY_V, D_VELOCITY_V, 0, 0, 250, 250, EMA_VELOCITY_V_P, EMA_VELOCITY_V_D);
+PID_controller velocity_v_pid(P_VELOCITY_V, I_VELOCITY_V, D_VELOCITY_V, 0, 0, THROTTLE_LIMIT - THROTTLE_HOVER, 200, EMA_VELOCITY_V_P, EMA_VELOCITY_V_D);
 
 // horizontal velocity PID controllers for return to launch
-PID_controller velocity_x_pid(P_VELOCITY_H, I_VELOCITY_H, D_VELOCITY_H, 0, 0, 250, 250, EMA_VELOCITY_H_P, EMA_VELOCITY_H_D);
-PID_controller velocity_y_pid(P_VELOCITY_H, I_VELOCITY_H, D_VELOCITY_H, 0, 0, 250, 250, EMA_VELOCITY_H_P, EMA_VELOCITY_H_D);
+PID_controller velocity_x_pid(P_VELOCITY_H, I_VELOCITY_H, D_VELOCITY_H, 0, 0, ROLL_PITCH_ANGLE_LIMIT, ROLL_PITCH_ANGLE_LIMIT * 0.2, EMA_VELOCITY_H_P, EMA_VELOCITY_H_D);
+PID_controller velocity_y_pid(P_VELOCITY_H, I_VELOCITY_H, D_VELOCITY_H, 0, 0, ROLL_PITCH_ANGLE_LIMIT, ROLL_PITCH_ANGLE_LIMIT * 0.2, EMA_VELOCITY_H_P, EMA_VELOCITY_H_D);
 
 // flight modes
 enum class FlightMode { Stabilize, TiltCompensation, AltitudeHold, ReturnToLaunch } fMode;
@@ -695,10 +695,10 @@ void loop() {
 				// Note: The correction can only make sense if the movement necessary to determine the heading is not caused by wind, so the quadcopter needs to be tilted.
 				static float correction;
 				if (heading_valid && ((abs(roll_angle) > 5) || (abs(pitch_angle) > 5))) {
-					correction = bearing - heading;
-					adjustAngleRange(0, 360, yaw_angle_corrected);
+					correction = bearing - heading; // TODO: This probably needs some major EMA filtering, so the yaw angle is only corrected very very slowly, but try to get it running without correction first.
 				}
 				yaw_angle_corrected = yaw_angle + correction;
+				adjustAngleRange(0, 360, yaw_angle_corrected);
 
 				// transform the distance from ned- to body-frame
 				distance_x = distance_north * cos(yaw_angle_corrected * DEG2RAD) + distance_east * sin(yaw_angle_corrected * DEG2RAD);
@@ -722,8 +722,8 @@ void loop() {
 			}
 			else {
 				// roll and pitch angle setpoints
-				roll_angle_sp = map((float)rc_channelValue[ROLL], 1000, 2000, -ROLL_ANGLE_LIMIT, ROLL_ANGLE_LIMIT);
-				pitch_angle_sp = map((float)rc_channelValue[PITCH], 1000, 2000, -PITCH_ANGLE_LIMIT, PITCH_ANGLE_LIMIT);
+				roll_angle_sp = map((float)rc_channelValue[ROLL], 1000, 2000, -ROLL_PITCH_ANGLE_LIMIT, ROLL_PITCH_ANGLE_LIMIT);
+				pitch_angle_sp = map((float)rc_channelValue[PITCH], 1000, 2000, -ROLL_PITCH_ANGLE_LIMIT, ROLL_PITCH_ANGLE_LIMIT);
 
 				// yaw rate setpoint
 				if (rc_channelValue[THROTTLE] < 1050) {
@@ -820,7 +820,7 @@ void loop() {
 		//accelAngles(roll_angle_accel, pitch_angle_accel);
 		//DEBUG_PRINT(roll_angle_accel); DEBUG_PRINT("\t"); DEBUG_PRINTLN(pitch_angle_accel);
 
-		//DEBUG_PRINT(map((float) rc_channelValue[ROLL], 1000, 2000, -ROLL_ANGLE_LIMIT, ROLL_ANGLE_LIMIT)); DEBUG_PRINT("\t"); DEBUG_PRINTLN(roll_angle_sp);
+		//DEBUG_PRINT(map((float) rc_channelValue[ROLL], 1000, 2000, -ROLL_PITCH_ANGLE_LIMIT, ROLL_PITCH_ANGLE_LIMIT)); DEBUG_PRINT("\t"); DEBUG_PRINTLN(roll_angle_sp);
 		//DEBUG_PRINT(map((float) rc_channelValue[YAW], 1000, 2000, -YAW_RATE_LIMIT, YAW_RATE_LIMIT)); DEBUG_PRINT("\t"); DEBUG_PRINTLN(yaw_rate_sp);
 		//DEBUG_PRINT(map((float) rc_channelValue[THROTTLE], 1000, 2000, 1000, THROTTLE_LIMIT)); DEBUG_PRINT("\t"); DEBUG_PRINTLN(throttle_out);
 		//DEBUG_PRINT(map((float) (rc_channelValue[THROTTLE] - 1000) / (cos(roll_angle * DEG2RAD) * cos(pitch_angle * DEG2RAD)) + 1000, 1000, 2000, 1000, THROTTLE_LIMIT)); DEBUG_PRINT("\t"); DEBUG_PRINTLN(throttle_out);

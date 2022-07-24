@@ -36,7 +36,7 @@ void updateLED(uint8_t pin, uint8_t mode, uint32_t interval_ms) {
 }
 
 // adjust angle range to [min, max)
-void adjustAngleRange(const float &min, const float &max, float &angle)
+void adjustAngleRange(float min, float max, float &angle)
 {
 	if (angle >= max) {
 		angle -= (max - min);

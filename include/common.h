@@ -63,7 +63,7 @@ const float DEG2RAD = (float)71 / 4068;
 void updateLED(uint8_t pin, uint8_t mode, uint32_t interval_ms = 1000);
 
 // adjust angle range to [min, max)
-void adjustAngleRange(const float &min, const float &max, float &angle);
+void adjustAngleRange(float min, float max, float &angle);
 
 // transform quaternion from body- to ned-frame using the pose quaternion
 void body2nedFrame(const float *pose_q, const float *q_body, float *q_ned_result);
