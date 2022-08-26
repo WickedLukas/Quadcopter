@@ -620,11 +620,13 @@ void loop() {
 							velocity_v_sp = constrain(shape_position(altitude_sp - altitude, TC_ALTITUDE, ACCEL_V_MAX, velocity_v_sp, dt_s), -VELOCITY_V_LIMIT, VELOCITY_V_LIMIT);
 						}
 
-						// fix output throttle to hover value, so vertical velocity controller can take over smoothly
-						throttle_out = THROTTLE_HOVER;
-
 						// calculate manipulated variable for vertical velocity
 						velocity_v_mv = velocity_v_pid.get_mv(velocity_v_sp, velocity_v, dt_s);
+
+						// Fix throttle to hover value, so vertical velocity controller can take over smoothly and increase thrust when the quadcopter is tilted, to compensate height loss during horizontal movement.
+						// Note: In order to maintain stability, output throttle is limited to the throttle limit.
+						throttle_out = constrain((float)(THROTTLE_HOVER - 1000 + velocity_v_mv) / (pose_q[0] * pose_q[0] - pose_q[1] * pose_q[1] - pose_q[2] * pose_q[2] + pose_q[3] * pose_q[3]) + 1000, 1000, THROTTLE_LIMIT);
+						
 						break;
 
 #ifdef USE_GPS
@@ -677,11 +679,12 @@ void loop() {
 						// shape vertical velocity
 						velocity_v_sp = constrain(shape_position(altitude_sp - altitude, TC_ALTITUDE, ACCEL_V_MAX, velocity_v_sp, dt_s), -VELOCITY_V_LIMIT, VELOCITY_V_LIMIT);
 
-						// fix output throttle to hover value, so vertical velocity controller can take over smoothly
-						throttle_out = THROTTLE_HOVER;
-
 						// calculate manipulated variable for vertical velocity
 						velocity_v_mv = velocity_v_pid.get_mv(velocity_v_sp, velocity_v, dt_s);
+
+						// Fix throttle to hover value, so vertical velocity controller can take over smoothly and increase thrust when the quadcopter is tilted, to compensate height loss during horizontal movement.
+						// Note: In order to maintain stability, output throttle is limited to the throttle limit.
+						throttle_out = constrain((float)(THROTTLE_HOVER - 1000 + velocity_v_mv) / (pose_q[0] * pose_q[0] - pose_q[1] * pose_q[1] - pose_q[2] * pose_q[2] + pose_q[3] * pose_q[3]) + 1000, 1000, THROTTLE_LIMIT);
 						break;
 #endif
 					default:
@@ -798,10 +801,10 @@ void loop() {
 
 	// motor mixing
 	motors.output(
-		constrain(throttle_out + velocity_v_mv + roll_rate_mv - pitch_rate_mv + yaw_rate_mv, 1000, 2000),
-		constrain(throttle_out + velocity_v_mv - roll_rate_mv - pitch_rate_mv - yaw_rate_mv, 1000, 2000),
-		constrain(throttle_out + velocity_v_mv - roll_rate_mv + pitch_rate_mv + yaw_rate_mv, 1000, 2000),
-		constrain(throttle_out + velocity_v_mv + roll_rate_mv + pitch_rate_mv - yaw_rate_mv, 1000, 2000));
+		constrain(throttle_out + roll_rate_mv - pitch_rate_mv + yaw_rate_mv, 1000, 2000),
+		constrain(throttle_out - roll_rate_mv - pitch_rate_mv - yaw_rate_mv, 1000, 2000),
+		constrain(throttle_out - roll_rate_mv + pitch_rate_mv + yaw_rate_mv, 1000, 2000),
+		constrain(throttle_out + roll_rate_mv + pitch_rate_mv - yaw_rate_mv, 1000, 2000));
 
 #if defined(DEBUG) || defined(SEND_SERIAL) || defined(PLOT)
 	// run serial print at a rate independent of the main loop (micros() - t0_serial = 16666 for 60 Hz update rate)
