@@ -69,7 +69,7 @@ PID_controller velocity_x_pid(P_VELOCITY_H, I_VELOCITY_H, D_VELOCITY_H, 0, 0, RO
 PID_controller velocity_y_pid(P_VELOCITY_H, I_VELOCITY_H, D_VELOCITY_H, 0, 0, ROLL_PITCH_ANGLE_LIMIT, ROLL_PITCH_ANGLE_LIMIT * 0.2, EMA_VELOCITY_H_P, EMA_VELOCITY_H_D);
 
 // flight modes
-enum class FlightMode { Stabilize, TiltCompensation, AltitudeHold, ReturnToLaunch } fMode;
+enum class FlightMode { Stabilize, AltitudeHold, ReturnToLaunch } fMode;
 
 // return to launch states
 enum class RtlState { Climb, Return, Descend } rtlState;
@@ -517,20 +517,16 @@ void loop() {
 				fMode = FlightMode::Stabilize;
 				break;
 
-			case 1500:
-				fMode = FlightMode::TiltCompensation;
-				break;
-
-			default: // rc_channelValue[FMODE] == 2000
+			default:
 #ifdef USE_BAR
-				// use AltitudeHold, but switch to TiltCompensation on barometer failure
+				// use AltitudeHold, but switch to Stabilize on barometer failure
 				if (!(error_code & ERROR_BAR)) {
 					fMode = FlightMode::AltitudeHold;
 				} else {
-					fMode = FlightMode::TiltCompensation;
+					fMode = FlightMode::Stabilize;
 				}
 #else
-				fMode = FlightMode::TiltCompensation;
+				fMode = FlightMode::Stabilize;
 #endif
 				break;
 		}
@@ -596,12 +592,6 @@ void loop() {
 						throttle_out = throttle;
 						break;
 
-					case FlightMode::TiltCompensation:
-						// Tilt compensated thrust: Increase thrust when the quadcopter is tilted, to compensate height loss during horizontal movement.
-						// Note: In order to maintain stability, tilt compensated thrust is limited to the throttle limit.
-						throttle_out = constrain((float)(throttle - 1000) / (pose_q[0] * pose_q[0] - pose_q[1] * pose_q[1] - pose_q[2] * pose_q[2] + pose_q[3] * pose_q[3]) + 1000, 1000, THROTTLE_LIMIT);
-						break;
-
 					case FlightMode::AltitudeHold:
 						if (rc_channelValue[THROTTLE] < THROTTLE_DEADZONE_BOT) {
 							// shape rc input to control downwards velocity
@@ -623,10 +613,8 @@ void loop() {
 						// calculate manipulated variable for vertical velocity
 						velocity_v_mv = velocity_v_pid.get_mv(velocity_v_sp, velocity_v, dt_s);
 
-						// Fix throttle to hover value, so vertical velocity controller can take over smoothly and increase thrust when the quadcopter is tilted, to compensate height loss during horizontal movement.
-						// Note: In order to maintain stability, output throttle is limited to the throttle limit.
-						throttle_out = constrain((float)(THROTTLE_HOVER - 1000 + velocity_v_mv) / (pose_q[0] * pose_q[0] - pose_q[1] * pose_q[1] - pose_q[2] * pose_q[2] + pose_q[3] * pose_q[3]) + 1000, 1000, THROTTLE_LIMIT);
-						
+						// use throttle hover, so vertical velocity controller can take over smoothly
+						throttle_out = THROTTLE_HOVER + velocity_v_mv;
 						break;
 
 #ifdef USE_GPS
@@ -682,15 +670,18 @@ void loop() {
 						// calculate manipulated variable for vertical velocity
 						velocity_v_mv = velocity_v_pid.get_mv(velocity_v_sp, velocity_v, dt_s);
 
-						// Fix throttle to hover value, so vertical velocity controller can take over smoothly and increase thrust when the quadcopter is tilted, to compensate height loss during horizontal movement.
-						// Note: In order to maintain stability, output throttle is limited to the throttle limit.
-						throttle_out = constrain((float)(THROTTLE_HOVER - 1000 + velocity_v_mv) / (pose_q[0] * pose_q[0] - pose_q[1] * pose_q[1] - pose_q[2] * pose_q[2] + pose_q[3] * pose_q[3]) + 1000, 1000, THROTTLE_LIMIT);
+						// use throttle hover, so vertical velocity controller can take over smoothly
+						throttle_out = THROTTLE_HOVER + velocity_v_mv;
 						break;
 #endif
 					default:
 						break;
 				}
 			}
+
+			// Tilt compensated thrust: Increase throttle when the quadcopter is tilted, to compensate for height loss during horizontal movement.
+			// Note: In order to maintain stability, throttle is limited to the throttle limit.
+			throttle_out = constrain((float)(throttle_out - 1000) / (pose_q[0] * pose_q[0] - pose_q[1] * pose_q[1] - pose_q[2] * pose_q[2] + pose_q[3] * pose_q[3]) + 1000, 1000, THROTTLE_LIMIT);
 
 			if (fMode == FlightMode::ReturnToLaunch) {
 #ifdef USE_GPS
