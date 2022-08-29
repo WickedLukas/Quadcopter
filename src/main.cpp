@@ -50,7 +50,7 @@ gps_fix fix;
 // launch location determined before arming
 NeoGPS::Location_t launch_location;
 
-// location where RTL mode was entered
+// location where rtl mode was entered
 NeoGPS::Location_t rtl_location;
 
 // motors
@@ -72,7 +72,7 @@ PID_controller velocity_y_pid(P_VELOCITY_H, I_VELOCITY_H, D_VELOCITY_H, 0, 0, RO
 enum class FlightMode { Stabilize, AltitudeHold, ReturnToLaunch } fMode;
 
 // return to launch states
-enum class RtlState { Climb, Return, Descend } rtlState;
+enum class RtlState { Climb, YawToLaunch, Return, YawToInitial, Descend } rtlState;
 
 // calibration data
 calibration_data calibration_eeprom;
@@ -80,7 +80,7 @@ calibration_data calibration_eeprom;
 // flag used to initialise the quadcopter pose and altitude after power on or calibration
 bool initialised = false;
 
-// initial quadcopter z-axis angle
+// initial quadcopter yaw (z-axis) angle
 float yaw_angle_init;
 
 // initial quadcopter altitude
@@ -141,11 +141,11 @@ float velocity_north, velocity_east;
 // velocities in body-frame
 float velocity_x, velocity_y; 
 
-// distance from launch location in ned-frame
-float launchDistance_north, launchDistance_east;
+// position error in ned-frame
+float north_position_error, east_position_error;
 
-// distance from target location in body-frame
-float distance_x, distance_y; 
+// position error in body-frame
+float x_position_error, y_position_error; 
 
 // heading
 float heading;
@@ -159,8 +159,8 @@ float bearing;
 // heading corrected yaw angle
 float yaw_angle_corrected;
 
-// yaw to bearing angle error
-float yawToBearing_error;
+// yaw angle error
+float yaw_angle_error;
 
 // filtered gyro rates
 float roll_rate, pitch_rate, yaw_rate;
@@ -262,9 +262,8 @@ void setup() {
 	//p.AddTimeGraph("alt", 1000, "A", altitude, "bA", baroAltitude/*, "aS", altitude_sp*/);
 	//p.AddTimeGraph("v_vel", 1000, "V", velocity_v/*, "V_sp", velocity_v_sp*/);
 
-	//p.AddTimeGraph("dist", 1000, "gD_n", launchDistance_north, "gD_e", launchDistance_east);
-
-	//p.AddTimeGraph("ned_accel_distance", 1000, "a_n_rel", a_n_rel, "a_e_rel", a_e_rel, "gD_n", launchDistance_north, "gD_e", launchDistance_east);
+	//p.AddTimeGraph("position_error_ne", 1000, "n_pe", north_position_error, "e_pe", east_position_error);
+	//p.AddTimeGraph("position_error_xy", 1000, "x_pe", x_position_error, "y_pe", y_position_error);
 
 	//p.AddTimeGraph("yawHeading", 1000, "yaw", yaw_angle, "heading", heading);
 
@@ -397,10 +396,10 @@ void loop() {
 		fix = gps.read();
 
 		// set error code in order to disable arming as long as there is no solid gps fix
-		if (fix.valid.satellites && fix.satellites > 7 && fix.valid.hdop && fix.hdop < 5000 && fix.valid.location) {
+		if (fix.valid.satellites && fix.satellites > 7 && fix.valid.hdop && fix.hdop < 6000 && fix.valid.location) {
 
 			if (error_code & ERROR_GPS) {
-				error_code &= !ERROR_GPS; // delete error value to enable arming and RTL
+				error_code &= !ERROR_GPS; // delete error value to enable arming and rtl
 
 				DEBUG_PRINTLN(F("Solid GPS fix!"));
 			}
@@ -411,16 +410,12 @@ void loop() {
 			}
 		}
 		else if (!(error_code & ERROR_GPS)) {
-			error_code |= ERROR_GPS; // set error value to disable arming and RTL
+			error_code |= ERROR_GPS; // set error value to disable arming and rtl
 
 			DEBUG_PRINTLN(F("No solid GPS fix! Arming and RTL are disabled."));
 		}
 
 		if (fix.valid.location) {
-			// get a distance from launch location in north/east direction by holding latitude/longitude for a simple short distance approximation
-			launchDistance_north = launch_location.DistanceRadians(NeoGPS::Location_t(fix.location.lat(), launch_location.lon())) * NeoGPS::Location_t::EARTH_RADIUS_KM * 1000;
-			launchDistance_east = launch_location.DistanceRadians(NeoGPS::Location_t(launch_location.lat(), fix.location.lon())) * NeoGPS::Location_t::EARTH_RADIUS_KM * 1000;
-
 			// get bearing to launch location (clockwise from north)
 			bearing = fix.location.BearingToDegrees(launch_location);
 		}
@@ -545,7 +540,6 @@ void loop() {
 		// in order to ensure a smooth start, PID calculations are delayed until hover throttle is reached
 		if (started) {
 #if defined(USE_GPS) && defined(USE_BAR) && defined(USE_MAG)
-			static float distance_north, distance_east;
 			if ((rc_channelValue[RTL] == 2000) && !(error_code & (ERROR_GPS | ERROR_BAR))) {
 				fMode = FlightMode::ReturnToLaunch;
 			}
@@ -571,8 +565,6 @@ void loop() {
 				}
 #ifdef USE_GPS
 				else if (fMode == FlightMode::ReturnToLaunch) {
-					altitude_sp = altitude; // TODO: Remove this after successful tests and uncomment altitude_sp below.
-
 					if (fix.valid.location) {
 						rtl_location = fix.location;
 					}
@@ -619,43 +611,85 @@ void loop() {
 
 #ifdef USE_GPS
 					case FlightMode::ReturnToLaunch:
-						// distance to the launch location
-						distance_north = launchDistance_north;
-						distance_east = launchDistance_east;
-
-						yawToBearing_error = 0;
-
 						// rtl state machine
 						switch (rtlState) {
 							case RtlState::Climb:
 								// climb to the maximum altitude reached during flight with some added offset for safety
+								altitude_sp = altitude; // TODO: Remove this after successful tests and uncomment altitude_sp below.
 								//altitude_sp = altitude_max + RTL_RETURN_OFFSET;
 
-								// return to the launch location when the altitude setpoint is reached
-								if (abs(altitude - altitude_sp) < 5) {
+								// keep the current heading
+								yaw_angle_error = 0;
+
+								// stay at the location where rtl was enabled (calculate position error (distance from rtl location) in north/east direction by holding latitude/longitude for a simple short distance approximation)
+								north_position_error = rtl_location.DistanceRadians(NeoGPS::Location_t(fix.location.lat(), rtl_location.lon())) * NeoGPS::Location_t::EARTH_RADIUS_KM * 1000;
+								east_position_error = rtl_location.DistanceRadians(NeoGPS::Location_t(rtl_location.lat(), fix.location.lon())) * NeoGPS::Location_t::EARTH_RADIUS_KM * 1000;
+
+								// check if the altitude setpoint is reached
+								if (abs(altitude - altitude_sp) < 2) {
+									rtlState = RtlState::YawToLaunch;
+								}
+								break;
+
+							case RtlState::YawToLaunch:
+								// stay at the location where rtl was enabled (calculate position error (distance from rtl location) in north/east direction by holding latitude/longitude for a simple short distance approximation)
+								north_position_error = rtl_location.DistanceRadians(NeoGPS::Location_t(fix.location.lat(), rtl_location.lon())) * NeoGPS::Location_t::EARTH_RADIUS_KM * 1000;
+								east_position_error = rtl_location.DistanceRadians(NeoGPS::Location_t(rtl_location.lat(), fix.location.lon())) * NeoGPS::Location_t::EARTH_RADIUS_KM * 1000;
+
+								// turn the quadcopter towards the launch location, but only if it is not too close
+								if ((abs(north_position_error) > 4) || (abs(east_position_error) > 4)) {
+									// turn the quadcopter towards the launch location
+									yaw_angle_error = yaw_angle_corrected - bearing;
+
+									// check if the quadcopter is heading towards the launch location
+									if (abs(yaw_angle_error) < 5) {
+										rtlState = RtlState::Return;
+									}
+								}
+								else {
 									rtlState = RtlState::Return;
 								}
-
-								// stay at the location where rtl was enabled
-								distance_north = rtl_location.DistanceRadians(NeoGPS::Location_t(fix.location.lat(), rtl_location.lon())) * NeoGPS::Location_t::EARTH_RADIUS_KM * 1000;
-								distance_east = rtl_location.DistanceRadians(NeoGPS::Location_t(rtl_location.lat(), fix.location.lon())) * NeoGPS::Location_t::EARTH_RADIUS_KM * 1000;
 								break;
 
 							case RtlState::Return:
-								// descend when the launch location is reached
-								if ((abs(distance_north) < 5) && (abs(distance_east) < 5)) {
-									rtlState = RtlState::Descend;
-								}
-								else {
-									// turn the quadcopter to face the launch location
-									yawToBearing_error = yaw_angle_corrected - bearing;
+								// return to the launch location (calculate position error (distance from launch) in north/east direction by holding latitude/longitude for a simple short distance approximation)
+								north_position_error = launch_location.DistanceRadians(NeoGPS::Location_t(fix.location.lat(), launch_location.lon())) * NeoGPS::Location_t::EARTH_RADIUS_KM * 1000;
+								east_position_error = launch_location.DistanceRadians(NeoGPS::Location_t(launch_location.lat(), fix.location.lon())) * NeoGPS::Location_t::EARTH_RADIUS_KM * 1000;
 
-									// adjust the yaw to bearing angle error range to [-180, 180) in order to make sure the quadcopter turns the shortest way to reach the bearing angle
-									adjustAngleRange(-180, 180, yawToBearing_error);
+								// turn the quadcopter towards the launch location, but only if it is not too close
+								if ((abs(north_position_error) > 4) || (abs(east_position_error) > 4)) {
+									// turn the quadcopter towards the launch location
+									yaw_angle_error = yaw_angle_corrected - bearing;
+								}
+
+								// check if the launch location is reached
+								if ((abs(north_position_error) < 2) && (abs(east_position_error) < 2)) {
+									rtlState = RtlState::YawToInitial;
+								}
+								break;
+
+							case RtlState::YawToInitial:
+								// stay at the launch location (calculate position error (distance from launch location) in north/east direction by holding latitude/longitude for a simple short distance approximation)
+								north_position_error = launch_location.DistanceRadians(NeoGPS::Location_t(fix.location.lat(), launch_location.lon())) * NeoGPS::Location_t::EARTH_RADIUS_KM * 1000;
+								east_position_error = launch_location.DistanceRadians(NeoGPS::Location_t(launch_location.lat(), fix.location.lon())) * NeoGPS::Location_t::EARTH_RADIUS_KM * 1000;
+
+								// turn the quadcopter to the initial yaw angle determined when arming
+								yaw_angle_error = yaw_angle_corrected - yaw_angle_init;
+
+								// check if the initial yaw angle is reached
+								if (abs(yaw_angle_error) < 5) {
+									rtlState = RtlState::Descend;
 								}
 								break;
 
 							case RtlState::Descend:
+								// stay at the launch location (calculate position error (distance from launch location) in north/east direction by holding latitude/longitude for a simple short distance approximation)
+								north_position_error = launch_location.DistanceRadians(NeoGPS::Location_t(fix.location.lat(), launch_location.lon())) * NeoGPS::Location_t::EARTH_RADIUS_KM * 1000;
+								east_position_error = launch_location.DistanceRadians(NeoGPS::Location_t(launch_location.lat(), fix.location.lon())) * NeoGPS::Location_t::EARTH_RADIUS_KM * 1000;
+
+								// keep the initial yaw angle determined when arming
+								yaw_angle_error = yaw_angle_corrected - yaw_angle_init;
+
 								// descend to the initial altitude after arming with some added offset
 								//altitude_sp = altitude_init + RTL_DESCEND_OFFSET;
 								break;
@@ -663,6 +697,9 @@ void loop() {
 							default:
 								break;
 						}
+
+						// adjust the yaw angle error range to [-180, 180) in order to make sure the quadcopter turns the shortest way
+						adjustAngleRange(-180, 180, yaw_angle_error);
 
 						// shape vertical velocity
 						velocity_v_sp = constrain(shape_position(altitude_sp - altitude, TC_ALTITUDE, ACCEL_V_MAX, velocity_v_sp, dt_s), -VELOCITY_V_LIMIT, VELOCITY_V_LIMIT);
@@ -690,17 +727,18 @@ void loop() {
 				static float correction;
 				if (heading_valid && ((abs(roll_angle) > 5) || (abs(pitch_angle) > 5))) {
 					correction = bearing - heading; // TODO: This probably needs some major EMA filtering, so the yaw angle is only corrected very very slowly, but try to get it running without correction first.
+					correction = 0;
 				}
 				yaw_angle_corrected = yaw_angle + correction;
 				adjustAngleRange(0, 360, yaw_angle_corrected);
 
 				// transform the distance from ned- to body-frame
-				distance_x = distance_north * cos(yaw_angle_corrected * DEG2RAD) + distance_east * sin(yaw_angle_corrected * DEG2RAD);
-				distance_y = distance_north * (-sin(yaw_angle_corrected * DEG2RAD)) + distance_east * cos(yaw_angle_corrected * DEG2RAD); 
+				x_position_error = north_position_error * cos(yaw_angle_corrected * DEG2RAD) + east_position_error * sin(yaw_angle_corrected * DEG2RAD);
+				y_position_error = north_position_error * (-sin(yaw_angle_corrected * DEG2RAD)) + east_position_error * cos(yaw_angle_corrected * DEG2RAD); 
 
 				// shape x- and y-axis velocities
-				velocity_x_sp = constrain(shape_position(distance_x, TC_DISTANCE, ACCEL_H_MAX, velocity_x_sp, dt_s), -VELOCITY_XY_LIMIT, VELOCITY_XY_LIMIT);
-				velocity_y_sp = constrain(shape_position(distance_y, TC_DISTANCE, ACCEL_H_MAX, velocity_y_sp, dt_s), -VELOCITY_XY_LIMIT, VELOCITY_XY_LIMIT);
+				velocity_x_sp = constrain(shape_position(x_position_error, TC_DISTANCE, ACCEL_H_MAX, velocity_x_sp, dt_s), -VELOCITY_XY_LIMIT, VELOCITY_XY_LIMIT);
+				velocity_y_sp = constrain(shape_position(y_position_error, TC_DISTANCE, ACCEL_H_MAX, velocity_y_sp, dt_s), -VELOCITY_XY_LIMIT, VELOCITY_XY_LIMIT);
 
 				// transform the velocity from ned- to body-frame.
 				velocity_x = velocity_north * cos(yaw_angle_corrected * DEG2RAD) + velocity_east * sin(yaw_angle_corrected * DEG2RAD);
@@ -711,7 +749,7 @@ void loop() {
 				roll_angle_sp = velocity_y_pid.get_mv(velocity_y_sp, velocity_y, dt_s);
 
 				// yaw rate setpoint
-				yaw_rate_sp = shape_position(yawToBearing_error, TC_YAW_ANGLE, ACCEL_MAX_YAW, yaw_rate_sp, dt_s);
+				yaw_rate_sp = shape_position(yaw_angle_error, TC_YAW_ANGLE, ACCEL_MAX_YAW, yaw_rate_sp, dt_s);
 #endif
 			}
 			else {
@@ -756,7 +794,7 @@ void loop() {
 			//yaw_rate_pid.set_K_d(0);*/
 
 			// TODO: Tune PID-controller for vertical velocity.
-			p_rate = constrain(map((float)rc_channelValue[4], 1000, 2000, 250, 350), 250, 350);
+			p_rate = constrain(map((float)rc_channelValue[4], 1000, 2000, 250, 500), 250, 500);
 			i_rate = constrain(map((float)rc_channelValue[5], 1000, 2000, 5, 10), 5, 100);
 			//d_rate = constrain(map((float) rc_channelValue[5], 1000, 2000, -0.001, 0.01), 0, 0.01);
 

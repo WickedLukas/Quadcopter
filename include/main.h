@@ -56,9 +56,9 @@
 #define INIT_VELOCITY_V 0.20      // maximum vertical velocity after initialisation
 
 // flight setpoint limits
-#define YAW_RATE_LIMIT 120 // deg/s
+#define YAW_RATE_LIMIT 180 // deg/s
 
-#define ROLL_PITCH_ANGLE_LIMIT 30 // deg
+#define ROLL_PITCH_ANGLE_LIMIT 35 // deg
 
 #define VELOCITY_V_LIMIT 2.5  // m/s
 #define VELOCITY_XY_LIMIT 2.5 // m/s // TODO: Increase this to 5.0 m/s later.
