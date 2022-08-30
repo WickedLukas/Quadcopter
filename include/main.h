@@ -56,9 +56,9 @@
 #define INIT_VELOCITY_V 0.20      // maximum vertical velocity after initialisation
 
 // flight setpoint limits
-#define YAW_RATE_LIMIT 180 // deg/s
+#define YAW_RATE_LIMIT 150 // deg/s	// 120, 180
 
-#define ROLL_PITCH_ANGLE_LIMIT 35 // deg
+#define ROLL_PITCH_ANGLE_LIMIT 32 // deg // 30, 35
 
 #define VELOCITY_V_LIMIT 2.5  // m/s
 #define VELOCITY_XY_LIMIT 2.5 // m/s // TODO: Increase this to 5.0 m/s later.
@@ -100,7 +100,7 @@ const uint16_t THROTTLE_DEADZONE_TOP = 1000 + 10 * (50 + 0.5 * THROTTLE_DEADZONE
 //const float ACCEL_MIN_ROLL_PITCH = 40;
 //const float ACCEL_MIN_YAW = 10;
 const float ACCEL_MAX_ROLL_PITCH = 1100; // 1100, 720
-const float ACCEL_MAX_YAW = 180;         // 270, 180
+const float ACCEL_MAX_YAW = 225;         // 270, 180
 
 // angle time constants
 const float TC_ROLL_PITCH_ANGLE = 0.15; // 0.15
@@ -110,7 +110,7 @@ const float TC_YAW_ANGLE = 0.15;
 const float THROTTLE_EXPO = 0.3; // 0.3
 
 // vertical acceleration limit (m/ss)
-const float ACCEL_V_MAX = 1;
+const float ACCEL_V_MAX = 2;
 // horizontal acceleration limit (m/ss)
 const float ACCEL_H_MAX = 1;
 // altitude time constant
@@ -124,7 +124,7 @@ const float P_PITCH_RATE = 2.000, I_PITCH_RATE = 0.000, D_PITCH_RATE = 0.020; //
 const float P_YAW_RATE = 3.500, I_YAW_RATE = 2.000, D_YAW_RATE = 0.000;       // 3.500, 2.000, 0.000
 
 // vertical velocity PID values for altitude hold
-const float P_VELOCITY_V = 250.000, I_VELOCITY_V = 5.000, D_VELOCITY_V = 0.000; // 250.000, 5.000, 0.000 // TODO: Tune PID. Integral part is probably far too low. (try P: 450 and I: 900)
+const float P_VELOCITY_V = 450.000, I_VELOCITY_V = 5.000, D_VELOCITY_V = 5.000; // 450.000, 5.000, 5.000 // TODO: Tune PID. Integral part is probably far too low. (try P: 450 and I: 900)
 
 // horizontal velocity PID values for return to launch
 const float P_VELOCITY_H = 5.000, I_VELOCITY_H = 0.1, D_VELOCITY_H = 0.000; // TODO: Tune PID. Integral part is probably far too low.

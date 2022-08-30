@@ -265,10 +265,13 @@ void setup() {
 	//p.AddTimeGraph("position_error_ne", 1000, "n_pe", north_position_error, "e_pe", east_position_error);
 	//p.AddTimeGraph("position_error_xy", 1000, "x_pe", x_position_error, "y_pe", y_position_error);
 
+	//p.AddTimeGraph("position_error", 1000, "n_pe", north_position_error, "e_pe", east_position_error, "x_pe", x_position_error, "y_pe", y_position_error);
+	p.AddTimeGraph("velocity", 1000, "v_n", velocity_north, "v_e", velocity_east, "v_x", velocity_x, "v_y", velocity_y);
+
 	//p.AddTimeGraph("yawHeading", 1000, "yaw", yaw_angle, "heading", heading);
 
 	//p.AddTimeGraph("bearing", 1000, "bearing", bearing);
-	//p.AddTimeGraph("RTL", 1000, "yaw", yaw_angle, "heading", heading, "bearing", bearing, "yaw_angle_corrected", yaw_angle_corrected);
+	//p.AddTimeGraph("RTL", 1000, "yaw", yaw_angle, "heading", heading, "bearing", bearing/*, "yaw_angle_corrected", yaw_angle_corrected*/);
 #endif
 }
 
@@ -396,7 +399,7 @@ void loop() {
 		fix = gps.read();
 
 		// set error code in order to disable arming as long as there is no solid gps fix
-		if (fix.valid.satellites && fix.satellites > 7 && fix.valid.hdop && fix.hdop < 6000 && fix.valid.location) {
+		if (fix.valid.satellites && fix.satellites > 6 && fix.valid.hdop && fix.hdop < 6000 && fix.valid.location) {
 
 			if (error_code & ERROR_GPS) {
 				error_code &= !ERROR_GPS; // delete error value to enable arming and rtl
@@ -420,12 +423,6 @@ void loop() {
 			bearing = fix.location.BearingToDegrees(launch_location);
 		}
 
-		if (fix.valid.velned) {
-			// quadcopter north and east velocity
-			velocity_north = fix.velocity_north * 0.01;
-			velocity_east = fix.velocity_east * 0.01;
-		}
-
 		if (fix.valid.heading) {
 			if (heading_valid == false) {
 				heading_valid = true;
@@ -440,6 +437,13 @@ void loop() {
 		else {
 			heading_valid = false;
 		}
+
+		// quadcopter north and east velocity
+		fix.calculateNorthAndEastVelocityFromSpeedAndHeading();
+		
+		// TODO: check if we need filtering here
+		velocity_north = (float) fix.velocity_north * 0.01;
+		velocity_east = (float) fix.velocity_east * 0.01;
 	}
 	else {
 		// check if gps is still working
@@ -637,12 +641,12 @@ void loop() {
 								east_position_error = rtl_location.DistanceRadians(NeoGPS::Location_t(rtl_location.lat(), fix.location.lon())) * NeoGPS::Location_t::EARTH_RADIUS_KM * 1000;
 
 								// turn the quadcopter towards the launch location, but only if it is not too close
-								if ((abs(north_position_error) > 4) || (abs(east_position_error) > 4)) {
+								if ((abs(north_position_error) > 6) || (abs(east_position_error) > 6)) {
 									// turn the quadcopter towards the launch location
 									yaw_angle_error = yaw_angle_corrected - bearing;
 
 									// check if the quadcopter is heading towards the launch location
-									if (abs(yaw_angle_error) < 5) {
+									if (abs(yaw_angle_error) < 6) {
 										rtlState = RtlState::Return;
 									}
 								}
@@ -657,7 +661,7 @@ void loop() {
 								east_position_error = launch_location.DistanceRadians(NeoGPS::Location_t(launch_location.lat(), fix.location.lon())) * NeoGPS::Location_t::EARTH_RADIUS_KM * 1000;
 
 								// turn the quadcopter towards the launch location, but only if it is not too close
-								if ((abs(north_position_error) > 4) || (abs(east_position_error) > 4)) {
+								if ((abs(north_position_error) > 6) || (abs(east_position_error) > 6)) {
 									// turn the quadcopter towards the launch location
 									yaw_angle_error = yaw_angle_corrected - bearing;
 								}
@@ -677,7 +681,7 @@ void loop() {
 								yaw_angle_error = yaw_angle_corrected - yaw_angle_init;
 
 								// check if the initial yaw angle is reached
-								if (abs(yaw_angle_error) < 5) {
+								if (abs(yaw_angle_error) < 6) {
 									rtlState = RtlState::Descend;
 								}
 								break;
@@ -725,7 +729,7 @@ void loop() {
 				// Calculate heading corrected yaw angle.
 				// Note: The correction can only make sense if the movement necessary to determine the heading is not caused by wind, so the quadcopter needs to be tilted.
 				static float correction;
-				if (heading_valid && ((abs(roll_angle) > 5) || (abs(pitch_angle) > 5))) {
+				if (heading_valid && ((abs(roll_angle) > 10) || (abs(pitch_angle) > 10))) {
 					correction = bearing - heading; // TODO: This probably needs some major EMA filtering, so the yaw angle is only corrected very very slowly, but try to get it running without correction first.
 					correction = 0;
 				}
@@ -733,16 +737,16 @@ void loop() {
 				adjustAngleRange(0, 360, yaw_angle_corrected);
 
 				// transform the distance from ned- to body-frame
-				x_position_error = north_position_error * cos(yaw_angle_corrected * DEG2RAD) + east_position_error * sin(yaw_angle_corrected * DEG2RAD);
-				y_position_error = north_position_error * (-sin(yaw_angle_corrected * DEG2RAD)) + east_position_error * cos(yaw_angle_corrected * DEG2RAD); 
+				x_position_error = -(north_position_error * cos(yaw_angle_corrected * DEG2RAD) + east_position_error * sin(yaw_angle_corrected * DEG2RAD));
+				y_position_error = -(north_position_error * (-sin(yaw_angle_corrected * DEG2RAD)) + east_position_error * cos(yaw_angle_corrected * DEG2RAD)); 
 
 				// shape x- and y-axis velocities
 				velocity_x_sp = constrain(shape_position(x_position_error, TC_DISTANCE, ACCEL_H_MAX, velocity_x_sp, dt_s), -VELOCITY_XY_LIMIT, VELOCITY_XY_LIMIT);
 				velocity_y_sp = constrain(shape_position(y_position_error, TC_DISTANCE, ACCEL_H_MAX, velocity_y_sp, dt_s), -VELOCITY_XY_LIMIT, VELOCITY_XY_LIMIT);
 
 				// transform the velocity from ned- to body-frame.
-				velocity_x = velocity_north * cos(yaw_angle_corrected * DEG2RAD) + velocity_east * sin(yaw_angle_corrected * DEG2RAD);
-				velocity_y = velocity_north * (-sin(yaw_angle_corrected * DEG2RAD)) + velocity_east * cos(yaw_angle_corrected * DEG2RAD); 
+				velocity_x = -(velocity_north * cos(yaw_angle_corrected * DEG2RAD) + velocity_east * sin(yaw_angle_corrected * DEG2RAD));
+				velocity_y = -(velocity_north * (-sin(yaw_angle_corrected * DEG2RAD)) + velocity_east * cos(yaw_angle_corrected * DEG2RAD)); 
 
 				// calculate angle setpoints from velocity error for angle PID controller (cascade controller)
 				pitch_angle_sp = velocity_x_pid.get_mv(velocity_x_sp, velocity_x, dt_s);
@@ -794,13 +798,13 @@ void loop() {
 			//yaw_rate_pid.set_K_d(0);*/
 
 			// TODO: Tune PID-controller for vertical velocity.
-			p_rate = constrain(map((float)rc_channelValue[4], 1000, 2000, 250, 500), 250, 500);
-			i_rate = constrain(map((float)rc_channelValue[5], 1000, 2000, 5, 10), 5, 100);
-			//d_rate = constrain(map((float) rc_channelValue[5], 1000, 2000, -0.001, 0.01), 0, 0.01);
+			//p_rate = constrain(map((float)rc_channelValue[4], 1000, 2000, 350, 550), 350, 550);
+			i_rate = constrain(map((float)rc_channelValue[4], 1000, 2000, 5, 50), 5, 50);
+			d_rate = constrain(map((float) rc_channelValue[5], 1000, 2000, 5, 10), 5, 10);
 
-			velocity_v_pid.set_K_p(p_rate);
+			//velocity_v_pid.set_K_p(p_rate);
 			velocity_v_pid.set_K_i(i_rate);
-			//yaw_rate_pid.set_K_d(0);*/
+			velocity_v_pid.set_K_d(d_rate);
 
 			// calculate manipulated variables for rates
 			roll_rate_mv = roll_rate_pid.get_mv(roll_rate_sp, roll_rate, dt_s);
