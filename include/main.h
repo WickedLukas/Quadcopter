@@ -70,7 +70,7 @@
 // To ensure a smooth start, this value should be close to the throttle necessary for take off.
 #define THROTTLE_HOVER 1475
 // Set throttle limit (< 2000), so there is some headroom for pid control in order to keep the quadcopter stable during full throttle.
-#define THROTTLE_LIMIT 1800
+#define THROTTLE_LIMIT 1825
 
 // throttle deadzone (altitude hold) in per cent of throttle range
 #define THROTTLE_DEADZONE_PCT 20
@@ -99,8 +99,8 @@ const uint16_t THROTTLE_DEADZONE_TOP = 1000 + 10 * (50 + 0.5 * THROTTLE_DEADZONE
 // angle controller acceleration limits (deg/ss)
 //const float ACCEL_MIN_ROLL_PITCH = 40;
 //const float ACCEL_MIN_YAW = 10;
-const float ACCEL_MAX_ROLL_PITCH = 1100; // 1100, 720
-const float ACCEL_MAX_YAW = 225;         // 270, 180
+const float ACCEL_ROLL_PITCH_LIMIT = 1100; // 1100, 720
+const float ACCEL_YAW_LIMIT = 225;         // 270, 180
 
 // angle time constants
 const float TC_ROLL_PITCH_ANGLE = 0.15; // 0.15
@@ -110,9 +110,9 @@ const float TC_YAW_ANGLE = 0.15;
 const float THROTTLE_EXPO = 0.3; // 0.3
 
 // vertical acceleration limit (m/ss)
-const float ACCEL_V_MAX = 2;
+const float ACCEL_V_LIMIT = 2;
 // horizontal acceleration limit (m/ss)
-const float ACCEL_H_MAX = 1;
+const float ACCEL_H_LIMIT = 1;
 // altitude time constant
 const float TC_ALTITUDE = 1;
 // distance time constant

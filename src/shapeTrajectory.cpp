@@ -19,37 +19,37 @@ float expo_curve(float x, float expo) {
 	return (1.0f - expo) * x + expo * x * x * x;
 }
 
-// Calculate the velocity correction from the position error. The velocity has acceleration and deceleration limits including a basic jerk limit using timeConstant.
-float shape_position(float position_error, float timeConstant, float accel_max, float last_velocity_sp, float dt_s) {
+// Calculate the velocity correction from the distance. The velocity has acceleration and deceleration limits including a basic jerk limit using timeConstant.
+float shape_position(float distance, float timeConstant, float accel_max, float last_velocity_sp, float dt_s) {
 	static float desired_velocity_sp;
 	
-	// calculate the velocity as position_error approaches zero with acceleration limited by accel_max
-	desired_velocity_sp = sqrtController(position_error, 1.0 / max(timeConstant, 0.01), accel_max, dt_s);
+	// calculate the velocity as the distance approaches zero with acceleration limited by accel_max
+	desired_velocity_sp = sqrtController(distance, 1.0 / max(timeConstant, 0.01), accel_max, dt_s);
 	
 	// acceleration is limited directly to smooth the beginning of the curve
 	return shape_velocity(desired_velocity_sp, accel_max, last_velocity_sp, dt_s);
 }
 
 // proportional controller with sqrt sections to constrain the acceleration
-float sqrtController(float position_error, float p, float accel_max, float dt_s) {
+float sqrtController(float distance, float p, float accel_max, float dt_s) {
 	static float correction_rate;
 	static float linear_dist;
 	
 	linear_dist = accel_max / sq(p);
 	
-	if (position_error > linear_dist) {
-		correction_rate = sqrt(2 * accel_max * (position_error - (linear_dist / 2)));
+	if (distance > linear_dist) {
+		correction_rate = sqrt(2 * accel_max * (distance - (linear_dist / 2)));
 	}
-	else if (position_error < -linear_dist) {
-		correction_rate = -sqrt(2 * accel_max * (-position_error - (linear_dist / 2)));
+	else if (distance < -linear_dist) {
+		correction_rate = -sqrt(2 * accel_max * (-distance - (linear_dist / 2)));
 	}
 	else {
-		correction_rate = position_error * p;
+		correction_rate = distance * p;
 	}
 	
 	if (dt_s > 0.000010) {
-		// this ensures we do not get small oscillations by over shooting the error correction in the last time step
-		return constrain(correction_rate, -abs(position_error) / dt_s, abs(position_error) / dt_s);
+		// this ensures we do not get small oscillations by an overshooting correction in the last time step
+		return constrain(correction_rate, -abs(distance) / dt_s, abs(distance) / dt_s);
 	}
 	else {
 		return correction_rate;
