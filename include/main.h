@@ -124,7 +124,7 @@ const float P_PITCH_RATE = 2.000, I_PITCH_RATE = 0.000, D_PITCH_RATE = 0.020; //
 const float P_YAW_RATE = 3.500, I_YAW_RATE = 2.000, D_YAW_RATE = 0.000;       // 3.500, 2.000, 0.000
 
 // vertical velocity PID values for altitude hold
-const float P_VELOCITY_V = 450.000, I_VELOCITY_V = 5.000, D_VELOCITY_V = 5.000; // 450.000, 5.000, 5.000 // TODO: Tune PID. Integral part is probably far too low. (try P: 450 and I: 900)
+const float P_VELOCITY_V = 450, I_VELOCITY_V = 100, D_VELOCITY_V = 20; // 450, 100, 20 // TODO: Tune PID. Integral part is probably still too low. (try I: 900)
 
 // horizontal velocity PID values for return to launch
 const float P_VELOCITY_H = 5.000, I_VELOCITY_H = 0.1, D_VELOCITY_H = 0.000; // TODO: Tune PID. Integral part is probably far too low.
@@ -158,7 +158,7 @@ const float EMA_HEADING = 0.5;
 // the altitude for returning to launch is calculated by adding this offset to the maximum altitude reached during flight
 const float RTL_RETURN_OFFSET = 0; 
 // the altitude for descending after returning to launch is calculated by adding this offset to the initial altitude
-const float RTL_DESCEND_OFFSET = 10;
+const float RTL_DESCEND_OFFSET = 5;
 
 // failsafe configuration
 const uint8_t FS_IMU = 0b00000001;

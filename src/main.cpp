@@ -47,6 +47,9 @@ NMEAGPS gps;
 // gps fix data
 gps_fix fix;
 
+// current location
+NeoGPS::Location_t current_location;
+
 // launch location determined before arming
 NeoGPS::Location_t launch_location;
 
@@ -120,8 +123,8 @@ float gx_rps, gy_rps, gz_rps;
 int16_t mx, my, mz;
 
 // pose
-float roll_angle, pitch_angle, yaw_angle; // euler angles
-float pose_q[4];						  // quaternion
+float roll_angle, pitch_angle, yaw_angle, yaw_angle_rad; // euler angles
+float pose_q[4]; // quaternion
 
 // ned-acceleration relative to gravity
 float a_n_rel, a_e_rel, a_d_rel;
@@ -138,19 +141,19 @@ float velocity_v;
 // velocities in ned-frame
 float velocity_north, velocity_east;
 
-// velocities in body-frame
+// velocities in horizontal frame
 float velocity_x, velocity_y; 
 
-// distance in ned-frame
-float distance_north, distance_east;
+// distance to target location
+float distance;
 
-// distance in horizontal body-frame
+// distance to target location in horizontal frame 
 float distance_x, distance_y;
 
-// bearing to launch location (clockwise from north)
-float bearing;
+// bearing to target location (clockwise from north)
+float bearing, bearing_rad;
 
-// yaw angle distance
+// distance to target yaw angle
 float distance_yaw;
 
 // filtered gyro rates
@@ -253,10 +256,8 @@ void setup() {
 	//p.AddTimeGraph("alt", 1000, "A", altitude, "bA", baroAltitude/*, "aS", altitude_sp*/);
 	//p.AddTimeGraph("v_vel", 1000, "V", velocity_v/*, "V_sp", velocity_v_sp*/);
 
-	//p.AddTimeGraph("distance_ne, 1000, "d_n", distance_north, "d_e", distance_east);
 	//p.AddTimeGraph("distance_xy", 1000, "d_x", distance_x, "d_y", distance_y);
 
-	p.AddTimeGraph("distance", 1000, "d_n", distance_north, "d_e", distance_east, "d_x", distance_x, "d_y", distance_y);
 	//p.AddTimeGraph("velocity", 1000, "v_n", velocity_north, "v_e", velocity_east, "v_x", velocity_x, "v_y", velocity_y);
 
 	//p.AddTimeGraph("bearing", 1000, "bearing", bearing);
@@ -348,6 +349,7 @@ void loop() {
 	yaw_angle = -yaw_angle;
 #endif
 	adjustAngleRange(0, 360, yaw_angle);
+	yaw_angle_rad = yaw_angle * RAD_PER_DEG;
 
 #ifdef USE_BAR
 	// * get altitude from barometer
@@ -407,16 +409,17 @@ void loop() {
 		}
 
 		if (fix.valid.location) {
-			// get bearing to launch location (clockwise from north)
-			bearing = fix.location.BearingToDegrees(launch_location);
-		}
+			current_location = fix.location;
 
-		// quadcopter north and east velocity
-		fix.calculateNorthAndEastVelocityFromSpeedAndHeading();
-		
-		// TODO: check if we need filtering here
-		velocity_north = (float) fix.velocity_north * 0.01;
-		velocity_east = (float) fix.velocity_east * 0.01;
+			if (fix.valid.heading) {
+				// calculate north and east velocity
+				fix.calculateNorthAndEastVelocityFromSpeedAndHeading();
+
+				// TODO: check if we need filtering here
+				velocity_north = (float) fix.velocity_north * 0.01;
+				velocity_east = (float) fix.velocity_east * 0.01;
+			}
+		}
 	}
 	else {
 		// check if gps is still working
@@ -468,17 +471,12 @@ void loop() {
 		return;
 	}
 
-	roll_rate = gx_rps * RAD2DEG;
-	pitch_rate = gy_rps * RAD2DEG;
-	yaw_rate = gz_rps * RAD2DEG;
+	roll_rate = gx_rps * DEG_PER_RAD;
+	pitch_rate = gy_rps * DEG_PER_RAD;
+	yaw_rate = gz_rps * DEG_PER_RAD;
 
 	// * calculate flight setpoints, manipulated variables and control motors, when armed
 	if (motors.getState() == MotorsQuad::State::armed) {
-		// update the maximum altitude for rtl
-		if (fMode != FlightMode::ReturnToLaunch) {
-			altitude_max = max(altitude, altitude_max);
-		}
-
 		// update flight mode
 		switch (rc_channelValue[FMODE])
 		{
@@ -537,164 +535,178 @@ void loop() {
 				if (fMode == FlightMode::AltitudeHold) {
 					altitude_sp = altitude;
 				}
-#ifdef USE_GPS
 				else if (fMode == FlightMode::ReturnToLaunch) {
-					if (fix.valid.location) {
-						rtl_location = fix.location;
-					}
-					else {
-						// cancel return to launch by setting gps error
-						error_code |= ERROR_GPS;
-					}
+					rtl_location = current_location;
 
 					// reset rtl state
 					rtlState = RtlState::Climb;
 				}
-#endif
 			}
-			else {
-				switch (fMode) {
-					case FlightMode::Stabilize:
-						throttle_out = throttle;
-						break;
 
-					case FlightMode::AltitudeHold:
-						if (rc_channelValue[THROTTLE] < THROTTLE_DEADZONE_BOT) {
-							// shape rc input to control downwards velocity
-							velocity_v_sp = shape_velocity(map(rc_channelValue[THROTTLE], 1000, THROTTLE_DEADZONE_BOT, -VELOCITY_V_LIMIT, 0), ACCEL_V_LIMIT, velocity_v_sp, dt_s);
+			switch (fMode) {
+				case FlightMode::Stabilize:
+					throttle_out = throttle;
+					break;
 
-							altitude_sp = altitude;
-						}
-						else if (rc_channelValue[THROTTLE] > THROTTLE_DEADZONE_TOP) {
-							// shape rc input to control upwards velocity
-							velocity_v_sp = shape_velocity(map(rc_channelValue[THROTTLE], THROTTLE_DEADZONE_TOP, 2000, 0, VELOCITY_V_LIMIT), ACCEL_V_LIMIT, velocity_v_sp, dt_s);
+				case FlightMode::AltitudeHold:
+					if (rc_channelValue[THROTTLE] < THROTTLE_DEADZONE_BOT) {
+						// shape vertical velocity setpoint from rc input for upwards velocity
+						velocity_v_sp = shape_velocity(map(rc_channelValue[THROTTLE], 1000, THROTTLE_DEADZONE_BOT, -VELOCITY_V_LIMIT, 0), ACCEL_V_LIMIT, velocity_v_sp, dt_s);
 
-							altitude_sp = altitude;
-						}
-						else {
-							// shape vertical velocity to hold altitude
-							velocity_v_sp = constrain(shape_position(altitude_sp - altitude, TC_ALTITUDE, ACCEL_V_LIMIT, velocity_v_sp, dt_s), -VELOCITY_V_LIMIT, VELOCITY_V_LIMIT);
-						}
+						altitude_sp = altitude;
+					}
+					else if (rc_channelValue[THROTTLE] > THROTTLE_DEADZONE_TOP) {
+						// shape vertical velocity setpoint from rc input for downwards velocity
+						velocity_v_sp = shape_velocity(map(rc_channelValue[THROTTLE], THROTTLE_DEADZONE_TOP, 2000, 0, VELOCITY_V_LIMIT), ACCEL_V_LIMIT, velocity_v_sp, dt_s);
 
-						// calculate manipulated variable for vertical velocity
-						velocity_v_mv = velocity_v_pid.get_mv(velocity_v_sp, velocity_v, dt_s);
+						altitude_sp = altitude;
+					}
+					else {
+						// shape vertical velocity setpoint to hold altitude
+						velocity_v_sp = constrain(shape_position(altitude_sp - altitude, TC_ALTITUDE, ACCEL_V_LIMIT, velocity_v_sp, dt_s), -VELOCITY_V_LIMIT, VELOCITY_V_LIMIT);
+					}
 
-						// use throttle hover, so vertical velocity controller can take over smoothly
-						throttle_out = THROTTLE_HOVER + velocity_v_mv;
-						break;
+					// calculate manipulated variable for vertical velocity
+					velocity_v_mv = velocity_v_pid.get_mv(velocity_v_sp, velocity_v, dt_s);
 
-#ifdef USE_GPS
-					case FlightMode::ReturnToLaunch:
-						// rtl state machine
-						switch (rtlState) {
-							case RtlState::Climb:
-								// climb to the maximum altitude reached during flight with some added offset for safety
-								altitude_sp = altitude; // TODO: Remove this after successful tests and uncomment altitude_sp below.
-								//altitude_sp = altitude_max + RTL_RETURN_OFFSET;
+					// use throttle hover, so vertical velocity controller can take over smoothly
+					throttle_out = THROTTLE_HOVER + velocity_v_mv;
+					break;
 
+				case FlightMode::ReturnToLaunch:
+					// rtl state machine
+					switch (rtlState) {
+						case RtlState::Climb:
+							// bearing to rtl location
+							bearing_rad = current_location.BearingTo(rtl_location);
+
+							// distance to rtl location
+							distance = current_location.DistanceKm(rtl_location) * 1000;
+
+							// keep the current yaw angle
+							distance_yaw = 0;
+
+							// climb to the maximum altitude reached during flight with some added offset for safety
+							altitude_sp = altitude; // TODO: Remove this after successful tests and uncomment altitude_sp below.
+							//altitude_sp = altitude_max + RTL_RETURN_OFFSET;
+
+							// check if the altitude setpoint is reached
+							if (abs(altitude_sp - altitude) < 2) {
+								//rtlState = RtlState::YawToLaunch;
+							}
+							break;
+
+						case RtlState::YawToLaunch:
+							// bearing to rtl location
+							bearing_rad = current_location.BearingTo(rtl_location);
+
+							// distance to rtl location
+							distance = current_location.DistanceKm(rtl_location) * 1000;
+
+							// turn the quadcopter towards the launch location, but only if it is not too close
+							if (distance > 6) {
+								// turn the quadcopter towards the launch location
+								distance_yaw = bearing - yaw_angle;
+
+								// check if the quadcopter is rotated towards the launch location
+								if (abs(distance_yaw) < 6) {
+									rtlState = RtlState::Return;
+								}
+							}
+							else {
 								// keep the current yaw angle
 								distance_yaw = 0;
 
-								// stay at the location where rtl was enabled (calculate the rtl location distance in north/east direction by holding latitude/longitude for a simple short distance approximation)
-								distance_north = NeoGPS::Location_t(fix.location.lat(), rtl_location.lon()).DistanceRadians(rtl_location) * NeoGPS::Location_t::EARTH_RADIUS_KM * 1000;
-								distance_east = NeoGPS::Location_t(rtl_location.lat(), fix.location.lon()).DistanceRadians(rtl_location) * NeoGPS::Location_t::EARTH_RADIUS_KM * 1000;
+								rtlState = RtlState::Return;
+							}
+							break;
 
-								// check if the altitude setpoint is reached
-								if (abs(altitude_sp - altitude) < 2) {
-									//rtlState = RtlState::YawToLaunch;
-								}
-								break;
+						case RtlState::Return:
+							// bearing to launch location
+							bearing_rad = current_location.BearingTo(launch_location);
 
-							case RtlState::YawToLaunch:
-								// stay at the location where rtl was enabled (calculate the rtl location distance in north/east direction by holding latitude/longitude for a simple short distance approximation)
-								distance_north = NeoGPS::Location_t(fix.location.lat(), rtl_location.lon()).DistanceRadians(rtl_location) * NeoGPS::Location_t::EARTH_RADIUS_KM * 1000;
-								distance_east = NeoGPS::Location_t(rtl_location.lat(), fix.location.lon()).DistanceRadians(rtl_location) * NeoGPS::Location_t::EARTH_RADIUS_KM * 1000;
+							// distance to launch location
+							distance = current_location.DistanceKm(launch_location) * 1000;
 
-								// turn the quadcopter towards the launch location, but only if it is not too close
-								if (pow(distance_north, 2) + pow(distance_east, 2) > pow(6, 2)) {
-									// turn the quadcopter towards the launch location
-									distance_yaw = bearing - yaw_angle;
+							// turn the quadcopter towards the launch location, but only if it is not too close
+							if (distance > 6) {
+								// turn the quadcopter towards the launch location
+								distance_yaw = bearing - yaw_angle;
+							}
+							else {
+								// keep the current yaw angle
+								distance_yaw = 0;
+							}
 
-									// check if the quadcopter is rotated towards the launch location
-									if (abs(distance_yaw) < 6) {
-										rtlState = RtlState::Return;
-									}
-								}
-								else {
-									// keep the current yaw angle
-									distance_yaw = 0;
+							// check if the launch location was reached
+							if (distance < 3) {
+								rtlState = RtlState::YawToInitial;
+							}
+							break;
 
-									rtlState = RtlState::Return;
-								}
-								break;
+						case RtlState::YawToInitial:
+							// bearing to launch location
+							bearing_rad = current_location.BearingTo(launch_location);
 
-							case RtlState::Return:
-								// return to the launch location (calculate the launch location distance in north/east direction by holding latitude/longitude for a simple short distance approximation)
-								distance_north = NeoGPS::Location_t(fix.location.lat(), launch_location.lon()).DistanceRadians(launch_location) * NeoGPS::Location_t::EARTH_RADIUS_KM * 1000;
-								distance_east = NeoGPS::Location_t(launch_location.lat(), fix.location.lon()).DistanceRadians(launch_location) * NeoGPS::Location_t::EARTH_RADIUS_KM * 1000;
+							// distance to launch location
+							distance = current_location.DistanceKm(launch_location) * 1000;
 
-								// turn the quadcopter towards the launch location, but only if it is not too close
-								if (pow(distance_north, 2) + pow(distance_east, 2) > pow(6, 2)) {
-									// turn the quadcopter towards the launch location
-									distance_yaw = bearing - yaw_angle;
-								}
-								else {
-									// keep the current yaw angle
-									distance_yaw = 0;
-								}
+							// turn the quadcopter to the initial yaw angle determined when arming
+							distance_yaw = yaw_angle_init - yaw_angle;
 
-								// check if the launch location was reached
-								if (pow(distance_north, 2) + pow(distance_east, 2) < pow(3, 2)) {
-									rtlState = RtlState::YawToInitial;
-								}
-								break;
+							// check if the initial yaw angle is reached
+							if (abs(distance_yaw) < 6) {
+								rtlState = RtlState::Descend;
+							}
+							break;
 
-							case RtlState::YawToInitial:
-								// stay at the launch location (calculate the launch location distance in north/east direction by holding latitude/longitude for a simple short distance approximation)
-								distance_north = NeoGPS::Location_t(fix.location.lat(), launch_location.lon()).DistanceRadians(launch_location) * NeoGPS::Location_t::EARTH_RADIUS_KM * 1000;
-								distance_east = NeoGPS::Location_t(launch_location.lat(), fix.location.lon()).DistanceRadians(launch_location) * NeoGPS::Location_t::EARTH_RADIUS_KM * 1000;
+						case RtlState::Descend:
+							// bearing to launch location
+							bearing_rad = current_location.BearingTo(launch_location);
 
-								// turn the quadcopter to the initial yaw angle determined when arming
-								distance_yaw = yaw_angle_init - yaw_angle;
+							// distance to launch location
+							distance = current_location.DistanceKm(launch_location) * 1000;
 
-								// check if the initial yaw angle is reached
-								if (abs(distance_yaw) < 6) {
-									rtlState = RtlState::Descend;
-								}
-								break;
+							// keep the initial yaw angle determined when arming
+							distance_yaw = yaw_angle_init - yaw_angle;
 
-							case RtlState::Descend:
-								// stay at the launch location (calculate the launch location distance in north/east direction by holding latitude/longitude for a simple short distance approximation)
-								distance_north = NeoGPS::Location_t(fix.location.lat(), launch_location.lon()).DistanceRadians(launch_location) * NeoGPS::Location_t::EARTH_RADIUS_KM * 1000;
-								distance_east = NeoGPS::Location_t(launch_location.lat(), fix.location.lon()).DistanceRadians(launch_location) * NeoGPS::Location_t::EARTH_RADIUS_KM * 1000;
+							// descend to the initial altitude after arming with some added offset
+							//altitude_sp = altitude_init + RTL_DESCEND_OFFSET;
+							break;
 
-								// keep the initial yaw angle determined when arming
-								distance_yaw = yaw_angle_init - yaw_angle;
+						default:
+							break;
+					}
 
-								// descend to the initial altitude after arming with some added offset
-								//altitude_sp = altitude_init + RTL_DESCEND_OFFSET;
-								break;
+					// bearing in degrees
+					bearing = bearing_rad * DEG_PER_RAD;
 
-							default:
-								break;
-						}
+					// adjust the yaw distance to [-180, 180) in order to make sure the quadcopter turns the shortest way
+					adjustAngleRange(-180, 180, distance_yaw);
 
-						// adjust the yaw distance to [-180, 180) in order to make sure the quadcopter turns the shortest way
-						adjustAngleRange(-180, 180, distance_yaw);
+					// transform distance from ned- to horizontal frame
+					distance_x = distance * cos(bearing_rad - yaw_angle_rad);
+					distance_y = distance * sin(bearing_rad - yaw_angle_rad);
 
-						// shape vertical velocity
-						velocity_v_sp = constrain(shape_position(altitude_sp - altitude, TC_ALTITUDE, ACCEL_V_LIMIT, velocity_v_sp, dt_s), -VELOCITY_V_LIMIT, VELOCITY_V_LIMIT);
+					// shape x- and y-axis velocity setpoints
+					velocity_x_sp = constrain(shape_position(distance_x, TC_DISTANCE, ACCEL_H_LIMIT, velocity_x_sp, dt_s), -VELOCITY_XY_LIMIT, VELOCITY_XY_LIMIT);
+					velocity_y_sp = constrain(shape_position(distance_y, TC_DISTANCE, ACCEL_H_LIMIT, velocity_y_sp, dt_s), -VELOCITY_XY_LIMIT, VELOCITY_XY_LIMIT);
 
-						// calculate manipulated variable for vertical velocity
-						velocity_v_mv = velocity_v_pid.get_mv(velocity_v_sp, velocity_v, dt_s);
+					// transform velocity from ned- to horizontal frame.
+					velocity_x = velocity_north * cos(yaw_angle_rad) + velocity_east * sin(yaw_angle_rad);
+					velocity_y = velocity_north * (-sin(yaw_angle_rad)) + velocity_east * cos(yaw_angle_rad);
 
-						// use throttle hover, so vertical velocity controller can take over smoothly
-						throttle_out = THROTTLE_HOVER + velocity_v_mv;
-						break;
-#endif
-					default:
-						break;
-				}
+					// shape vertical velocity setpoint
+					velocity_v_sp = constrain(shape_position(altitude_sp - altitude, TC_ALTITUDE, ACCEL_V_LIMIT, velocity_v_sp, dt_s), -VELOCITY_V_LIMIT, VELOCITY_V_LIMIT);
+
+					// calculate manipulated variable for vertical velocity
+					velocity_v_mv = velocity_v_pid.get_mv(velocity_v_sp, velocity_v, dt_s);
+
+					// use throttle hover, so vertical velocity controller can take over smoothly
+					throttle_out = THROTTLE_HOVER + velocity_v_mv;
+					break;
+				default:
+					break;
 			}
 
 			// Tilt compensated thrust: Increase throttle when the quadcopter is tilted, to compensate for height loss during horizontal movement.
@@ -702,36 +714,22 @@ void loop() {
 			throttle_out = constrain((float)(throttle_out - 1000) / (pose_q[0] * pose_q[0] - pose_q[1] * pose_q[1] - pose_q[2] * pose_q[2] + pose_q[3] * pose_q[3]) + 1000, 1000, THROTTLE_LIMIT);
 
 			if (fMode == FlightMode::ReturnToLaunch) {
-#ifdef USE_GPS
-				static float yaw_angle_rad;
-				yaw_angle_rad = yaw_angle * DEG2RAD;
-
-				// transform the distance from ned- to horizontal body-frame
-				distance_x = distance_north * cos(yaw_angle_rad) + distance_east * sin(yaw_angle_rad);
-				distance_y = distance_north * (-sin(yaw_angle_rad)) + distance_east * cos(yaw_angle_rad); 
-
-				// shape x- and y-axis velocities
-				velocity_x_sp = constrain(shape_position(distance_x, TC_DISTANCE, ACCEL_H_LIMIT, velocity_x_sp, dt_s), -VELOCITY_XY_LIMIT, VELOCITY_XY_LIMIT);
-				velocity_y_sp = constrain(shape_position(distance_y, TC_DISTANCE, ACCEL_H_LIMIT, velocity_y_sp, dt_s), -VELOCITY_XY_LIMIT, VELOCITY_XY_LIMIT);
-
-				// transform the velocity from ned- to horizontal body-frame.
-				velocity_x = velocity_north * cos(yaw_angle_rad) + velocity_east * sin(yaw_angle_rad);
-				velocity_y = velocity_north * (-sin(yaw_angle_rad)) + velocity_east * cos(yaw_angle_rad); 
-
-				// calculate angle setpoints from velocity error for angle PID controller (cascade controller)
+				// calculate angle setpoints from velocity setpoints
 				roll_angle_sp = velocity_y_pid.get_mv(velocity_y_sp, velocity_y, dt_s);
 				pitch_angle_sp = velocity_x_pid.get_mv(velocity_x_sp, velocity_x, dt_s);
 				
-				// yaw rate setpoint
+				// shape yaw rate setpoint
 				yaw_rate_sp = shape_position(distance_yaw, TC_YAW_ANGLE, ACCEL_YAW_LIMIT, yaw_rate_sp, dt_s);
-#endif
 			}
 			else {
+				// update the maximum altitude for rtl
+				altitude_max = max(altitude, altitude_max);
+
 				// roll and pitch angle setpoints
 				roll_angle_sp = map((float)rc_channelValue[ROLL], 1000, 2000, -ROLL_PITCH_ANGLE_LIMIT, ROLL_PITCH_ANGLE_LIMIT);
 				pitch_angle_sp = map((float)rc_channelValue[PITCH], 1000, 2000, -ROLL_PITCH_ANGLE_LIMIT, ROLL_PITCH_ANGLE_LIMIT);
 
-				// yaw rate setpoint
+				// shape yaw rate setpoint
 				if (rc_channelValue[THROTTLE] < 1050) {
 					// if throttle is too low, disable setting a yaw rate, since it might cause problems when disarming
 					yaw_rate_sp = shape_velocity(0, ACCEL_YAW_LIMIT, yaw_rate_sp, dt_s);
@@ -740,7 +738,7 @@ void loop() {
 				}
 			}
 
-			// roll and pitch rate setpoints
+			// shape roll and pitch rate setpoints
 			roll_rate_sp = shape_position(roll_angle_sp - roll_angle, TC_ROLL_PITCH_ANGLE, ACCEL_ROLL_PITCH_LIMIT, roll_rate_sp, dt_s);
 			pitch_rate_sp = shape_position(pitch_angle_sp - pitch_angle, TC_ROLL_PITCH_ANGLE, ACCEL_ROLL_PITCH_LIMIT, pitch_rate_sp, dt_s);
 
@@ -768,9 +766,9 @@ void loop() {
 			//yaw_rate_pid.set_K_d(0);*/
 
 			// TODO: Tune PID-controller for vertical velocity.
-			//p_rate = constrain(map((float)rc_channelValue[4], 1000, 2000, 350, 550), 350, 550);
-			i_rate = constrain(map((float)rc_channelValue[4], 1000, 2000, 5, 50), 5, 50);
-			d_rate = constrain(map((float) rc_channelValue[5], 1000, 2000, 5, 10), 5, 10);
+			//p_rate = constrain(map((float)rc_channelValue[4], 1000, 2000, 450, 650), 450, 650);
+			i_rate = constrain(map((float)rc_channelValue[4], 1000, 2000, 100, 500), 100, 500);
+			d_rate = constrain(map((float) rc_channelValue[5], 1000, 2000, 20, 60), 20, 60);
 
 			//velocity_v_pid.set_K_p(p_rate);
 			velocity_v_pid.set_K_i(i_rate);
@@ -829,7 +827,7 @@ void loop() {
 		//DEBUG_PRINT(map((float) rc_channelValue[ROLL], 1000, 2000, -ROLL_PITCH_ANGLE_LIMIT, ROLL_PITCH_ANGLE_LIMIT)); DEBUG_PRINT("\t"); DEBUG_PRINTLN(roll_angle_sp);
 		//DEBUG_PRINT(map((float) rc_channelValue[YAW], 1000, 2000, -YAW_RATE_LIMIT, YAW_RATE_LIMIT)); DEBUG_PRINT("\t"); DEBUG_PRINTLN(yaw_rate_sp);
 		//DEBUG_PRINT(map((float) rc_channelValue[THROTTLE], 1000, 2000, 1000, THROTTLE_LIMIT)); DEBUG_PRINT("\t"); DEBUG_PRINTLN(throttle_out);
-		//DEBUG_PRINT(map((float) (rc_channelValue[THROTTLE] - 1000) / (cos(roll_angle * DEG2RAD) * cos(pitch_angle * DEG2RAD)) + 1000, 1000, 2000, 1000, THROTTLE_LIMIT)); DEBUG_PRINT("\t"); DEBUG_PRINTLN(throttle_out);
+		//DEBUG_PRINT(map((float) (rc_channelValue[THROTTLE] - 1000) / (cos(roll_angle * RAD_PER_DEG) * cos(pitch_angle * RAD_PER_DEG)) + 1000, 1000, 2000, 1000, THROTTLE_LIMIT)); DEBUG_PRINT("\t"); DEBUG_PRINTLN(throttle_out);
 
 		//DEBUG_PRINTLN(roll_rate_sp);
 
@@ -920,8 +918,8 @@ bool initPose(float beta_init, float beta, float init_angleDifference, float ini
 
 // calculate accelerometer x and y angles in degrees
 void accelAngles(float &roll_angle_accel, float &pitch_angle_accel) {
-	roll_angle_accel = atan2(ay, az) * RAD2DEG;
-	pitch_angle_accel = atan2(-ax, sqrt(pow(ay, 2) + pow(az, 2))) * RAD2DEG;
+	roll_angle_accel = atan2(ay, az) * DEG_PER_RAD;
+	pitch_angle_accel = atan2(-ax, sqrt(pow(ay, 2) + pow(az, 2))) * DEG_PER_RAD;
 }
 
 // estimate initial altitude

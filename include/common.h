@@ -53,8 +53,8 @@ extern uint8_t error_code;
 extern volatile bool imuInterrupt;
 
 // conversion factors between radians and degrees
-const float RAD2DEG = (float)4068 / 71;
-const float DEG2RAD = (float)71 / 4068;
+const float DEG_PER_RAD = (float)4068 / 71;
+const float RAD_PER_DEG = (float)71 / 4068;
 
 // update LED
 // mode: 0		off
