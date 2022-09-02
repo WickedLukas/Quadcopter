@@ -112,7 +112,7 @@ const float THROTTLE_EXPO = 0.3; // 0.3
 // vertical acceleration limit (m/ss)
 const float ACCEL_V_LIMIT = 2;
 // horizontal acceleration limit (m/ss)
-const float ACCEL_H_LIMIT = 1;
+const float ACCEL_H_LIMIT = 2;
 // altitude time constant
 const float TC_ALTITUDE = 1;
 // distance time constant
@@ -127,10 +127,10 @@ const float P_YAW_RATE = 3.500, I_YAW_RATE = 2.000, D_YAW_RATE = 0.000;       //
 const float P_VELOCITY_V = 450, I_VELOCITY_V = 100, D_VELOCITY_V = 20; // 450, 100, 20 // TODO: Tune PID. Integral part is probably still too low. (try I: 900)
 
 // horizontal velocity PID values for return to launch
-const float P_VELOCITY_H = 5.000, I_VELOCITY_H = 0.1, D_VELOCITY_H = 0.000; // TODO: Tune PID. Integral part is probably far too low.
+const float P_VELOCITY_H = 5.000, I_VELOCITY_H = 0.5, D_VELOCITY_H = 0.2; // TODO: Tune PID.
 
 // Cut of frequency f_c: https://dsp.stackexchange.com/questions/40462/exponential-moving-average-cut-off-frequency)
-// EMA filter parameters for proportional (P) and derivative (D) rate controller inputs.
+// EMA filter parameters for proportional (P) and derivative (D) rate controller inputs (F_s = 9000).
 // EMA = 0.1301 --> f_c = 200 Hz; EMA = 0.0674 --> f_c = 100 Hz;
 const float EMA_ROLL_RATE_P = 0.040;  // 0.040
 const float EMA_PITCH_RATE_P = 0.040; // 0.040
@@ -146,17 +146,18 @@ const float EMA_VELOCITY_V_P = 0.015; // 0.015
 // EMA = 0.0139 --> f_c = 20 Hz; EMA = 0.0035 --> f_c = 5 Hz;
 const float EMA_VELOCITY_V_D = 0.005; // 0.005
 
-// EMA filter parameters for proportional (P) and derivative (D) horizontal velocity controller inputs (F_s = 10).
-// EMA = 0.4559 --> f_c = 1 Hz;
-const float EMA_VELOCITY_H_P = 0.6;
-const float EMA_VELOCITY_H_D = 0.3;
+// EMA filter parameters for proportional (P) and derivative (D) horizontal velocity controller inputs (F_s = 9000).
+// EMA = 0.0139 --> f_c = 20 Hz; EMA = 0.0035 --> f_c = 5 Hz;
+const float EMA_VELOCITY_H_P = 0.020;
+const float EMA_VELOCITY_H_D = 0.005;
 
-// EMA filter parameter for quadcopter heading (F_s = 10).
-// EMA = 0.4559 --> f_c = 1 Hz;
-const float EMA_HEADING = 0.5;
+// EMA filter parameter for heading correction (F_s = 9000).
+// This filter needs to be very strong, so the heading correction used to compensate inaccurate horizontal movement,
+// caused by bad compass measurements and wind, is applied slowly.
+const float EMA_HEADING_CORRECTION = 0.0005; // TODO: Test this parameter.
 
 // the altitude for returning to launch is calculated by adding this offset to the maximum altitude reached during flight
-const float RTL_RETURN_OFFSET = 0; 
+const float RTL_RETURN_OFFSET = 5; 
 // the altitude for descending after returning to launch is calculated by adding this offset to the initial altitude
 const float RTL_DESCEND_OFFSET = 5;
 

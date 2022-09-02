@@ -153,6 +153,12 @@ float distance_x, distance_y;
 // bearing to target location (clockwise from north)
 float bearing, bearing_rad;
 
+// quadcopter heading
+float heading;
+
+// heading correction to compensate inaccurate horizontal movement caused by bad compass measurements and wind 
+float headingCorrection, headingCorrection_rad;
+
 // distance to target yaw angle
 float distance_yaw;
 
@@ -251,16 +257,13 @@ void setup() {
 	//p.AddTimeGraph("mv", 1000, "roll_rate_mv", roll_rate_mv, "pitch_rate_mv", pitch_rate_mv, "yaw_rate_mv", yaw_rate_mv);
 
 	//p.AddTimeGraph("Relative ned-acceleration", 1000, "a_n_rel", a_n_rel, "a_e_rel", a_e_rel, "a_d_rel", a_d_rel);
-
 	//p.AddTimeGraph("alt", 1000, "A", altitude, "bA", baroAltitude);
 	//p.AddTimeGraph("alt", 1000, "A", altitude, "bA", baroAltitude/*, "aS", altitude_sp*/);
 	//p.AddTimeGraph("v_vel", 1000, "V", velocity_v/*, "V_sp", velocity_v_sp*/);
 
-	//p.AddTimeGraph("distance_xy", 1000, "d_x", distance_x, "d_y", distance_y);
-
-	//p.AddTimeGraph("velocity", 1000, "v_n", velocity_north, "v_e", velocity_east, "v_x", velocity_x, "v_y", velocity_y);
-
 	//p.AddTimeGraph("bearing", 1000, "bearing", bearing);
+	//p.AddTimeGraph("distance_xy", 1000, "d_x", distance_x, "d_y", distance_y);
+	//p.AddTimeGraph("velocity", 1000, "v_n", velocity_north, "v_e", velocity_east, "v_x", velocity_x, "v_y", velocity_y);
 #endif
 }
 
@@ -305,8 +308,8 @@ void loop() {
 
 	// update time
 	t = micros();
-	dt = (t - t0);			  // in us
-	dt_s = (float)(dt)*1.e-6; // in s
+	dt = (t - t0);				// in us
+	dt_s = (float)(dt) * 1.e-6;	// in s
 
 	// * continue if imu interrupt has fired
 	if (!imuInterrupt) {
@@ -345,7 +348,7 @@ void loop() {
 	// apply offset to z-axis pose in order to compensate for the sensor mounting orientation relative to the quadcopter frame
 	yaw_angle += YAW_ANGLE_OFFSET;
 #ifdef USE_GPS
-	// this is necessary to match the gps heading orientation
+	// match yaw angle and gps heading orientation
 	yaw_angle = -yaw_angle;
 #endif
 	adjustAngleRange(0, 360, yaw_angle);
@@ -410,12 +413,15 @@ void loop() {
 
 		if (fix.valid.location) {
 			current_location = fix.location;
+		}
 
-			if (fix.valid.heading) {
+		if (fix.valid.heading) {
+			heading = fix.heading();
+
+			if (fix.valid.speed) {
 				// calculate north and east velocity
 				fix.calculateNorthAndEastVelocityFromSpeedAndHeading();
 
-				// TODO: check if we need filtering here
 				velocity_north = (float) fix.velocity_north * 0.01;
 				velocity_east = (float) fix.velocity_east * 0.01;
 			}
@@ -592,6 +598,7 @@ void loop() {
 
 							// check if the altitude setpoint is reached
 							if (abs(altitude_sp - altitude) < 2) {
+								//TODO: Uncomment and test this later.
 								//rtlState = RtlState::YawToLaunch;
 							}
 							break;
@@ -684,9 +691,20 @@ void loop() {
 					// adjust the yaw distance to [-180, 180) in order to make sure the quadcopter turns the shortest way
 					adjustAngleRange(-180, 180, distance_yaw);
 
-					// transform distance from ned- to horizontal frame
-					distance_x = distance * cos(bearing_rad - yaw_angle_rad);
-					distance_y = distance * sin(bearing_rad - yaw_angle_rad);
+					// calculate heading correction
+					if (rtlState == RtlState::Return) {
+						headingCorrection = ema_filter(bearing - heading, headingCorrection, EMA_HEADING_CORRECTION);
+						headingCorrection_rad = headingCorrection * RAD_PER_DEG;
+						
+						headingCorrection_rad = 0; // TODO: Remove this line and test this.
+					}
+					else {
+						headingCorrection_rad = 0;
+					}
+
+					// transform distance from ned- to horizontal frame and include heading correction to compensate inaccurate horizontal movement caused by bad compass measurements and wind
+					distance_x = distance * cos(bearing_rad - yaw_angle_rad + headingCorrection_rad);
+					distance_y = distance * sin(bearing_rad - yaw_angle_rad + headingCorrection_rad);
 
 					// shape x- and y-axis velocity setpoints
 					velocity_x_sp = constrain(shape_position(distance_x, TC_DISTANCE, ACCEL_H_LIMIT, velocity_x_sp, dt_s), -VELOCITY_XY_LIMIT, VELOCITY_XY_LIMIT);
