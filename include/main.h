@@ -110,13 +110,13 @@ const float TC_YAW_ANGLE = 0.15;
 const float THROTTLE_EXPO = 0.3; // 0.3
 
 // vertical acceleration limit (m/ss)
-const float ACCEL_V_LIMIT = 2;
+const float ACCEL_V_LIMIT = 2.5;
 // horizontal acceleration limit (m/ss)
-const float ACCEL_H_LIMIT = 2;
+const float ACCEL_H_LIMIT = 1;
 // altitude time constant
 const float TC_ALTITUDE = 1;
 // distance time constant
-const float TC_DISTANCE = 1;
+const float TC_DISTANCE = 2;
 
 // angular rate PID values
 const float P_ROLL_RATE = 2.000, I_ROLL_RATE = 0.000, D_ROLL_RATE = 0.020;    // 2.500, 0.000, 0.023 @ 0.006 EMA_RATE

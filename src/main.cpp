@@ -309,7 +309,7 @@ void loop() {
 	// update time
 	t = micros();
 	dt = (t - t0);				// in us
-	dt_s = (float)(dt) * 1.e-6;	// in s
+	dt_s = (float) (dt) * 1.e-6;	// in s
 
 	// * continue if imu interrupt has fired
 	if (!imuInterrupt) {
@@ -729,7 +729,7 @@ void loop() {
 
 			// Tilt compensated thrust: Increase throttle when the quadcopter is tilted, to compensate for height loss during horizontal movement.
 			// Note: In order to maintain stability, throttle is limited to the throttle limit.
-			throttle_out = constrain((float)(throttle_out - 1000) / (pose_q[0] * pose_q[0] - pose_q[1] * pose_q[1] - pose_q[2] * pose_q[2] + pose_q[3] * pose_q[3]) + 1000, 1000, THROTTLE_LIMIT);
+			throttle_out = constrain((float) (throttle_out - 1000) / (pose_q[0] * pose_q[0] - pose_q[1] * pose_q[1] - pose_q[2] * pose_q[2] + pose_q[3] * pose_q[3]) + 1000, 1000, THROTTLE_LIMIT);
 
 			if (fMode == FlightMode::ReturnToLaunch) {
 				// calculate angle setpoints from velocity setpoints
@@ -737,22 +737,22 @@ void loop() {
 				pitch_angle_sp = velocity_x_pid.get_mv(velocity_x_sp, velocity_x, dt_s);
 				
 				// shape yaw rate setpoint
-				yaw_rate_sp = shape_position(distance_yaw, TC_YAW_ANGLE, ACCEL_YAW_LIMIT, yaw_rate_sp, dt_s);
+				yaw_rate_sp = constrain(shape_position(distance_yaw, TC_YAW_ANGLE, ACCEL_YAW_LIMIT, yaw_rate_sp, dt_s), -YAW_RATE_LIMIT, YAW_RATE_LIMIT);
 			}
 			else {
 				// update the maximum altitude for rtl
 				altitude_max = max(altitude, altitude_max);
 
 				// roll and pitch angle setpoints
-				roll_angle_sp = map((float)rc_channelValue[ROLL], 1000, 2000, -ROLL_PITCH_ANGLE_LIMIT, ROLL_PITCH_ANGLE_LIMIT);
-				pitch_angle_sp = map((float)rc_channelValue[PITCH], 1000, 2000, -ROLL_PITCH_ANGLE_LIMIT, ROLL_PITCH_ANGLE_LIMIT);
+				roll_angle_sp = map((float) rc_channelValue[ROLL], 1000, 2000, -ROLL_PITCH_ANGLE_LIMIT, ROLL_PITCH_ANGLE_LIMIT);
+				pitch_angle_sp = map((float) rc_channelValue[PITCH], 1000, 2000, -ROLL_PITCH_ANGLE_LIMIT, ROLL_PITCH_ANGLE_LIMIT);
 
 				// shape yaw rate setpoint
 				if (rc_channelValue[THROTTLE] < 1050) {
 					// if throttle is too low, disable setting a yaw rate, since it might cause problems when disarming
 					yaw_rate_sp = shape_velocity(0, ACCEL_YAW_LIMIT, yaw_rate_sp, dt_s);
 				} else {
-					yaw_rate_sp = shape_velocity(map((float)rc_channelValue[YAW], 1000, 2000, YAW_RATE_LIMIT, -YAW_RATE_LIMIT), ACCEL_YAW_LIMIT, yaw_rate_sp, dt_s);
+					yaw_rate_sp = shape_velocity(map((float) rc_channelValue[YAW], 1000, 2000, YAW_RATE_LIMIT, -YAW_RATE_LIMIT), ACCEL_YAW_LIMIT, yaw_rate_sp, dt_s);
 				}
 			}
 
@@ -784,8 +784,8 @@ void loop() {
 			//yaw_rate_pid.set_K_d(0);*/
 
 			// TODO: Tune PID-controller for vertical velocity.
-			//p_rate = constrain(map((float)rc_channelValue[4], 1000, 2000, 450, 650), 450, 650);
-			i_rate = constrain(map((float)rc_channelValue[4], 1000, 2000, 100, 500), 100, 500);
+			//p_rate = constrain(map((float) rc_channelValue[4], 1000, 2000, 450, 650), 450, 650);
+			i_rate = constrain(map((float) rc_channelValue[4], 1000, 2000, 100, 500), 100, 500);
 			d_rate = constrain(map((float) rc_channelValue[5], 1000, 2000, 20, 60), 20, 60);
 
 			//velocity_v_pid.set_K_p(p_rate);
