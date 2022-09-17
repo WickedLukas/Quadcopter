@@ -264,6 +264,8 @@ void setup() {
 	//p.AddTimeGraph("bearing", 1000, "bearing", bearing);
 	//p.AddTimeGraph("distance_xy", 1000, "d_x", distance_x, "d_y", distance_y);
 	//p.AddTimeGraph("velocity", 1000, "v_n", velocity_north, "v_e", velocity_east, "v_x", velocity_x, "v_y", velocity_y);
+
+	//p.AddTimeGraph("yawTune", 1000, "yaw_rate_sp", yaw_rate_sp, "yaw_rate", yaw_rate, "yaw_angle", yaw_angle);
 #endif
 }
 
@@ -392,7 +394,7 @@ void loop() {
 		fix = gps.read();
 
 		// set error code in order to disable arming as long as there is no solid gps fix
-		if (fix.valid.satellites && fix.satellites > 6 && fix.valid.hdop && fix.hdop < 6000 && fix.valid.location) {
+		if (fix.valid.satellites && fix.satellites > 5 && fix.valid.hdop && fix.hdop < 7000 && fix.valid.location) {
 
 			if (error_code & ERROR_GPS) {
 				error_code &= !ERROR_GPS; // delete error value to enable arming and rtl
@@ -579,6 +581,9 @@ void loop() {
 					throttle_out = THROTTLE_HOVER + velocity_v_mv;
 					break;
 
+				static uint32_t dt_state = 0;
+				static const uint32_t STATE_DT_MIN = 5000000; // minimum time in microseconds the condition for switching to the next state needs to be met before switching
+
 				case FlightMode::ReturnToLaunch:
 					// rtl state machine
 					switch (rtlState) {
@@ -598,8 +603,12 @@ void loop() {
 
 							// check if the altitude setpoint is reached
 							if (abs(altitude_sp - altitude) < 2) {
-								//TODO: Uncomment and test this later.
-								//rtlState = RtlState::YawToLaunch;
+								dt_state += dt;
+								if (dt_state > STATE_DT_MIN)
+								{
+									dt_state = 0;
+									rtlState = RtlState::YawToLaunch;
+								}
 							}
 							break;
 
@@ -617,7 +626,12 @@ void loop() {
 
 								// check if the quadcopter is rotated towards the launch location
 								if (abs(distance_yaw) < 6) {
-									rtlState = RtlState::Return;
+									dt_state += dt;
+									if (dt_state > STATE_DT_MIN)
+									{
+										dt_state = 0;
+										//rtlState = RtlState::Return;
+									}
 								}
 							}
 							else {
@@ -647,7 +661,12 @@ void loop() {
 
 							// check if the launch location was reached
 							if (distance < 3) {
-								rtlState = RtlState::YawToInitial;
+								dt_state += dt;
+								if (dt_state > STATE_DT_MIN)
+								{
+									dt_state = 0;
+									rtlState = RtlState::YawToInitial;
+								}
 							}
 							break;
 
@@ -663,7 +682,12 @@ void loop() {
 
 							// check if the initial yaw angle is reached
 							if (abs(distance_yaw) < 6) {
-								rtlState = RtlState::Descend;
+								dt_state += dt;
+								if (dt_state > STATE_DT_MIN)
+								{
+									dt_state = 0;
+									rtlState = RtlState::Descend;
+								}
 							}
 							break;
 
@@ -754,6 +778,83 @@ void loop() {
 				} else {
 					yaw_rate_sp = shape_velocity(map((float) rc_channelValue[YAW], 1000, 2000, YAW_RATE_LIMIT, -YAW_RATE_LIMIT), ACCEL_YAW_LIMIT, yaw_rate_sp, dt_s);
 				}
+
+				/*
+				static uint16_t state = 0;
+				static float yaw_angle_target = yaw_angle;
+				static uint32_t dt_yawTest = 0;
+
+				switch (state) {
+					case 0:
+						dt_yawTest += dt;
+						if (dt_yawTest > 5000000)
+						{
+							yaw_angle_target = yaw_angle + 45;
+							dt_yawTest = 0;
+							state += 1;
+						}
+						break;
+					case 1:
+						dt_yawTest += dt;
+						if (abs(distance_yaw) < 2) {
+							dt_yawTest += dt;
+							if (dt_yawTest > 5000000)
+							{
+								state +=1;
+							}
+						}
+						break;
+					case 2:
+						yaw_angle_target = yaw_angle + 90;
+						dt_yawTest = 0;
+						state += 1;
+						break;
+					case 3:
+						if (abs(distance_yaw) < 2) {
+							dt_yawTest += dt;
+							if (dt_yawTest > 5000000)
+							{
+								state +=1;
+							}
+						}
+						break;
+					case 4:
+						yaw_angle_target = yaw_angle - 180;
+						dt_yawTest = 0;
+						state += 1;
+						break;
+					case 5:
+						if (abs(distance_yaw) < 2) {
+							dt_yawTest += dt;
+							if (dt_yawTest > 5000000)
+							{
+								state +=1;
+							}
+						}
+						break;
+					case 6:
+						yaw_angle_target = yaw_angle - 45;
+						dt_yawTest = 0;
+						state += 1;
+						break;
+					case 7:
+						if (abs(distance_yaw) < 2) {
+							dt_yawTest += dt;
+							if (dt_yawTest > 5000000)
+							{
+								state = 0;
+							}
+						}
+						break;
+				}
+
+				distance_yaw = yaw_angle_target - yaw_angle;
+
+				// adjust the yaw distance to [-180, 180) in order to make sure the quadcopter turns the shortest way
+				adjustAngleRange(-180, 180, distance_yaw);
+
+				yaw_rate_sp = constrain(shape_position(distance_yaw, TC_YAW_ANGLE, ACCEL_YAW_LIMIT, yaw_rate_sp, dt_s), -YAW_RATE_LIMIT, YAW_RATE_LIMIT);
+				*/
 			}
 
 			// shape roll and pitch rate setpoints
@@ -763,34 +864,38 @@ void loop() {
 			// TODO: Remove this test code
 			static float p_rate, i_rate, d_rate;
 
-			/*p_rate = constrain(map((float) rc_channelValue[4], 1000, 2000, 1.75, 2.5), 1.75, 2.5);
-			//i_rate = constrain(map((float) rc_channelValue[5], 1000, 2000, 0.75, 1.75), 0.75, 1.75);
-			d_rate = constrain(map((float) rc_channelValue[5], 1000, 2000, 0.02, 0.03), 0.02, 0.03);
+			/*
+			p_rate = constrain(map((float) rc_channelValue[4], 1000, 2000, 2.0 2.5), 2.0, 2.5);
+			i_rate = constrain(map((float) rc_channelValue[5], 1000, 2000, 1.0, 2.0), 1.0, 2.0);
+			//d_rate = constrain(map((float) rc_channelValue[5], 1000, 2000, 0.02, 0.03), 0.02, 0.03);
 
 			roll_rate_pid.set_K_p(p_rate);
-			//roll_rate_pid.set_K_i(i_rate);
-			roll_rate_pid.set_K_d(d_rate);
+			roll_rate_pid.set_K_i(i_rate);
+			//roll_rate_pid.set_K_d(d_rate);
 
 			pitch_rate_pid.set_K_p(p_rate);
-			//pitch_rate_pid.set_K_i(i_rate);
-			pitch_rate_pid.set_K_d(d_rate);*/
+			pitch_rate_pid.set_K_i(i_rate);
+			//pitch_rate_pid.set_K_d(d_rate);
+			*/
 
-			/*p_rate = constrain(map((float) rc_channelValue[4], 1000, 2000, 3.5, 4.5), 3.5, 4.5);
-			i_rate = constrain(map((float) rc_channelValue[5], 1000, 2000, 2.0, 3.0), 2.0, 3.0);
-			//d_rate = constrain(map((float) rc_channelValue[5], 1000, 2000, -0.001, 0.01), 0, 0.01);
+			/*
+			p_rate = constrain(map((float) rc_channelValue[4], 1000, 2000, 3.5, 4.5), 3.5, 4.5);
+			i_rate = constrain(map((float) rc_channelValue[5], 1000, 2000, 2.0, 4.0), 2.0, 4.0);
+			//d_rate = constrain(map((float) rc_channelValue[5], 1000, 2000, 0.02, 0.025), 0.02, 0.025);
 
 			yaw_rate_pid.set_K_p(p_rate);
 			yaw_rate_pid.set_K_i(i_rate);
-			//yaw_rate_pid.set_K_d(0);*/
+			//yaw_rate_pid.set_K_d(d_rate);
+			*/
 
 			// TODO: Tune PID-controller for vertical velocity.
-			//p_rate = constrain(map((float) rc_channelValue[4], 1000, 2000, 450, 650), 450, 650);
-			i_rate = constrain(map((float) rc_channelValue[4], 1000, 2000, 100, 500), 100, 500);
-			d_rate = constrain(map((float) rc_channelValue[5], 1000, 2000, 20, 60), 20, 60);
+			p_rate = constrain(map((float) rc_channelValue[4], 1000, 2000, 75, 175), 75, 175);
+			i_rate = constrain(map((float) rc_channelValue[5], 1000, 2000, 50, 350), 50, 350);
+			//d_rate = constrain(map((float) rc_channelValue[5], 1000, 2000, 20, 60), 20, 60);
 
-			//velocity_v_pid.set_K_p(p_rate);
+			velocity_v_pid.set_K_p(p_rate);
 			velocity_v_pid.set_K_i(i_rate);
-			velocity_v_pid.set_K_d(d_rate);
+			//velocity_v_pid.set_K_d(d_rate);
 
 			// calculate manipulated variables for rates
 			roll_rate_mv = roll_rate_pid.get_mv(roll_rate_sp, roll_rate, dt_s);

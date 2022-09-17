@@ -56,7 +56,7 @@
 #define INIT_VELOCITY_V 0.20      // maximum vertical velocity after initialisation
 
 // flight setpoint limits
-#define YAW_RATE_LIMIT 150 // deg/s	// 120, 180
+#define YAW_RATE_LIMIT 180 // deg/s	// 120, 180
 
 #define ROLL_PITCH_ANGLE_LIMIT 32 // deg // 30, 35
 
@@ -100,7 +100,7 @@ const uint16_t THROTTLE_DEADZONE_TOP = 1000 + 10 * (50 + 0.5 * THROTTLE_DEADZONE
 //const float ACCEL_MIN_ROLL_PITCH = 40;
 //const float ACCEL_MIN_YAW = 10;
 const float ACCEL_ROLL_PITCH_LIMIT = 1100; // 1100, 720
-const float ACCEL_YAW_LIMIT = 225;         // 270, 180
+const float ACCEL_YAW_LIMIT = 270;         // 270, 180
 
 // angle time constants
 const float TC_ROLL_PITCH_ANGLE = 0.15; // 0.15
@@ -119,15 +119,15 @@ const float TC_ALTITUDE = 1;
 const float TC_DISTANCE = 2;
 
 // angular rate PID values
-const float P_ROLL_RATE = 2.000, I_ROLL_RATE = 0.000, D_ROLL_RATE = 0.020;    // 2.500, 0.000, 0.023 @ 0.006 EMA_RATE
-const float P_PITCH_RATE = 2.000, I_PITCH_RATE = 0.000, D_PITCH_RATE = 0.020; // 2.500, 0.000, 0.023 @ 0.006 EMA_RATE
-const float P_YAW_RATE = 3.500, I_YAW_RATE = 2.000, D_YAW_RATE = 0.000;       // 3.500, 2.000, 0.000
+const float P_ROLL_RATE = 2.000, I_ROLL_RATE = 1.000, D_ROLL_RATE = 0.020;    // 2.000, 0.000, 0.023 @ 0.006 EMA_RATE // TODO: Maybe we should add a little I here, so it hits the angles better, especially 0.
+const float P_PITCH_RATE = 2.000, I_PITCH_RATE = 1.000, D_PITCH_RATE = 0.020; // 2.000, 0.000, 0.023 @ 0.006 EMA_RATE
+const float P_YAW_RATE = 4.000, I_YAW_RATE = 2.000, D_YAW_RATE = 0.000;       // 3.500, 2.000, 0.000
 
 // vertical velocity PID values for altitude hold
-const float P_VELOCITY_V = 450, I_VELOCITY_V = 100, D_VELOCITY_V = 20; // 450, 100, 20 // TODO: Tune PID. Integral part is probably still too low. (try I: 900)
+const float P_VELOCITY_V = 150, I_VELOCITY_V = 100, D_VELOCITY_V = 20; // 450, 100, 20 // TODO: Tune PID. Integral part is probably still too low. (try I: 900)
 
 // horizontal velocity PID values for return to launch
-const float P_VELOCITY_H = 5.000, I_VELOCITY_H = 0.5, D_VELOCITY_H = 0.2; // TODO: Tune PID.
+const float P_VELOCITY_H = 4.000, I_VELOCITY_H = 1.0, D_VELOCITY_H = 0.2; // TODO: Tune PID.
 
 // Cut of frequency f_c: https://dsp.stackexchange.com/questions/40462/exponential-moving-average-cut-off-frequency)
 // EMA filter parameters for proportional (P) and derivative (D) rate controller inputs (F_s = 9000).
@@ -157,7 +157,7 @@ const float EMA_VELOCITY_H_D = 0.005;
 const float EMA_HEADING_CORRECTION = 0.0005; // TODO: Test this parameter.
 
 // the altitude for returning to launch is calculated by adding this offset to the maximum altitude reached during flight
-const float RTL_RETURN_OFFSET = 5; 
+const float RTL_RETURN_OFFSET = 0; 
 // the altitude for descending after returning to launch is calculated by adding this offset to the initial altitude
 const float RTL_DESCEND_OFFSET = 5;
 
