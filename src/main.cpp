@@ -598,8 +598,7 @@ void loop() {
 							distance_yaw = 0;
 
 							// climb to the maximum altitude reached during flight with some added offset for safety
-							altitude_sp = altitude; // TODO: Remove this after successful tests and uncomment altitude_sp below.
-							//altitude_sp = altitude_max + RTL_RETURN_OFFSET;
+							altitude_sp = altitude_max + RTL_RETURN_OFFSET;
 
 							// check if the altitude setpoint is reached
 							if (abs(altitude_sp - altitude) < 2) {
@@ -613,11 +612,11 @@ void loop() {
 							break;
 
 						case RtlState::YawToLaunch:
-							// bearing to rtl location
-							bearing_rad = current_location.BearingTo(rtl_location);
+							// bearing to launch location
+							bearing_rad = current_location.BearingTo(launch_location);
 
-							// distance to rtl location
-							distance = current_location.DistanceKm(rtl_location) * 1000;
+							// distance to launch location
+							distance = current_location.DistanceKm(launch_location) * 1000;
 
 							// turn the quadcopter towards the launch location, but only if it is not too close
 							if (distance > 6) {
@@ -638,7 +637,7 @@ void loop() {
 								// keep the current yaw angle
 								distance_yaw = 0;
 
-								rtlState = RtlState::Return;
+								//rtlState = RtlState::Return;
 							}
 							break;
 
