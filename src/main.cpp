@@ -122,9 +122,14 @@ int16_t ax, ay, az;
 float gx_rps, gy_rps, gz_rps;
 int16_t mx, my, mz;
 
+// ema filtered acceleration
+float ax_filtered, ay_filtered, az_filtered;
+
 // pose
 float roll_angle, pitch_angle, yaw_angle, yaw_angle_rad; // euler angles
 float pose_q[4]; // quaternion
+
+//float roll_angle_accel, pitch_angle_accel;
 
 // ned-acceleration relative to gravity
 float a_n_rel, a_e_rel, a_d_rel;
@@ -310,7 +315,7 @@ void loop() {
 
 	// update time
 	t = micros();
-	dt = (t - t0);				// in us
+	dt = (t - t0);					// in us
 	dt_s = (float) (dt) * 1.e-6;	// in s
 
 	// * continue if imu interrupt has fired
@@ -323,6 +328,11 @@ void loop() {
 
 	// * read accel and gyro measurements
 	imu.read_accel_gyro_rps(ax, ay, az, gx_rps, gy_rps, gz_rps);
+
+	// filter accelerometer measurements
+	ax_filtered = ema_filter(ax, ax_filtered, EMA_ACCEL);
+	ay_filtered = ema_filter(ay, ay_filtered, EMA_ACCEL);
+	az_filtered = ema_filter(az, az_filtered, EMA_ACCEL);
 
 #ifdef USE_MAG
 	// * read magnetometer
@@ -344,8 +354,10 @@ void loop() {
 	}
 #endif
 
+	//accelAngles(roll_angle_accel, pitch_angle_accel);
+
 	// * calculate pose from sensor data using Madgwick filter
-	madgwickFilter.get_euler_quaternion(dt_s, ax, ay, az, gx_rps, gy_rps, gz_rps, mx, my, mz, roll_angle, pitch_angle, yaw_angle, pose_q);
+	madgwickFilter.get_euler_quaternion(dt_s, ax_filtered, ay_filtered, az_filtered, gx_rps, gy_rps, gz_rps, mx, my, mz, roll_angle, pitch_angle, yaw_angle, pose_q);
 
 	// apply offset to z-axis pose in order to compensate for the sensor mounting orientation relative to the quadcopter frame
 	yaw_angle += YAW_ANGLE_OFFSET;
@@ -938,7 +950,7 @@ void loop() {
 	if (micros() - t0_serial > 16666) {
 		t0_serial = micros();
 
-		//DEBUG_PRINT(ax); DEBUG_PRINT("\t"); DEBUG_PRINT(ay); DEBUG_PRINT("\t"); DEBUG_PRINTLN(az);
+		//DEBUG_PRINT(ax_filtered); DEBUG_PRINT("\t"); DEBUG_PRINT(ay_filtered); DEBUG_PRINT("\t"); DEBUG_PRINTLN(az_filtered);
 		//DEBUG_PRINT(gx_rps); DEBUG_PRINT("\t"); DEBUG_PRINT(gy_rps); DEBUG_PRINT("\t"); DEBUG_PRINTLN(gz_rps);
 		//DEBUG_PRINT(mx); DEBUG_PRINT("\t"); DEBUG_PRINT(my); DEBUG_PRINT("\t"); DEBUG_PRINTLN(mz);
 
@@ -1040,8 +1052,8 @@ bool initPose(float beta_init, float beta, float init_angleDifference, float ini
 
 // calculate accelerometer x and y angles in degrees
 void accelAngles(float &roll_angle_accel, float &pitch_angle_accel) {
-	roll_angle_accel = atan2(ay, az) * DEG_PER_RAD;
-	pitch_angle_accel = atan2(-ax, sqrt(pow(ay, 2) + pow(az, 2))) * DEG_PER_RAD;
+	roll_angle_accel = atan2(ay_filtered, az_filtered) * DEG_PER_RAD;
+	pitch_angle_accel = atan2(-ax_filtered, sqrt(pow(ay_filtered, 2) + pow(az_filtered, 2))) * DEG_PER_RAD;
 }
 
 // estimate initial altitude
@@ -1092,7 +1104,7 @@ void accel_ned_rel(float &a_n_relative, float &a_e_relative, float &a_d_relative
 
 	// acceleration quaternion in body-frame
 	static float a_q[4];
-	a_q[0] = 0; a_q[1] = ax; a_q[2] = ay; a_q[3] = az;
+	a_q[0] = 0; a_q[1] = ax_filtered; a_q[2] = ay_filtered; a_q[3] = az_filtered;
 
 	// acceleration quaternion in ned-frame
 	static float a_ned_q[4];
