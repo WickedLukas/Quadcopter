@@ -19,7 +19,7 @@
 #include <EEPROM.h>
 
 // ! Motors are disabled when MOTORS_OFF is defined inside "common.h".
-// ! Debug options can be enabled within "common.h"
+// ! Debug options can be enabled within "common.h".
 // ! Parameters can be set inside "main.h".
 
 #ifdef PLOT
@@ -60,22 +60,22 @@ NeoGPS::Location_t rtl_location;
 MotorsQuad motors(MOTOR_PIN_1, MOTOR_PIN_2, MOTOR_PIN_3, MOTOR_PIN_4, MOTOR_PWM_RESOLUTION, MOTOR_PWM_FREQUENCY);
 
 // rate PID controller
-PID_controller roll_rate_pid(P_ROLL_RATE, I_ROLL_RATE, D_ROLL_RATE, 0, 0, 250, 50, EMA_ROLL_RATE_P, EMA_ROLL_RATE_D);
-PID_controller pitch_rate_pid(P_PITCH_RATE, I_PITCH_RATE, D_PITCH_RATE, 0, 0, 250, 50, EMA_PITCH_RATE_P, EMA_PITCH_RATE_D);
-PID_controller yaw_rate_pid(P_YAW_RATE, I_YAW_RATE, D_YAW_RATE, 0, 0, 250, 100, EMA_YAW_RATE_P, EMA_YAW_RATE_D);
+PID_controller roll_rate_pid(P_ROLL_RATE, I_ROLL_RATE, D_ROLL_RATE, 250, 50, EMA_ROLL_RATE_P, EMA_ROLL_RATE_D);
+PID_controller pitch_rate_pid(P_PITCH_RATE, I_PITCH_RATE, D_PITCH_RATE, 250, 50, EMA_PITCH_RATE_P, EMA_PITCH_RATE_D);
+PID_controller yaw_rate_pid(P_YAW_RATE, I_YAW_RATE, D_YAW_RATE, 250, 100, EMA_YAW_RATE_P, EMA_YAW_RATE_D);
 
 // vertical velocity PID controller for altitude hold
-PID_controller velocity_v_pid(P_VELOCITY_V, I_VELOCITY_V, D_VELOCITY_V, 0, 0, THROTTLE_LIMIT - THROTTLE_HOVER, 200, EMA_VELOCITY_V_P, EMA_VELOCITY_V_D);
+PID_controller velocity_v_pid(P_VELOCITY_V, I_VELOCITY_V, D_VELOCITY_V, THROTTLE_LIMIT - THROTTLE_HOVER, 200, EMA_VELOCITY_V_P, EMA_VELOCITY_V_D);
 
 // horizontal velocity PID controllers for return to launch
-PID_controller velocity_x_pid(P_VELOCITY_H, I_VELOCITY_H, D_VELOCITY_H, 0, 0, ROLL_PITCH_ANGLE_LIMIT, ROLL_PITCH_ANGLE_LIMIT * 0.2, EMA_VELOCITY_H_P, EMA_VELOCITY_H_D);
-PID_controller velocity_y_pid(P_VELOCITY_H, I_VELOCITY_H, D_VELOCITY_H, 0, 0, ROLL_PITCH_ANGLE_LIMIT, ROLL_PITCH_ANGLE_LIMIT * 0.2, EMA_VELOCITY_H_P, EMA_VELOCITY_H_D);
+PID_controller velocity_x_pid(P_VELOCITY_H, I_VELOCITY_H, D_VELOCITY_H, ROLL_PITCH_ANGLE_LIMIT, ROLL_PITCH_ANGLE_LIMIT * 0.2, EMA_VELOCITY_H_P, EMA_VELOCITY_H_D);
+PID_controller velocity_y_pid(P_VELOCITY_H, I_VELOCITY_H, D_VELOCITY_H, ROLL_PITCH_ANGLE_LIMIT, ROLL_PITCH_ANGLE_LIMIT * 0.2, EMA_VELOCITY_H_P, EMA_VELOCITY_H_D);
 
 // flight modes
 enum class FlightMode { Stabilize, AltitudeHold, ReturnToLaunch } fMode;
 
 // return to launch states
-enum class RtlState { Climb, YawToLaunch, Return, YawToInitial, Descend } rtlState;
+enum class RtlState { Init, Wait, Climb, YawToLaunch, Return, YawToInitial, Descend } rtlState;
 
 // calibration data
 calibration_data calibration_eeprom;
@@ -122,9 +122,14 @@ int16_t ax, ay, az;
 float gx_rps, gy_rps, gz_rps;
 int16_t mx, my, mz;
 
+// ema filtered acceleration
+float ax_filtered, ay_filtered, az_filtered;
+
 // pose
 float roll_angle, pitch_angle, yaw_angle, yaw_angle_rad; // euler angles
 float pose_q[4]; // quaternion
+
+//float roll_angle_accel, pitch_angle_accel;
 
 // ned-acceleration relative to gravity
 float a_n_rel, a_e_rel, a_d_rel;
@@ -264,6 +269,8 @@ void setup() {
 	//p.AddTimeGraph("bearing", 1000, "bearing", bearing);
 	//p.AddTimeGraph("distance_xy", 1000, "d_x", distance_x, "d_y", distance_y);
 	//p.AddTimeGraph("velocity", 1000, "v_n", velocity_north, "v_e", velocity_east, "v_x", velocity_x, "v_y", velocity_y);
+
+	//p.AddTimeGraph("yawTune", 1000, "yaw_rate_sp", yaw_rate_sp, "yaw_rate", yaw_rate, "yaw_angle", yaw_angle);
 #endif
 }
 
@@ -308,7 +315,7 @@ void loop() {
 
 	// update time
 	t = micros();
-	dt = (t - t0);				// in us
+	dt = (t - t0);					// in us
 	dt_s = (float) (dt) * 1.e-6;	// in s
 
 	// * continue if imu interrupt has fired
@@ -321,6 +328,11 @@ void loop() {
 
 	// * read accel and gyro measurements
 	imu.read_accel_gyro_rps(ax, ay, az, gx_rps, gy_rps, gz_rps);
+
+	// filter accelerometer measurements
+	ax_filtered = ema_filter(ax, ax_filtered, EMA_ACCEL);
+	ay_filtered = ema_filter(ay, ay_filtered, EMA_ACCEL);
+	az_filtered = ema_filter(az, az_filtered, EMA_ACCEL);
 
 #ifdef USE_MAG
 	// * read magnetometer
@@ -342,8 +354,10 @@ void loop() {
 	}
 #endif
 
+	//accelAngles(roll_angle_accel, pitch_angle_accel);
+
 	// * calculate pose from sensor data using Madgwick filter
-	madgwickFilter.get_euler_quaternion(dt_s, ax, ay, az, gx_rps, gy_rps, gz_rps, mx, my, mz, roll_angle, pitch_angle, yaw_angle, pose_q);
+	madgwickFilter.get_euler_quaternion(dt_s, ax_filtered, ay_filtered, az_filtered, gx_rps, gy_rps, gz_rps, mx, my, mz, roll_angle, pitch_angle, yaw_angle, pose_q);
 
 	// apply offset to z-axis pose in order to compensate for the sensor mounting orientation relative to the quadcopter frame
 	yaw_angle += YAW_ANGLE_OFFSET;
@@ -392,8 +406,7 @@ void loop() {
 		fix = gps.read();
 
 		// set error code in order to disable arming as long as there is no solid gps fix
-		if (fix.valid.satellites && fix.satellites > 6 && fix.valid.hdop && fix.hdop < 6000 && fix.valid.location) {
-
+		if (fix.valid.satellites && fix.satellites > 5 && fix.valid.hdop && fix.hdop < 7000 && fix.valid.location) {
 			if (error_code & ERROR_GPS) {
 				error_code &= !ERROR_GPS; // delete error value to enable arming and rtl
 
@@ -458,7 +471,6 @@ void loop() {
 					++initStatus;
 				}
 				break;
-
 #ifdef USE_BAR
 			case 2:
 				// estimate initial altitude
@@ -467,7 +479,6 @@ void loop() {
 				}
 				break;
 #endif
-
 			default:
 				// quadcopter initialisation successful
 				initStatus = 0;
@@ -542,10 +553,8 @@ void loop() {
 					altitude_sp = altitude;
 				}
 				else if (fMode == FlightMode::ReturnToLaunch) {
-					rtl_location = current_location;
-
 					// reset rtl state
-					rtlState = RtlState::Climb;
+					rtlState = RtlState::Init;
 				}
 			}
 
@@ -579,12 +588,50 @@ void loop() {
 					throttle_out = THROTTLE_HOVER + velocity_v_mv;
 					break;
 
+				static uint32_t dt_state = 0;
+				static const uint32_t STATE_DT_MIN = 5000000; // minimum time in microseconds the condition for switching to the next state needs to be met before switching
+
 				case FlightMode::ReturnToLaunch:
 					// rtl state machine
 					switch (rtlState) {
+						case RtlState::Init:
+							rtl_location = current_location;
+							altitude_sp = altitude;
+							distance_yaw = 0;
+
+							dt_state = 0;
+
+							headingCorrection = 0;
+							headingCorrection_rad = 0;
+
+							rtlState = RtlState::Wait;
+							break;
+
+						case RtlState::Wait:
+							// bearing to rtl location
+							bearing_rad = current_location.BearingTo(rtl_location);
+							bearing = bearing_rad * DEG_PER_RAD;
+
+							// distance to rtl location
+							distance = current_location.DistanceKm(rtl_location) * 1000;
+
+							// keep the current yaw angle
+							distance_yaw = 0;
+
+							// check if the rtl location is reached
+							if (distance < 2) {
+								dt_state += dt;
+								if (dt_state > STATE_DT_MIN) {
+									dt_state = 0;
+									rtlState = RtlState::Climb;
+								}
+							}
+							break;
+
 						case RtlState::Climb:
 							// bearing to rtl location
 							bearing_rad = current_location.BearingTo(rtl_location);
+							bearing = bearing_rad * DEG_PER_RAD;
 
 							// distance to rtl location
 							distance = current_location.DistanceKm(rtl_location) * 1000;
@@ -593,67 +640,88 @@ void loop() {
 							distance_yaw = 0;
 
 							// climb to the maximum altitude reached during flight with some added offset for safety
-							altitude_sp = altitude; // TODO: Remove this after successful tests and uncomment altitude_sp below.
-							//altitude_sp = altitude_max + RTL_RETURN_OFFSET;
+							altitude_sp = altitude_max + RTL_RETURN_OFFSET;
 
 							// check if the altitude setpoint is reached
 							if (abs(altitude_sp - altitude) < 2) {
-								//TODO: Uncomment and test this later.
-								//rtlState = RtlState::YawToLaunch;
+								dt_state += dt;
+								if (dt_state > STATE_DT_MIN) {
+									dt_state = 0;
+									rtlState = RtlState::YawToLaunch;
+								}
 							}
 							break;
 
 						case RtlState::YawToLaunch:
 							// bearing to rtl location
 							bearing_rad = current_location.BearingTo(rtl_location);
+							bearing = bearing_rad * DEG_PER_RAD;
 
 							// distance to rtl location
 							distance = current_location.DistanceKm(rtl_location) * 1000;
 
 							// turn the quadcopter towards the launch location, but only if it is not too close
-							if (distance > 6) {
+							if (current_location.DistanceKm(launch_location) * 1000 > 6) {
 								// turn the quadcopter towards the launch location
-								distance_yaw = bearing - yaw_angle;
+								distance_yaw = current_location.BearingTo(launch_location) * DEG_PER_RAD - yaw_angle;
 
 								// check if the quadcopter is rotated towards the launch location
 								if (abs(distance_yaw) < 6) {
-									rtlState = RtlState::Return;
+									dt_state += dt;
+									if (dt_state > STATE_DT_MIN) {
+										dt_state = 0;
+										//rtlState = RtlState::Return;
+									}
 								}
 							}
 							else {
 								// keep the current yaw angle
 								distance_yaw = 0;
 
-								rtlState = RtlState::Return;
+								dt_state = 0;
+								//rtlState = RtlState::Return;
 							}
 							break;
 
 						case RtlState::Return:
 							// bearing to launch location
 							bearing_rad = current_location.BearingTo(launch_location);
+							bearing = bearing_rad * DEG_PER_RAD;
 
 							// distance to launch location
 							distance = current_location.DistanceKm(launch_location) * 1000;
 
-							// turn the quadcopter towards the launch location, but only if it is not too close
+							// turn the quadcopter towards the launch location and calculate heading correction, but only if it is not too close
 							if (distance > 6) {
 								// turn the quadcopter towards the launch location
 								distance_yaw = bearing - yaw_angle;
+
+								// calculate heading correction
+								headingCorrection = ema_filter(bearing - heading, headingCorrection, EMA_HEADING_CORRECTION);
+								headingCorrection_rad = headingCorrection * RAD_PER_DEG;
+									
+								headingCorrection_rad = 0; // TODO: Remove this line and test this.
 							}
 							else {
 								// keep the current yaw angle
 								distance_yaw = 0;
 							}
 
-							// check if the launch location was reached
-							if (distance < 3) {
-								rtlState = RtlState::YawToInitial;
+							// check if the launch location is reached
+							if (distance < 2) {
+								dt_state += dt;
+								if (dt_state > STATE_DT_MIN)
+								{
+									dt_state = 0;
+									rtlState = RtlState::YawToInitial;
+								}
 							}
 							break;
 
 						case RtlState::YawToInitial:
 							// bearing to launch location
 							bearing_rad = current_location.BearingTo(launch_location);
+							bearing = bearing_rad * DEG_PER_RAD;
 
 							// distance to launch location
 							distance = current_location.DistanceKm(launch_location) * 1000;
@@ -663,13 +731,19 @@ void loop() {
 
 							// check if the initial yaw angle is reached
 							if (abs(distance_yaw) < 6) {
-								rtlState = RtlState::Descend;
+								dt_state += dt;
+								if (dt_state > STATE_DT_MIN)
+								{
+									dt_state = 0;
+									rtlState = RtlState::Descend;
+								}
 							}
 							break;
 
 						case RtlState::Descend:
 							// bearing to launch location
 							bearing_rad = current_location.BearingTo(launch_location);
+							bearing = bearing_rad * DEG_PER_RAD;
 
 							// distance to launch location
 							distance = current_location.DistanceKm(launch_location) * 1000;
@@ -678,29 +752,15 @@ void loop() {
 							distance_yaw = yaw_angle_init - yaw_angle;
 
 							// descend to the initial altitude after arming with some added offset
-							//altitude_sp = altitude_init + RTL_DESCEND_OFFSET;
+							altitude_sp = altitude_init + RTL_DESCEND_OFFSET;
 							break;
 
 						default:
 							break;
 					}
 
-					// bearing in degrees
-					bearing = bearing_rad * DEG_PER_RAD;
-
 					// adjust the yaw distance to [-180, 180) in order to make sure the quadcopter turns the shortest way
 					adjustAngleRange(-180, 180, distance_yaw);
-
-					// calculate heading correction
-					if (rtlState == RtlState::Return) {
-						headingCorrection = ema_filter(bearing - heading, headingCorrection, EMA_HEADING_CORRECTION);
-						headingCorrection_rad = headingCorrection * RAD_PER_DEG;
-						
-						headingCorrection_rad = 0; // TODO: Remove this line and test this.
-					}
-					else {
-						headingCorrection_rad = 0;
-					}
 
 					// transform distance from ned- to horizontal frame and include heading correction to compensate inaccurate horizontal movement caused by bad compass measurements and wind
 					distance_x = distance * cos(bearing_rad - yaw_angle_rad + headingCorrection_rad);
@@ -723,6 +783,7 @@ void loop() {
 					// use throttle hover, so vertical velocity controller can take over smoothly
 					throttle_out = THROTTLE_HOVER + velocity_v_mv;
 					break;
+
 				default:
 					break;
 			}
@@ -763,34 +824,38 @@ void loop() {
 			// TODO: Remove this test code
 			static float p_rate, i_rate, d_rate;
 
-			/*p_rate = constrain(map((float) rc_channelValue[4], 1000, 2000, 1.75, 2.5), 1.75, 2.5);
-			//i_rate = constrain(map((float) rc_channelValue[5], 1000, 2000, 0.75, 1.75), 0.75, 1.75);
-			d_rate = constrain(map((float) rc_channelValue[5], 1000, 2000, 0.02, 0.03), 0.02, 0.03);
+			/*
+			p_rate = constrain(map((float) rc_channelValue[4], 1000, 2000, 2.0 2.5), 2.0, 2.5);
+			i_rate = constrain(map((float) rc_channelValue[5], 1000, 2000, 1.0, 2.0), 1.0, 2.0);
+			//d_rate = constrain(map((float) rc_channelValue[5], 1000, 2000, 0.02, 0.03), 0.02, 0.03);
 
 			roll_rate_pid.set_K_p(p_rate);
-			//roll_rate_pid.set_K_i(i_rate);
-			roll_rate_pid.set_K_d(d_rate);
+			roll_rate_pid.set_K_i(i_rate);
+			//roll_rate_pid.set_K_d(d_rate);
 
 			pitch_rate_pid.set_K_p(p_rate);
-			//pitch_rate_pid.set_K_i(i_rate);
-			pitch_rate_pid.set_K_d(d_rate);*/
+			pitch_rate_pid.set_K_i(i_rate);
+			//pitch_rate_pid.set_K_d(d_rate);
+			*/
 
-			/*p_rate = constrain(map((float) rc_channelValue[4], 1000, 2000, 3.5, 4.5), 3.5, 4.5);
-			i_rate = constrain(map((float) rc_channelValue[5], 1000, 2000, 2.0, 3.0), 2.0, 3.0);
-			//d_rate = constrain(map((float) rc_channelValue[5], 1000, 2000, -0.001, 0.01), 0, 0.01);
+			/*
+			p_rate = constrain(map((float) rc_channelValue[4], 1000, 2000, 3.5, 4.5), 3.5, 4.5);
+			i_rate = constrain(map((float) rc_channelValue[5], 1000, 2000, 2.0, 4.0), 2.0, 4.0);
+			//d_rate = constrain(map((float) rc_channelValue[5], 1000, 2000, 0.02, 0.025), 0.02, 0.025);
 
 			yaw_rate_pid.set_K_p(p_rate);
 			yaw_rate_pid.set_K_i(i_rate);
-			//yaw_rate_pid.set_K_d(0);*/
+			//yaw_rate_pid.set_K_d(d_rate);
+			*/
 
 			// TODO: Tune PID-controller for vertical velocity.
-			//p_rate = constrain(map((float) rc_channelValue[4], 1000, 2000, 450, 650), 450, 650);
-			i_rate = constrain(map((float) rc_channelValue[4], 1000, 2000, 100, 500), 100, 500);
-			d_rate = constrain(map((float) rc_channelValue[5], 1000, 2000, 20, 60), 20, 60);
+			p_rate = constrain(map((float) rc_channelValue[4], 1000, 2000, 75, 175), 75, 175);
+			i_rate = constrain(map((float) rc_channelValue[5], 1000, 2000, 50, 350), 50, 350);
+			//d_rate = constrain(map((float) rc_channelValue[5], 1000, 2000, 20, 60), 20, 60);
 
-			//velocity_v_pid.set_K_p(p_rate);
+			velocity_v_pid.set_K_p(p_rate);
 			velocity_v_pid.set_K_i(i_rate);
-			velocity_v_pid.set_K_d(d_rate);
+			//velocity_v_pid.set_K_d(d_rate);
 
 			// calculate manipulated variables for rates
 			roll_rate_mv = roll_rate_pid.get_mv(roll_rate_sp, roll_rate, dt_s);
@@ -834,7 +899,7 @@ void loop() {
 	if (micros() - t0_serial > 16666) {
 		t0_serial = micros();
 
-		//DEBUG_PRINT(ax); DEBUG_PRINT("\t"); DEBUG_PRINT(ay); DEBUG_PRINT("\t"); DEBUG_PRINTLN(az);
+		//DEBUG_PRINT(ax_filtered); DEBUG_PRINT("\t"); DEBUG_PRINT(ay_filtered); DEBUG_PRINT("\t"); DEBUG_PRINTLN(az_filtered);
 		//DEBUG_PRINT(gx_rps); DEBUG_PRINT("\t"); DEBUG_PRINT(gy_rps); DEBUG_PRINT("\t"); DEBUG_PRINTLN(gz_rps);
 		//DEBUG_PRINT(mx); DEBUG_PRINT("\t"); DEBUG_PRINT(my); DEBUG_PRINT("\t"); DEBUG_PRINTLN(mz);
 
@@ -936,8 +1001,8 @@ bool initPose(float beta_init, float beta, float init_angleDifference, float ini
 
 // calculate accelerometer x and y angles in degrees
 void accelAngles(float &roll_angle_accel, float &pitch_angle_accel) {
-	roll_angle_accel = atan2(ay, az) * DEG_PER_RAD;
-	pitch_angle_accel = atan2(-ax, sqrt(pow(ay, 2) + pow(az, 2))) * DEG_PER_RAD;
+	roll_angle_accel = atan2(ay_filtered, az_filtered) * DEG_PER_RAD;
+	pitch_angle_accel = atan2(-ax_filtered, sqrt(pow(ay_filtered, 2) + pow(az_filtered, 2))) * DEG_PER_RAD;
 }
 
 // estimate initial altitude
@@ -988,7 +1053,7 @@ void accel_ned_rel(float &a_n_relative, float &a_e_relative, float &a_d_relative
 
 	// acceleration quaternion in body-frame
 	static float a_q[4];
-	a_q[0] = 0; a_q[1] = ax; a_q[2] = ay; a_q[3] = az;
+	a_q[0] = 0; a_q[1] = ax_filtered; a_q[2] = ay_filtered; a_q[3] = az_filtered;
 
 	// acceleration quaternion in ned-frame
 	static float a_ned_q[4];
