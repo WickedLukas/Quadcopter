@@ -849,8 +849,8 @@ void loop() {
 			*/
 
 			// TODO: Tune PID-controller for vertical velocity.
-			p_rate = constrain(map((float) rc_channelValue[4], 1000, 2000, 250, 350), 250, 350);
-			i_rate = constrain(map((float) rc_channelValue[5], 1000, 2000, 150, 250), 150, 250);
+			p_rate = constrain(map((float) rc_channelValue[4], 1000, 2000, 100, 200), 100, 200);
+			i_rate = constrain(map((float) rc_channelValue[5], 1000, 2000, 10, 50), 50, 150);
 			//d_rate = constrain(map((float) rc_channelValue[5], 1000, 2000, 20, 60), 20, 60);
 
 			velocity_v_pid.set_K_p(p_rate);

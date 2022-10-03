@@ -128,10 +128,10 @@ const float P_PITCH_RATE = 2.000, I_PITCH_RATE = 6.000, D_PITCH_RATE = 0.020; //
 const float P_YAW_RATE = 4.000, I_YAW_RATE = 10.000, D_YAW_RATE = 0.020;      // 3.500, 2.000, 0.000
 
 // vertical velocity PID values for altitude hold
-const float P_VELOCITY_V = 250, I_VELOCITY_V = 150, D_VELOCITY_V = 20; // 450, 100, 20 // TODO: Tune PID. Integral part is probably still too low. (try I: 200)
+const float P_VELOCITY_V = 200, I_VELOCITY_V = 50, D_VELOCITY_V = 0; // 450, 100, 20
 
 // horizontal velocity PID values for return to launch
-const float P_VELOCITY_H = 2.000, I_VELOCITY_H = 1.0, D_VELOCITY_H = 0.2; // TODO: Tune PID.
+const float P_VELOCITY_H = 2.000, I_VELOCITY_H = 0.1, D_VELOCITY_H = 0; // TODO: Tune PID.
 
 // Cut of frequency f_c: https://dsp.stackexchange.com/questions/40462/exponential-moving-average-cut-off-frequency) (F_s = 9000)
 // EMA = 0.0139 --> f_c = 20 Hz; EMA = 0.0035 --> f_c = 5 Hz;
