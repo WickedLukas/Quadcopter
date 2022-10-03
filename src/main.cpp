@@ -38,7 +38,7 @@ MADGWICK_AHRS madgwickFilter(BETA_INIT);
 // barometer
 BMP388_DEV barometer;
 
-// 1D-Kalman-Filter combining barometer altitude and vertical acceleration into altitude
+// 1D-Kalman-Filter combining raw barometer altitude and vertical acceleration
 KalmanFilter1D altitudeFilter(TC_ALTITUDE_FILTER);
 
 // gps parser
@@ -86,10 +86,10 @@ bool initialised = false;
 // initial quadcopter yaw (z-axis) angle
 float yaw_angle_init;
 
-// initial quadcopter altitude
-float altitude_init;
+// initial quadcopter barometer altitude
+float baroAltitude_init;
 
-// maximum quadcopter altitude
+// maximum quadcopter altitude relative to starting ground
 float altitude_max;
 
 // Stores which errors occurred. Each bit belongs to a certain error.
@@ -134,10 +134,13 @@ float pose_q[4]; // quaternion
 // ned-acceleration relative to gravity
 float a_n_rel, a_e_rel, a_d_rel;
 
-// barometer altitude measurement
+// raw barometer altitude
+float baroAltitudeRaw;
+
+// filtered raw barometer altitude using altitudeFilter
 float baroAltitude;
 
-// altitude
+// altitude relative to starting ground
 float altitude;
 
 // vertical velocity
@@ -262,8 +265,7 @@ void setup() {
 	//p.AddTimeGraph("mv", 1000, "roll_rate_mv", roll_rate_mv, "pitch_rate_mv", pitch_rate_mv, "yaw_rate_mv", yaw_rate_mv);
 
 	//p.AddTimeGraph("Relative ned-acceleration", 1000, "a_n_rel", a_n_rel, "a_e_rel", a_e_rel, "a_d_rel", a_d_rel);
-	//p.AddTimeGraph("alt", 1000, "A", altitude, "bA", baroAltitude);
-	//p.AddTimeGraph("alt", 1000, "A", altitude, "bA", baroAltitude/*, "aS", altitude_sp*/);
+	//p.AddTimeGraph("alt", 1000, "A", baroAltitude, "bA", baroAltitudeRaw);
 	//p.AddTimeGraph("v_vel", 1000, "V", velocity_v/*, "V_sp", velocity_v_sp*/);
 
 	//p.AddTimeGraph("bearing", 1000, "bearing", bearing);
@@ -369,13 +371,13 @@ void loop() {
 	yaw_angle_rad = yaw_angle * RAD_PER_DEG;
 
 #ifdef USE_BAR
-	// * get altitude from barometer
+	// * get raw altitude from barometer
 	static uint32_t dt_bar = 0;
 	if (barometerInterrupt) {
 		barometerInterrupt = false;
 		dt_bar = 0;
 
-		barometer.getAltitude(baroAltitude);
+		barometer.getAltitude(baroAltitudeRaw);
 	}
 	else if (initialised) {
 		// check if barometer is still working
@@ -392,9 +394,12 @@ void loop() {
 	accel_ned_rel(a_n_rel, a_e_rel, a_d_rel);
 
 	// * calculate quadcopter altitude in m and vertical velocity in m/s
-	altitudeFilter.update(a_d_rel, baroAltitude, dt_s);
-	altitude = altitudeFilter.get_position();
+	altitudeFilter.update(a_d_rel, baroAltitudeRaw, dt_s);
+	baroAltitude = altitudeFilter.get_position();
 	velocity_v = altitudeFilter.get_velocity();
+
+	// altitude relative to starting ground
+	altitude = baroAltitude - baroAltitude_init;
 #endif
 
 #ifdef USE_GPS
@@ -458,9 +463,6 @@ void loop() {
 
 		switch (initStatus) {
 			case 0:
-				t0 = micros();
-				yaw_angle_init = -1000; // reset initial quadcopter z-axis angle
-				altitude_init = -1000;  // reset initial quadcopter altitude
 				disarmAndResetQuad();
 				
 				++initStatus;
@@ -473,7 +475,7 @@ void loop() {
 				break;
 #ifdef USE_BAR
 			case 2:
-				// estimate initial altitude
+				// estimate initial barometer altitude
 				if (initAltitude(INIT_VELOCITY_V, dt_s)) {
 					++initStatus;
 				}
@@ -752,7 +754,7 @@ void loop() {
 							distance_yaw = yaw_angle_init - yaw_angle;
 
 							// descend to the initial altitude after arming with some added offset
-							altitude_sp = altitude_init + RTL_DESCEND_OFFSET;
+							altitude_sp = RTL_DESCEND_OFFSET;
 							break;
 
 						default:
@@ -877,7 +879,7 @@ void loop() {
 	else if (motors.getState() == MotorsQuad::State::disarmed) {
 		// store the initial yaw angle and altitude before the quadcopter gets armed
 		yaw_angle_init = yaw_angle;
-		altitude_init = altitude;
+		baroAltitude_init = baroAltitude;
 
 		// reset the maximum altitude
 		altitude_max = -10000;
@@ -946,11 +948,14 @@ void loop() {
 // estimate initial pose
 bool initPose(float beta_init, float beta, float init_angleDifference, float init_rate, float dt_s) {
 	static state initPose_state = state::init;
+	static float yaw_angle_last;
 
 	switch (initPose_state) {
 		case state::init:
 			DEBUG_PRINTLN(F("Estimating initial pose. Keep device at rest ..."));
 
+			yaw_angle_last = yaw_angle - 1000;
+			
 			// set higher beta value to speed up pose estimation
 			madgwickFilter.set_beta(beta_init);
 
@@ -964,7 +969,7 @@ bool initPose(float beta_init, float beta, float init_angleDifference, float ini
 
 			// initial pose is estimated if filtered x- and y-axis angles, as well as z-axis angular velocity, converged
 			if ((abs(roll_angle_accel - roll_angle) < init_angleDifference) && (abs(pitch_angle_accel - pitch_angle) < init_angleDifference)
-			&& ((abs(yaw_angle - yaw_angle_init) / dt_s) < init_rate)) {
+			&& ((abs(yaw_angle - yaw_angle_last) / dt_s) < init_rate)) {
 				// reduce beta value, since filtered angles have stabilized during initialisation
 				madgwickFilter.set_beta(beta);
 
@@ -973,11 +978,11 @@ bool initPose(float beta_init, float beta, float init_angleDifference, float ini
 				DEBUG_PRINTLN(F("Initial pose estimated."));
 				DEBUG_PRINTLN2(abs(roll_angle_accel - roll_angle), 6);
 				DEBUG_PRINTLN2(abs(pitch_angle_accel - pitch_angle), 6);
-				DEBUG_PRINTLN2(abs(yaw_angle - yaw_angle_init) / dt_s, 6);
+				DEBUG_PRINTLN2(abs(yaw_angle - yaw_angle_last) / dt_s, 6);
 
 				return true;
 			}
-			yaw_angle_init = yaw_angle;
+			yaw_angle_last = yaw_angle;
 
 #ifdef DEBUG
 			// run serial print at a rate independent of the main loop
@@ -1005,35 +1010,38 @@ void accelAngles(float &roll_angle_accel, float &pitch_angle_accel) {
 	pitch_angle_accel = atan2(-ax_filtered, sqrt(pow(ay_filtered, 2) + pow(az_filtered, 2))) * DEG_PER_RAD;
 }
 
-// estimate initial altitude
+// estimate initial barometer altitude
 bool initAltitude(float init_velocity_v, float dt_s) {
 	static state initAltitude_state = state::init;
+	static float dt_altitude_s;
+	static float baroAltitude_last;
 
 	switch (initAltitude_state) {
 		case state::init:
-			DEBUG_PRINTLN(F("Estimating initial altitude. Keep device at rest ..."));
+			DEBUG_PRINTLN(F("Estimating initial barometer altitude. Keep device at rest ..."));
+
+			dt_altitude_s = 0;
+			baroAltitude_last = baroAltitude - 1000;
 
 			initAltitude_state = state::busy;
 			break;
 
 		case state::busy:
-			static float dt_altitude_s = 0;
-
 			if (dt_altitude_s > 1) {
 				// initial altitude is estimated if vertical velocity converged
 				// TODO: Use velocity from altitudeFilter instead
-				if ((abs(altitude - altitude_init) / dt_altitude_s) < init_velocity_v) {
+				if ((abs(baroAltitude - baroAltitude_last) / dt_altitude_s) < init_velocity_v) {
 					initAltitude_state = state::init;
 
-					DEBUG_PRINTLN(F("Initial altitude estimated."));
-					DEBUG_PRINTLN2(abs(altitude - altitude_init) / dt_altitude_s, 2);
+					DEBUG_PRINTLN(F("Initial barometer altitude estimated."));
+					DEBUG_PRINTLN2(abs(baroAltitude - baroAltitude_last) / dt_altitude_s, 2);
 
 					return true;
 				}
-				altitude_init = altitude;
+				baroAltitude_last = baroAltitude;
 				dt_altitude_s = 0;
 
-				DEBUG_PRINTLN(altitude);
+				DEBUG_PRINTLN(baroAltitude);
 			}
 			dt_altitude_s += dt_s;
 
