@@ -60,9 +60,9 @@ NeoGPS::Location_t rtl_location;
 MotorsQuad motors(MOTOR_PIN_1, MOTOR_PIN_2, MOTOR_PIN_3, MOTOR_PIN_4, MOTOR_PWM_RESOLUTION, MOTOR_PWM_FREQUENCY);
 
 // rate PID controller
-PID_controller roll_rate_pid(P_ROLL_RATE, I_ROLL_RATE, D_ROLL_RATE, 250, 50, EMA_ROLL_RATE_P, EMA_ROLL_RATE_D);
-PID_controller pitch_rate_pid(P_PITCH_RATE, I_PITCH_RATE, D_PITCH_RATE, 250, 50, EMA_PITCH_RATE_P, EMA_PITCH_RATE_D);
-PID_controller yaw_rate_pid(P_YAW_RATE, I_YAW_RATE, D_YAW_RATE, 250, 100, EMA_YAW_RATE_P, EMA_YAW_RATE_D);
+PID_controller roll_rate_pid(P_ROLL_RATE, I_ROLL_RATE, D_ROLL_RATE, 250, 75, EMA_ROLL_RATE_P, EMA_ROLL_RATE_D, true);
+PID_controller pitch_rate_pid(P_PITCH_RATE, I_PITCH_RATE, D_PITCH_RATE, 250, 75, EMA_PITCH_RATE_P, EMA_PITCH_RATE_D, true);
+PID_controller yaw_rate_pid(P_YAW_RATE, I_YAW_RATE, D_YAW_RATE, 250, 100, EMA_YAW_RATE_P, EMA_YAW_RATE_D, true);
 
 // vertical velocity PID controller for altitude hold
 PID_controller velocity_v_pid(P_VELOCITY_V, I_VELOCITY_V, D_VELOCITY_V, THROTTLE_LIMIT - THROTTLE_HOVER, 200, EMA_VELOCITY_V_P, EMA_VELOCITY_V_D);
@@ -619,7 +619,7 @@ void loop() {
 							distance_yaw = 0;
 
 							// check if the rtl location is reached
-							if (distance < 2) {
+							if (distance < 1.5) {
 								dt_state += dt;
 								if (dt_state > STATE_DT_MIN) {
 									dt_state = 0;
@@ -643,7 +643,7 @@ void loop() {
 							altitude_sp = altitude_max + RTL_RETURN_OFFSET;
 
 							// check if the altitude setpoint is reached
-							if (abs(altitude_sp - altitude) < 2) {
+							if (abs(altitude_sp - altitude) < 1.5) {
 								dt_state += dt;
 								if (dt_state > STATE_DT_MIN) {
 									dt_state = 0;
@@ -661,7 +661,7 @@ void loop() {
 							distance = current_location.DistanceKm(rtl_location) * 1000;
 
 							// turn the quadcopter towards the launch location, but only if it is not too close
-							if (current_location.DistanceKm(launch_location) * 1000 > 6) {
+							if (current_location.DistanceKm(launch_location) * 1000 > 10) {
 								// turn the quadcopter towards the launch location
 								distance_yaw = current_location.BearingTo(launch_location) * DEG_PER_RAD - yaw_angle;
 
@@ -670,7 +670,7 @@ void loop() {
 									dt_state += dt;
 									if (dt_state > STATE_DT_MIN) {
 										dt_state = 0;
-										//rtlState = RtlState::Return;
+										rtlState = RtlState::Return;
 									}
 								}
 							}
@@ -679,7 +679,7 @@ void loop() {
 								distance_yaw = 0;
 
 								dt_state = 0;
-								//rtlState = RtlState::Return;
+								rtlState = RtlState::Return;
 							}
 							break;
 
@@ -692,7 +692,7 @@ void loop() {
 							distance = current_location.DistanceKm(launch_location) * 1000;
 
 							// turn the quadcopter towards the launch location and calculate heading correction, but only if it is not too close
-							if (distance > 6) {
+							if (distance > 10) {
 								// turn the quadcopter towards the launch location
 								distance_yaw = bearing - yaw_angle;
 
@@ -708,7 +708,7 @@ void loop() {
 							}
 
 							// check if the launch location is reached
-							if (distance < 2) {
+							if (distance < 1.5) {
 								dt_state += dt;
 								if (dt_state > STATE_DT_MIN)
 								{
@@ -849,8 +849,8 @@ void loop() {
 			*/
 
 			// TODO: Tune PID-controller for vertical velocity.
-			p_rate = constrain(map((float) rc_channelValue[4], 1000, 2000, 75, 175), 75, 175);
-			i_rate = constrain(map((float) rc_channelValue[5], 1000, 2000, 50, 350), 50, 350);
+			p_rate = constrain(map((float) rc_channelValue[4], 1000, 2000, 250, 350), 250, 350);
+			i_rate = constrain(map((float) rc_channelValue[5], 1000, 2000, 150, 250), 150, 250);
 			//d_rate = constrain(map((float) rc_channelValue[5], 1000, 2000, 20, 60), 20, 60);
 
 			velocity_v_pid.set_K_p(p_rate);

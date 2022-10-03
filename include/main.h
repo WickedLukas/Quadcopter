@@ -104,7 +104,7 @@ const uint16_t THROTTLE_DEADZONE_TOP = 1000 + 10 * (50 + 0.5 * THROTTLE_DEADZONE
 //const float ACCEL_MIN_ROLL_PITCH = 40;
 //const float ACCEL_MIN_YAW = 10;
 const float ACCEL_ROLL_PITCH_LIMIT = 1100; // 1100, 720
-const float ACCEL_YAW_LIMIT = 180;         // 270, 180
+const float ACCEL_YAW_LIMIT = 270;         // 270, 180
 
 // angle time constants
 const float TC_ROLL_PITCH_ANGLE = 0.15; // 0.15
@@ -123,12 +123,12 @@ const float TC_ALTITUDE = 1;
 const float TC_DISTANCE = 2;
 
 // angular rate PID values
-const float P_ROLL_RATE = 2.000, I_ROLL_RATE = 0.500, D_ROLL_RATE = 0.020;    // 2.000, 0.000, 0.023 @ 0.006 EMA_RATE
-const float P_PITCH_RATE = 2.000, I_PITCH_RATE = 0.500, D_PITCH_RATE = 0.020; // 2.000, 0.000, 0.023 @ 0.006 EMA_RATE
-const float P_YAW_RATE = 3.500, I_YAW_RATE = 2.000, D_YAW_RATE = 0.000;       // 3.500, 2.000, 0.000
+const float P_ROLL_RATE = 2.000, I_ROLL_RATE = 6.000, D_ROLL_RATE = 0.020;    // 2.000, 0.000, 0.023 @ 0.006 EMA_RATE
+const float P_PITCH_RATE = 2.000, I_PITCH_RATE = 6.000, D_PITCH_RATE = 0.020; // 2.000, 0.000, 0.023 @ 0.006 EMA_RATE
+const float P_YAW_RATE = 4.000, I_YAW_RATE = 10.000, D_YAW_RATE = 0.020;      // 3.500, 2.000, 0.000
 
 // vertical velocity PID values for altitude hold
-const float P_VELOCITY_V = 150, I_VELOCITY_V = 100, D_VELOCITY_V = 20; // 450, 100, 20 // TODO: Tune PID. Integral part is probably still too low. (try I: 900)
+const float P_VELOCITY_V = 250, I_VELOCITY_V = 150, D_VELOCITY_V = 20; // 450, 100, 20 // TODO: Tune PID. Integral part is probably still too low. (try I: 200)
 
 // horizontal velocity PID values for return to launch
 const float P_VELOCITY_H = 2.000, I_VELOCITY_H = 1.0, D_VELOCITY_H = 0.2; // TODO: Tune PID.
@@ -138,7 +138,7 @@ const float P_VELOCITY_H = 2.000, I_VELOCITY_H = 1.0, D_VELOCITY_H = 0.2; // TOD
 // EMA = 0.1301 --> f_c = 200 Hz; EMA = 0.0674 --> f_c = 100 Hz;
 
 // EMA filter parameter for accelerometer
-const float EMA_ACCEL = 0.0005; // TODO: Reduce this value if angle estimation is incorrect during flight.
+const float EMA_ACCEL = 0.0003; // TODO: Reduce this value if angle estimation is incorrect during flight.
 
 // EMA filter parameters for proportional (P) and derivative (D) rate controller inputs.
 const float EMA_ROLL_RATE_P = 0.040;  // 0.040
