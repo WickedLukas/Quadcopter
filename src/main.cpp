@@ -761,6 +761,9 @@ void loop() {
 							break;
 					}
 
+					// because the yaw angle is inverted with gps, while the yaw rates are not, this parameter needs to be inverted
+					distance_yaw = -distance_yaw;
+
 					// adjust the yaw distance to [-180, 180) in order to make sure the quadcopter turns the shortest way
 					adjustAngleRange(-180, 180, distance_yaw);
 
