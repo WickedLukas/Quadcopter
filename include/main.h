@@ -123,15 +123,15 @@ const float TC_ALTITUDE = 1;
 const float TC_DISTANCE = 2;
 
 // angular rate PID values
-const float P_ROLL_RATE = 2.000, I_ROLL_RATE = 6.000, D_ROLL_RATE = 0.020;    // 2.000, 0.000, 0.023 @ 0.006 EMA_RATE
-const float P_PITCH_RATE = 2.000, I_PITCH_RATE = 6.000, D_PITCH_RATE = 0.020; // 2.000, 0.000, 0.023 @ 0.006 EMA_RATE
-const float P_YAW_RATE = 4.000, I_YAW_RATE = 10.000, D_YAW_RATE = 0.020;      // 3.500, 2.000, 0.000
+const float P_ROLL_RATE = 2.0, I_ROLL_RATE = 6.0, D_ROLL_RATE = 0.020;    // 2.000, 0.000, 0.023 @ 0.006 EMA_RATE
+const float P_PITCH_RATE = 2.0, I_PITCH_RATE = 6.0, D_PITCH_RATE = 0.020; // 2.000, 0.000, 0.023 @ 0.006 EMA_RATE
+const float P_YAW_RATE = 3.5, I_YAW_RATE = 10.0, D_YAW_RATE = 0.020;      // 3.500, 2.000, 0.000
 
 // vertical velocity PID values for altitude hold
-const float P_VELOCITY_V = 200, I_VELOCITY_V = 0.1, D_VELOCITY_V = 0; // 450, 100, 20
+const float P_VELOCITY_V = 40, I_VELOCITY_V = 10, D_VELOCITY_V = 0; // TODO: Tune PID.
 
 // horizontal velocity PID values for return to launch
-const float P_VELOCITY_H = 2.000, I_VELOCITY_H = 0.05, D_VELOCITY_H = 0; // TODO: Tune PID.
+const float P_VELOCITY_H = 4.0, I_VELOCITY_H = 1.0, D_VELOCITY_H = 0; // TODO: Tune PID.
 
 // Cut of frequency f_c: https://dsp.stackexchange.com/questions/40462/exponential-moving-average-cut-off-frequency) (F_s = 9000)
 // EMA = 0.0139 --> f_c = 20 Hz; EMA = 0.0035 --> f_c = 5 Hz;

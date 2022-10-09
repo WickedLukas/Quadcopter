@@ -621,7 +621,7 @@ void loop() {
 							distance_yaw = 0;
 
 							// check if the rtl location is reached
-							if (distance < 1.5) {
+							if (distance < 2) {
 								dt_state += dt;
 								if (dt_state > STATE_DT_MIN) {
 									dt_state = 0;
@@ -645,7 +645,7 @@ void loop() {
 							altitude_sp = altitude_max + RTL_RETURN_OFFSET;
 
 							// check if the altitude setpoint is reached
-							if (abs(altitude_sp - altitude) < 1.5) {
+							if (abs(altitude_sp - altitude) < 2) {
 								dt_state += dt;
 								if (dt_state > STATE_DT_MIN) {
 									dt_state = 0;
@@ -710,7 +710,7 @@ void loop() {
 							}
 
 							// check if the launch location is reached
-							if (distance < 1.5) {
+							if (distance < 2) {
 								dt_state += dt;
 								if (dt_state > STATE_DT_MIN)
 								{
@@ -854,8 +854,8 @@ void loop() {
 			*/
 
 			// TODO: Tune PID-controller for vertical velocity.
-			p_rate = constrain(map((float) rc_channelValue[4], 1000, 2000, 100, 200), 100, 200);
-			i_rate = constrain(map((float) rc_channelValue[5], 1000, 2000, 0.01, 0.1), 0.01, 0.1);
+			p_rate = constrain(map((float) rc_channelValue[4], 1000, 2000, 40, 100), 40, 100);
+			i_rate = constrain(map((float) rc_channelValue[5], 1000, 2000, 10, 20), 10, 20);
 			//d_rate = constrain(map((float) rc_channelValue[5], 1000, 2000, 20, 60), 20, 60);
 
 			velocity_v_pid.set_K_p(p_rate);
