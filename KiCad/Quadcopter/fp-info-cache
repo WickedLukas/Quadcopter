@@ -1,4 +1,4 @@
-21611795664464338
+21616835559882626
 Audio_Module
 Reverb_BTDR-1H
 Digital Reverberation Unit, http://www.belton.co.kr/inc/downfile.php?seq=17&file=pdf (footprint from http://www.uk-electronic.de/PDF/BTDR-1.pdf)
@@ -60732,6 +60732,13 @@ D24V10F5
 5
 5
 Lukas
+DC-DC converter
+
+
+0
+3
+3
+Lukas
 ICM-20948_CJMCU
 
 
@@ -79947,6 +79954,13 @@ Potentiometer vertical Vishay T73YP
 3
 3
 Quadcopter
+691402910002B
+WR-TBL Terminal block - serie 4029 2,54mm - Spring clamp/Screwless - Horizontal wire entry - 02p;
+
+0
+4
+4
+Quadcopter
 BMP388
 
 
@@ -83418,6 +83432,13 @@ LEM Hall Effect Voltage transducer
 0
 5
 5
+SnapEDA
+691402910002B
+WR-TBL Terminal block - serie 4029 2,54mm - Spring clamp/Screwless - Horizontal wire entry - 02p;
+
+0
+4
+4
 Socket
 3M_Textool_240-1288-00-0602J_2x20_P2.54mm
 3M 40-pin zero insertion force socket, though-hole, row spacing 25.4 mm (1000 mils)
