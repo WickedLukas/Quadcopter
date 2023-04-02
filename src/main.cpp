@@ -155,20 +155,8 @@ float velocity_x, velocity_y;
 // distance to target location
 float distance;
 
-// distance to target location in horizontal frame 
-float distance_x, distance_y;
-
-// bearing to target location (clockwise from north)
-float bearing, bearing_rad;
-
 // quadcopter heading
 float heading;
-
-// heading correction to compensate inaccurate horizontal movement caused by bad compass measurements and wind 
-float headingCorrection, headingCorrection_rad;
-
-// distance to target yaw angle
-float distance_yaw;
 
 // filtered gyro rates
 float roll_rate, pitch_rate, yaw_rate;
@@ -517,9 +505,6 @@ void loop() {
 				break;
 		}
 
-		// last flight mode
-		static FlightMode fMode_last;
-
 		static float throttle;
 		// map throttle to [-1, 1]
 		throttle = map((float) rc_channelValue[THROTTLE], 1000, 2000, -1, 1);
@@ -530,6 +515,9 @@ void loop() {
 
 		// in order to ensure a smooth start, PID calculations are delayed until hover throttle is reached
 		if (started) {
+			// last flight mode
+			static FlightMode fMode_last{fMode};
+
 #if defined(USE_GPS) && defined(USE_BAR) && defined(USE_MAG)
 			if ((rc_channelValue[RTL] == 2000) && !(error_code & (ERROR_GPS | ERROR_BAR))) {
 				fMode = FlightMode::ReturnToLaunch;
@@ -558,7 +546,15 @@ void loop() {
 					// reset rtl state
 					rtlState = RtlState::Init;
 				}
+				
+				fMode_last = fMode;
 			}
+
+			// TODO: Move the following code to a function.
+			// navigation(fMode, dt_s, throttle, altitude, throttle_out, velocity_v_sp, altitude_sp, roll_angle_sp, pitch_angle_sp, yaw_rate_sp);
+
+			// heading correction to compensate inaccurate horizontal movement caused by bad compass measurements and wind 
+			static float headingCorrection, headingCorrection_rad;
 
 			switch (fMode) {
 				case FlightMode::Stabilize:
@@ -582,18 +578,22 @@ void loop() {
 						// shape vertical velocity setpoint to hold altitude
 						velocity_v_sp = constrain(shape_position(altitude_sp - altitude, TC_ALTITUDE, ACCEL_V_LIMIT, velocity_v_sp, dt_s), -VELOCITY_V_LIMIT, VELOCITY_V_LIMIT);
 					}
-
-					// calculate manipulated variable for vertical velocity
-					velocity_v_mv = velocity_v_pid.get_mv(velocity_v_sp, velocity_v, dt_s);
-
-					// use throttle hover, so vertical velocity controller can take over smoothly
-					throttle_out = THROTTLE_HOVER + velocity_v_mv;
 					break;
 
-				static uint32_t dt_state = 0;
-				static const uint32_t STATE_DT_MIN = 5000000; // minimum time in microseconds the condition for switching to the next state needs to be met before switching
-
 				case FlightMode::ReturnToLaunch:
+					static uint32_t dt_state = 0;
+					// minimum time in microseconds the condition for switching to the next state needs to be met before switching
+					static const uint32_t STATE_DT_MIN = 5000000; 
+
+					// bearing to target location (clockwise from north)
+					static float bearing, bearing_rad;
+
+					// distance to target location in horizontal frame 
+					static float distance_x, distance_y;
+
+					// distance to target yaw angle
+					static float distance_yaw;
+
 					// rtl state machine
 					switch (rtlState) {
 						case RtlState::Init:
@@ -781,31 +781,33 @@ void loop() {
 
 					// shape vertical velocity setpoint
 					velocity_v_sp = constrain(shape_position(altitude_sp - altitude, TC_ALTITUDE, ACCEL_V_LIMIT, velocity_v_sp, dt_s), -VELOCITY_V_LIMIT, VELOCITY_V_LIMIT);
-
-					// calculate manipulated variable for vertical velocity
-					velocity_v_mv = velocity_v_pid.get_mv(velocity_v_sp, velocity_v, dt_s);
-
-					// use throttle hover, so vertical velocity controller can take over smoothly
-					throttle_out = THROTTLE_HOVER + velocity_v_mv;
+					
+					// calculate angle setpoints from velocity setpoints
+					roll_angle_sp = velocity_y_pid.get_mv(velocity_y_sp, velocity_y, dt_s);
+					pitch_angle_sp = velocity_x_pid.get_mv(velocity_x_sp, velocity_x, dt_s);
+				
+					// shape yaw rate setpoint
+					yaw_rate_sp = constrain(shape_position(distance_yaw, TC_YAW_ANGLE, ACCEL_YAW_LIMIT, yaw_rate_sp, dt_s), -YAW_RATE_LIMIT, YAW_RATE_LIMIT);
 					break;
 
 				default:
 					break;
 			}
 
+			if (fMode != FlightMode::Stabilize)
+			{
+				// calculate manipulated variable for vertical velocity
+				velocity_v_mv = velocity_v_pid.get_mv(velocity_v_sp, velocity_v, dt_s);
+
+				// use throttle hover, so vertical velocity controller can take over smoothly
+				throttle_out = THROTTLE_HOVER + velocity_v_mv;
+			}
+
 			// Tilt compensated thrust: Increase throttle when the quadcopter is tilted, to compensate for height loss during horizontal movement.
 			// Note: In order to maintain stability, throttle is limited to the throttle limit.
 			throttle_out = constrain((float) (throttle_out - 1000) / (pose_q[0] * pose_q[0] - pose_q[1] * pose_q[1] - pose_q[2] * pose_q[2] + pose_q[3] * pose_q[3]) + 1000, 1000, THROTTLE_LIMIT);
 
-			if (fMode == FlightMode::ReturnToLaunch) {
-				// calculate angle setpoints from velocity setpoints
-				roll_angle_sp = velocity_y_pid.get_mv(velocity_y_sp, velocity_y, dt_s);
-				pitch_angle_sp = velocity_x_pid.get_mv(velocity_x_sp, velocity_x, dt_s);
-				
-				// shape yaw rate setpoint
-				yaw_rate_sp = constrain(shape_position(distance_yaw, TC_YAW_ANGLE, ACCEL_YAW_LIMIT, yaw_rate_sp, dt_s), -YAW_RATE_LIMIT, YAW_RATE_LIMIT);
-			}
-			else {
+			if (fMode != FlightMode::ReturnToLaunch) {
 				// update the maximum altitude for rtl
 				altitude_max = max(altitude, altitude_max);
 
@@ -876,8 +878,6 @@ void loop() {
 				DEBUG_PRINTLN(F("Started!"));
 			}
 		}
-
-		fMode_last = fMode;
 	}
 	else if (motors.getState() == MotorsQuad::State::disarmed) {
 		// store the initial yaw angle and altitude before the quadcopter gets armed
