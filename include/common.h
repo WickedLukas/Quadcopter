@@ -15,6 +15,11 @@
 // ! For safety, define MOTORS_OFF to prevent motors from running.
 //#define MOTORS_OFF
 
+// define which sensors shall be used
+#define USE_BAR // use barometer
+#define USE_MAG // use magnetometer // TODO: Check if magnetometer data is reliable when motors are running.
+#define USE_GPS // use GPS
+
 #ifdef DEBUG
     #define DEBUG_PRINT(x) Serial.print(x)
     #define DEBUG_PRINTLN(x) Serial.println(x)
@@ -60,7 +65,7 @@ const float RAD_PER_DEG = (float)71 / 4068;
 // mode: 0		off
 // mode: 1		blink
 // mode: > 1	on
-void updateLED(uint8_t pin, uint8_t mode, uint32_t interval_ms = 1000);
+void updateLed(uint8_t pin, uint8_t mode, uint32_t interval_ms = 1000);
 
 // adjust angle range to [min, max)
 void adjustAngleRange(float min, float max, float &angle);

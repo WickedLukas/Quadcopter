@@ -6,7 +6,7 @@
 // mode: 0		off
 // mode: 1		blink
 // mode: > 1	on
-void updateLED(uint8_t pin, uint8_t mode, uint32_t interval_ms) {
+void updateLed(uint8_t pin, uint8_t mode, uint32_t interval_ms) {
 	static uint8_t ledState = LOW;
 	static uint32_t t0_ms = 0, t_ms = 0;
 	

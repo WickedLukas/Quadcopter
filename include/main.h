@@ -1,14 +1,13 @@
 #ifndef MAIN_H_
 #define MAIN_H_
 
+#include "common.h"
+
+#include <Plotter.h>
+
 #include <stdint.h>
 
 // TODO: Tune parameters for altitude hold mode (barometer filter settings, PID, ...).
-
-// define which sensors shall be used
-#define USE_BAR // use barometer
-#define USE_MAG // use magnetometer // TODO: Check if magnetometer data is reliable when motors are running.
-#define USE_GPS // use GPS
 
 #if defined(USE_GPS) && (!defined(USE_MAG) || !defined(USE_BAR))
 #error If USE_GPS is defined USE_MAGNETOMETER and USE_BAR must be defined!
@@ -185,21 +184,38 @@ const uint8_t ERROR_GPS = 0b00001000;
 enum class state { init, busy };
 
 // estimate initial pose
-bool initPose(float beta_init, float beta, float init_angleDifference, float init_rate, float dt_s);
+bool initPose(float beta_init, float beta, float init_angleDifference, float init_rate);
 
 // calculate accelerometer x and y angles in degrees
 void accelAngles(float &roll_angle_accel, float &pitch_angle_accel);
 
 // estimate initial altitude
-bool initAltitude(float init_velocity_v, float dt_s);
+bool initAltitude(float init_velocity_v);
 
 // calculate the acceleration in ned-frame relative to gravity
 void accel_ned_rel(float &a_n_rel, float &a_e_rel, float &a_d_rel);
 
+// update LED according to quadcopter status (error, motors armed/disarmed and initialisation)
+void updateLedStatus();
+
+// calculate loop time in microseconds (dt) and seconds (dt_s)
+void loopTime();
+
+// calculate roll and pitch angle setpoints as well as yaw rate setpoint from radio control input
+void rc_rpAngle_yRate(float &roll_angle_sp, float &pitch_angle_sp, float &yaw_rate_sp);
+
+// calculate xyv-velocity setpoints and yaw rate setpoint for returning to launch
+void rtl_xyVelocity_yRate(float &velocity_x_sp, float &velocity_y_sp, float &velocity_v_sp, float &yaw_rate_sp);
+
 // arm/disarm on rc command and disarm on failsafe conditions
-void arm_failsafe(uint8_t fs_config, int32_t dt);
+void arm_failsafe(uint8_t fs_config);
 
 // disarm and reset quadcopter
 void disarmAndResetQuad();
+
+#ifdef PLOT
+// add time graphs to plot through Processing
+void addTimeGraphs(Plotter &p);
+#endif
 
 #endif

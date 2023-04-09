@@ -1,5 +1,4 @@
 #include "main.h"
-#include "common.h"
 #include "calibration.h"
 #include "motorsQuad.h"
 #include "shapeTrajectory.h"
@@ -13,7 +12,6 @@
 #include <PID_controller.h>
 #include <BMP388_DEV.h>
 #include <NMEAGPS.h>
-#include <Plotter.h>
 
 #include <Arduino.h>
 #include <EEPROM.h>
@@ -23,7 +21,7 @@
 // ! Parameters can be set inside "main.h".
 
 #ifdef PLOT
-Plotter p;
+Plotter plot;
 #endif
 
 // radio control (rc)
@@ -32,15 +30,30 @@ IBUS rc;
 // inertial measurement unit (imu)
 ICM20948_SPI imu(IMU_CS_PIN, IMU_SPI_PORT);
 
+// imu interrupt
+volatile bool imuInterrupt = false;
+void imuReady() {
+	imuInterrupt = true;
+}
+
 // Madgwick filter for pose estimation
 MADGWICK_AHRS madgwickFilter(BETA_INIT);
 
+#ifdef USE_BAR
 // barometer
 BMP388_DEV barometer;
 
+// barometer interrupt
+volatile bool barometerInterrupt = false;
+void barometerReady() {
+	barometerInterrupt = true;
+}
+
 // 1D-Kalman-Filter combining raw barometer altitude and vertical acceleration
 KalmanFilter1D altitudeFilter(TC_ALTITUDE_FILTER);
+#endif
 
+#ifdef USE_GPS
 // gps parser
 NMEAGPS gps;
 
@@ -55,6 +68,7 @@ NeoGPS::Location_t launch_location;
 
 // location where rtl mode was entered
 NeoGPS::Location_t rtl_location;
+#endif
 
 // motors
 MotorsQuad motors(MOTOR_PIN_1, MOTOR_PIN_2, MOTOR_PIN_3, MOTOR_PIN_4, MOTOR_PWM_RESOLUTION, MOTOR_PWM_FREQUENCY);
@@ -79,6 +93,9 @@ enum class RtlState { Init, Wait, Climb, YawToLaunch, Return, YawToInitial, Desc
 
 // calibration data
 calibration_data calibration_eeprom;
+
+int32_t dt; // loop time in microseconds
+float dt_s; // loop time in seconds
 
 // flag used to initialise the quadcopter pose and altitude after power on or calibration
 bool initialised = false;
@@ -155,7 +172,7 @@ float velocity_x, velocity_y;
 // distance to target location
 float distance;
 
-// quadcopter heading
+// heading
 float heading;
 
 // filtered gyro rates
@@ -164,24 +181,12 @@ float roll_rate, pitch_rate, yaw_rate;
 // PID calculations are delayed until started flag becomes true, which happens when minimum throttle is reached
 bool started = false;
 
-// imu interrupt
-volatile bool imuInterrupt = false;
-void imuReady() {
-	imuInterrupt = true;
-}
-
-// barometer interrupt
-volatile bool barometerInterrupt = false;
-void barometerReady() {
-	barometerInterrupt = true;
-}
-
 void setup() {
 	// setup built in LED
 	pinMode(LED_PIN, OUTPUT);
 
 	// turn off LED
-	updateLED(LED_PIN, 0);
+	updateLed(LED_PIN, 0);
 
 	// set default resolution for analog write, which is different from the one used for motor actuation
 	analogWriteResolution(8);
@@ -222,6 +227,9 @@ void setup() {
 	// read accelerometer resolution in g/bit
 	imu.read_accelRes(accelRes);
 
+	// attach imu interrupt
+	attachInterrupt(digitalPinToInterrupt(IMU_INTERRUPT_PIN), imuReady, FALLING);
+
 #ifdef USE_BAR
 	// initialise barometer with mode, pressure oversampling, temperature oversampling, IIR-Filter and standby time
 	if (!barometer.begin(NORMAL_MODE, OVERSAMPLING_SKIP, OVERSAMPLING_SKIP, IIR_FILTER_32, TIME_STANDBY_5MS)) {
@@ -233,90 +241,45 @@ void setup() {
 	// setup barometer interrupt pin
 	pinMode(BAROMETER_INTERRUPT_PIN, INPUT);
 	barometer.enableInterrupt();
-#endif
 
-	// attach interrupts
-	attachInterrupt(digitalPinToInterrupt(IMU_INTERRUPT_PIN), imuReady, FALLING);
-#ifdef USE_BAR
 	attachInterrupt(digitalPinToInterrupt(BAROMETER_INTERRUPT_PIN), barometerReady, RISING);
 #endif
 
 #ifdef PLOT
-	// ! Start plotter
-	p.Begin();
+	// start plotter
+	plot.Begin();
 
-	// Add time graphs. Notice the effect of points displayed on the time scale
-	//p.AddTimeGraph("throttle_out", 1000, "throttle_out", throttle_out);
-	//p.AddTimeGraph("Angles", 1000, "r", roll_angle, "p", pitch_angle, "y", yaw_angle);
-	//p.AddTimeGraph("Rates", 1000, "roll_rate", roll_rate, "pitch_rate", pitch_rate, "yaw_rate", yaw_rate);
-	//p.AddTimeGraph("mv", 1000, "roll_rate_sp", roll_rate_sp, "pitch_rate_sp", pitch_rate_sp, "yaw_rate_sp", yaw_rate_sp);
-	//p.AddTimeGraph("mv", 1000, "roll_rate_mv", roll_rate_mv, "pitch_rate_mv", pitch_rate_mv, "yaw_rate_mv", yaw_rate_mv);
-
-	//p.AddTimeGraph("Relative ned-acceleration", 1000, "a_n_rel", a_n_rel, "a_e_rel", a_e_rel, "a_d_rel", a_d_rel);
-	//p.AddTimeGraph("alt", 1000, "A", baroAltitude, "bA", baroAltitudeRaw);
-	//p.AddTimeGraph("v_vel", 1000, "V", velocity_v/*, "V_sp", velocity_v_sp*/);
-
-	//p.AddTimeGraph("bearing", 1000, "bearing", bearing);
-	//p.AddTimeGraph("distance_xy", 1000, "d_x", distance_x, "d_y", distance_y);
-	//p.AddTimeGraph("velocity", 1000, "v_n", velocity_north, "v_e", velocity_east, "v_x", velocity_x, "v_y", velocity_y);
-
-	//p.AddTimeGraph("yawTune", 1000, "yaw_rate_sp", yaw_rate_sp, "yaw_rate", yaw_rate, "yaw_angle", yaw_angle);
+	addTimeGraphs(plot);
 #endif
 }
 
 void loop() {
-	static uint32_t t0, t; // variables to measure the imu update time
-	static int32_t dt;     // measured imu update time in microseconds
-	static float dt_s;     // measured imu update time in seconds
 
-	// * update LED
-	if ((error_code & !ERROR_GPS) != 0) {
-		// blink LED very fast to indicate an error occurrence except gps
-		updateLED(LED_PIN, 1, 200);
-	}
-	else if (motors.getState() == MotorsQuad::State::armed) {
-		// blink LED normally to indicate armed status
-		updateLED(LED_PIN, 1, 1000);
-	}
-	else if (!initialised || (error_code == ERROR_GPS)) {
-		// blink LED fast to indicate quadcopter initialisation or gps search
-		updateLED(LED_PIN, 1, 500);
-	}
-	else if (motors.getState() == MotorsQuad::State::disarmed) {
-		// turn off LED to indicate disarmed status
-		updateLED(LED_PIN, 0);
-	}
-	else {
-		// turn on LED to indicate arming/disarming status
-		updateLED(LED_PIN, 2);
-	}
+	// update LED according to quadcopter status (error, motors armed/disarmed and initialisation)
+	updateLedStatus();
 
-	// * update radio control (rc)
+	// update radio control (rc)
 	rc.update();
 
-	// * perform calibration, if motors are disarmed and rc calibration request was received
+	// perform calibration if motors are disarmed and rc calibration request was received
 	if (calibration(motors, imu, rc_channelValue, calibration_eeprom)) {
 		// reinitialise quadcopter, because calibration was performed
 		initialised = false;
 	}
 
-	// * arm/disarm on rc command or disarm on failsafe conditions
-	arm_failsafe(FS_CONFIG, dt);
+	// calculate loop time in microseconds (dt) and seconds (dt_s)
+	loopTime();
 
-	// update time
-	t = micros();
-	dt = (t - t0);					// in us
-	dt_s = (float) (dt) * 1.e-6;	// in s
+	// arm/disarm on rc command or disarm on failsafe conditions
+	arm_failsafe(FS_CONFIG);
 
-	// * continue if imu interrupt has fired
+	// continue if imu interrupt has fired
 	if (!imuInterrupt) {
 		return;
 	}
 	imuInterrupt = false; // reset imu interrupt
 
-	t0 = t;
-
-	// * read accel and gyro measurements
+	// read accel and gyro measurements
 	imu.read_accel_gyro_rps(ax, ay, az, gx_rps, gy_rps, gz_rps);
 
 	// filter accelerometer measurements
@@ -325,7 +288,7 @@ void loop() {
 	az_filtered = ema_filter(az, az_filtered, EMA_ACCEL);
 
 #ifdef USE_MAG
-	// * read magnetometer
+	// read magnetometer
 	static uint32_t dt_mag = 0;
 	if (!(error_code & ERROR_MAG) && imu.read_mag(mx, my, mz)) {
 		dt_mag = 0;
@@ -344,9 +307,7 @@ void loop() {
 	}
 #endif
 
-	//accelAngles(roll_angle_accel, pitch_angle_accel);
-
-	// * calculate pose from sensor data using Madgwick filter
+	// calculate pose from sensor data using Madgwick filter
 	madgwickFilter.get_euler_quaternion(dt_s, ax_filtered, ay_filtered, az_filtered, gx_rps, gy_rps, gz_rps, mx, my, mz, roll_angle, pitch_angle, yaw_angle, pose_q);
 
 	// apply offset to z-axis pose in order to compensate for the sensor mounting orientation relative to the quadcopter frame
@@ -359,7 +320,7 @@ void loop() {
 	yaw_angle_rad = yaw_angle * RAD_PER_DEG;
 
 #ifdef USE_BAR
-	// * get raw altitude from barometer
+	// get raw altitude from barometer
 	static uint32_t dt_bar = 0;
 	if (barometerInterrupt) {
 		barometerInterrupt = false;
@@ -381,7 +342,7 @@ void loop() {
 	// ned-acceleration relative to gravity in m/s²
 	accel_ned_rel(a_n_rel, a_e_rel, a_d_rel);
 
-	// * calculate quadcopter altitude in m and vertical velocity in m/s
+	// calculate quadcopter altitude in m and vertical velocity in m/s
 	altitudeFilter.update(a_d_rel, baroAltitudeRaw, dt_s);
 	baroAltitude = altitudeFilter.get_position();
 	velocity_v = altitudeFilter.get_velocity();
@@ -391,7 +352,7 @@ void loop() {
 #endif
 
 #ifdef USE_GPS
-	// * get gps data
+	// get gps data
 	static uint32_t dt_gps = 0;
 	if (gps.available(gpsPort)) {
 		dt_gps = 0;
@@ -445,7 +406,7 @@ void loop() {
 	}
 #endif
 
-	// * initialise quadcopter after first run or calibration
+	// initialise quadcopter after first run or calibration
 	if (!initialised) {
 		static uint8_t initStatus = 0;
 
@@ -457,14 +418,14 @@ void loop() {
 				break;
 			case 1:
 				// estimate initial pose
-				if (initPose(BETA_INIT, BETA, INIT_ANGLE_DIFFERENCE, INIT_RATE, dt_s)) {
+				if (initPose(BETA_INIT, BETA, INIT_ANGLE_DIFFERENCE, INIT_RATE)) {
 					++initStatus;
 				}
 				break;
 #ifdef USE_BAR
 			case 2:
 				// estimate initial barometer altitude
-				if (initAltitude(INIT_VELOCITY_V, dt_s)) {
+				if (initAltitude(INIT_VELOCITY_V)) {
 					++initStatus;
 				}
 				break;
@@ -482,7 +443,7 @@ void loop() {
 	pitch_rate = gy_rps * DEG_PER_RAD;
 	yaw_rate = gz_rps * DEG_PER_RAD;
 
-	// * calculate flight setpoints, manipulated variables and control motors, when armed
+	// calculate flight setpoints, manipulated variables and control motors, when armed
 	if (motors.getState() == MotorsQuad::State::armed) {
 		// update flight mode
 		switch (rc_channelValue[FMODE])
@@ -526,14 +487,15 @@ void loop() {
 
 			if (fMode != fMode_last) {
 				if ((fMode_last == FlightMode::AltitudeHold) || (fMode_last == FlightMode::ReturnToLaunch)) {
-					velocity_v_sp = 0;
-					velocity_v_pid.reset();
-					velocity_v_mv = 0;
+					if ((fMode != FlightMode::AltitudeHold) && (fMode != FlightMode::ReturnToLaunch))
+					{
+						velocity_v_sp = 0;
+						velocity_v_pid.reset();
+					}
 
 					if (fMode_last == FlightMode::ReturnToLaunch) {
 						velocity_x_sp = 0;
 						velocity_y_sp = 0;
-
 						velocity_x_pid.reset();
 						velocity_y_pid.reset();
 					}
@@ -550,18 +512,21 @@ void loop() {
 				fMode_last = fMode;
 			}
 
-			// TODO: Move the following code to a function.
-			// navigation(fMode, dt_s, throttle, altitude, throttle_out, velocity_v_sp, altitude_sp, roll_angle_sp, pitch_angle_sp, yaw_rate_sp);
-
-			// heading correction to compensate inaccurate horizontal movement caused by bad compass measurements and wind 
-			static float headingCorrection, headingCorrection_rad;
-
 			switch (fMode) {
 				case FlightMode::Stabilize:
+					// calculate roll and pitch angle setpoints as well as yaw rate setpoint from radio control input
+					rc_rpAngle_yRate(roll_angle_sp, pitch_angle_sp, yaw_rate_sp);
+
 					throttle_out = throttle;
+
+					// update the maximum altitude for rtl
+					altitude_max = max(altitude, altitude_max);
 					break;
 
 				case FlightMode::AltitudeHold:
+					// calculate roll and pitch angle setpoints as well as yaw rate setpoint from radio control input
+					rc_rpAngle_yRate(roll_angle_sp, pitch_angle_sp, yaw_rate_sp);
+
 					if (rc_channelValue[THROTTLE] < THROTTLE_DEADZONE_BOT) {
 						// shape vertical velocity setpoint from rc input for upwards velocity
 						velocity_v_sp = shape_velocity(map(rc_channelValue[THROTTLE], 1000, THROTTLE_DEADZONE_BOT, -VELOCITY_V_LIMIT, 0), ACCEL_V_LIMIT, velocity_v_sp, dt_s);
@@ -578,258 +543,46 @@ void loop() {
 						// shape vertical velocity setpoint to hold altitude
 						velocity_v_sp = constrain(shape_position(altitude_sp - altitude, TC_ALTITUDE, ACCEL_V_LIMIT, velocity_v_sp, dt_s), -VELOCITY_V_LIMIT, VELOCITY_V_LIMIT);
 					}
+
+					// calculate manipulated variable for vertical velocity
+					velocity_v_mv = velocity_v_pid.get_mv(velocity_v_sp, velocity_v, dt_s);
+					throttle_out = THROTTLE_HOVER + velocity_v_mv; // use throttle hover, so vertical velocity controller can take over smoothly
+
+					// update the maximum altitude for rtl
+					altitude_max = max(altitude, altitude_max);
 					break;
-
+#ifdef USE_GPS
 				case FlightMode::ReturnToLaunch:
-					static uint32_t dt_state = 0;
-					// minimum time in microseconds the condition for switching to the next state needs to be met before switching
-					static const uint32_t STATE_DT_MIN = 5000000; 
-
-					// bearing to target location (clockwise from north)
-					static float bearing, bearing_rad;
-
-					// distance to target location in horizontal frame 
-					static float distance_x, distance_y;
-
-					// distance to target yaw angle
-					static float distance_yaw;
-
-					// rtl state machine
-					switch (rtlState) {
-						case RtlState::Init:
-							rtl_location = current_location;
-							altitude_sp = altitude;
-							distance_yaw = 0;
-
-							dt_state = 0;
-
-							headingCorrection = 0;
-							headingCorrection_rad = 0;
-
-							rtlState = RtlState::Wait;
-							break;
-
-						case RtlState::Wait:
-							// bearing to rtl location
-							bearing_rad = current_location.BearingTo(rtl_location);
-							bearing = bearing_rad * DEG_PER_RAD;
-
-							// distance to rtl location
-							distance = current_location.DistanceKm(rtl_location) * 1000;
-
-							// keep the current yaw angle
-							distance_yaw = 0;
-
-							// check if the rtl location is reached
-							if (distance < 2) {
-								dt_state += dt;
-								if (dt_state > STATE_DT_MIN) {
-									dt_state = 0;
-									rtlState = RtlState::Climb;
-								}
-							}
-							break;
-
-						case RtlState::Climb:
-							// bearing to rtl location
-							bearing_rad = current_location.BearingTo(rtl_location);
-							bearing = bearing_rad * DEG_PER_RAD;
-
-							// distance to rtl location
-							distance = current_location.DistanceKm(rtl_location) * 1000;
-
-							// keep the current yaw angle
-							distance_yaw = 0;
-
-							// climb to the maximum altitude reached during flight with some added offset for safety
-							altitude_sp = altitude_max + RTL_RETURN_OFFSET;
-
-							// check if the altitude setpoint is reached
-							if (abs(altitude_sp - altitude) < 2) {
-								dt_state += dt;
-								if (dt_state > STATE_DT_MIN) {
-									dt_state = 0;
-									rtlState = RtlState::YawToLaunch;
-								}
-							}
-							break;
-
-						case RtlState::YawToLaunch:
-							// bearing to rtl location
-							bearing_rad = current_location.BearingTo(rtl_location);
-							bearing = bearing_rad * DEG_PER_RAD;
-
-							// distance to rtl location
-							distance = current_location.DistanceKm(rtl_location) * 1000;
-
-							// turn the quadcopter towards the launch location, but only if it is not too close
-							if (current_location.DistanceKm(launch_location) * 1000 > 10) {
-								// turn the quadcopter towards the launch location
-								distance_yaw = current_location.BearingTo(launch_location) * DEG_PER_RAD - yaw_angle;
-
-								// check if the quadcopter is rotated towards the launch location
-								if (abs(distance_yaw) < 6) {
-									dt_state += dt;
-									if (dt_state > STATE_DT_MIN) {
-										dt_state = 0;
-										rtlState = RtlState::Return;
-									}
-								}
-							}
-							else {
-								// keep the current yaw angle
-								distance_yaw = 0;
-
-								dt_state = 0;
-								rtlState = RtlState::Return;
-							}
-							break;
-
-						case RtlState::Return:
-							// bearing to launch location
-							bearing_rad = current_location.BearingTo(launch_location);
-							bearing = bearing_rad * DEG_PER_RAD;
-
-							// distance to launch location
-							distance = current_location.DistanceKm(launch_location) * 1000;
-
-							// turn the quadcopter towards the launch location and calculate heading correction, but only if it is not too close
-							if (distance > 10) {
-								// turn the quadcopter towards the launch location
-								distance_yaw = bearing - yaw_angle;
-
-								// calculate heading correction
-								headingCorrection = ema_filter(bearing - heading, headingCorrection, EMA_HEADING_CORRECTION);
-								headingCorrection_rad = headingCorrection * RAD_PER_DEG;
-									
-								headingCorrection_rad = 0; // TODO: Remove this line and test this.
-							}
-							else {
-								// keep the current yaw angle
-								distance_yaw = 0;
-							}
-
-							// check if the launch location is reached
-							if (distance < 2) {
-								dt_state += dt;
-								if (dt_state > STATE_DT_MIN)
-								{
-									dt_state = 0;
-									rtlState = RtlState::YawToInitial;
-								}
-							}
-							break;
-
-						case RtlState::YawToInitial:
-							// bearing to launch location
-							bearing_rad = current_location.BearingTo(launch_location);
-							bearing = bearing_rad * DEG_PER_RAD;
-
-							// distance to launch location
-							distance = current_location.DistanceKm(launch_location) * 1000;
-
-							// turn the quadcopter to the initial yaw angle determined when arming
-							distance_yaw = yaw_angle_init - yaw_angle;
-
-							// check if the initial yaw angle is reached
-							if (abs(distance_yaw) < 6) {
-								dt_state += dt;
-								if (dt_state > STATE_DT_MIN)
-								{
-									dt_state = 0;
-									rtlState = RtlState::Descend;
-								}
-							}
-							break;
-
-						case RtlState::Descend:
-							// bearing to launch location
-							bearing_rad = current_location.BearingTo(launch_location);
-							bearing = bearing_rad * DEG_PER_RAD;
-
-							// distance to launch location
-							distance = current_location.DistanceKm(launch_location) * 1000;
-
-							// keep the initial yaw angle determined when arming
-							distance_yaw = yaw_angle_init - yaw_angle;
-
-							// descend to the initial altitude after arming with some added offset
-							altitude_sp = RTL_DESCEND_OFFSET;
-							break;
-
-						default:
-							break;
-					}
-
-					// because the yaw angle is inverted with gps, while the yaw rates are not, this parameter needs to be inverted
-					distance_yaw = -distance_yaw;
-
-					// adjust the yaw distance to [-180, 180) in order to make sure the quadcopter turns the shortest way
-					adjustAngleRange(-180, 180, distance_yaw);
-
-					// transform distance from ned- to horizontal frame and include heading correction to compensate inaccurate horizontal movement caused by bad compass measurements and wind
-					distance_x = distance * cos(bearing_rad - yaw_angle_rad + headingCorrection_rad);
-					distance_y = distance * sin(bearing_rad - yaw_angle_rad + headingCorrection_rad);
-
-					// shape x- and y-axis velocity setpoints
-					velocity_x_sp = constrain(shape_position(distance_x, TC_DISTANCE, ACCEL_H_LIMIT, velocity_x_sp, dt_s), -VELOCITY_XY_LIMIT, VELOCITY_XY_LIMIT);
-					velocity_y_sp = constrain(shape_position(distance_y, TC_DISTANCE, ACCEL_H_LIMIT, velocity_y_sp, dt_s), -VELOCITY_XY_LIMIT, VELOCITY_XY_LIMIT);
+					// calculate xyv-velocity setpoints and yaw rate setpoint for returning to launch
+					rtl_xyVelocity_yRate(velocity_x_sp, velocity_y_sp, velocity_v_sp, yaw_rate_sp);
 
 					// transform velocity from ned- to horizontal frame.
 					velocity_x = velocity_north * cos(yaw_angle_rad) + velocity_east * sin(yaw_angle_rad);
 					velocity_y = velocity_north * (-sin(yaw_angle_rad)) + velocity_east * cos(yaw_angle_rad);
 
-					// shape vertical velocity setpoint
-					velocity_v_sp = constrain(shape_position(altitude_sp - altitude, TC_ALTITUDE, ACCEL_V_LIMIT, velocity_v_sp, dt_s), -VELOCITY_V_LIMIT, VELOCITY_V_LIMIT);
-					
 					// calculate angle setpoints from velocity setpoints
 					roll_angle_sp = velocity_y_pid.get_mv(velocity_y_sp, velocity_y, dt_s);
 					pitch_angle_sp = velocity_x_pid.get_mv(velocity_x_sp, velocity_x, dt_s);
-				
-					// shape yaw rate setpoint
-					yaw_rate_sp = constrain(shape_position(distance_yaw, TC_YAW_ANGLE, ACCEL_YAW_LIMIT, yaw_rate_sp, dt_s), -YAW_RATE_LIMIT, YAW_RATE_LIMIT);
-					break;
 
+					// calculate manipulated variable for vertical velocity
+					velocity_v_mv = velocity_v_pid.get_mv(velocity_v_sp, velocity_v, dt_s);
+					throttle_out = THROTTLE_HOVER + velocity_v_mv; // use throttle hover, so vertical velocity controller can take over smoothly
+					break;
+#endif
 				default:
 					break;
-			}
-
-			if (fMode != FlightMode::Stabilize)
-			{
-				// calculate manipulated variable for vertical velocity
-				velocity_v_mv = velocity_v_pid.get_mv(velocity_v_sp, velocity_v, dt_s);
-
-				// use throttle hover, so vertical velocity controller can take over smoothly
-				throttle_out = THROTTLE_HOVER + velocity_v_mv;
 			}
 
 			// Tilt compensated thrust: Increase throttle when the quadcopter is tilted, to compensate for height loss during horizontal movement.
 			// Note: In order to maintain stability, throttle is limited to the throttle limit.
 			throttle_out = constrain((float) (throttle_out - 1000) / (pose_q[0] * pose_q[0] - pose_q[1] * pose_q[1] - pose_q[2] * pose_q[2] + pose_q[3] * pose_q[3]) + 1000, 1000, THROTTLE_LIMIT);
 
-			if (fMode != FlightMode::ReturnToLaunch) {
-				// update the maximum altitude for rtl
-				altitude_max = max(altitude, altitude_max);
-
-				// roll and pitch angle setpoints
-				roll_angle_sp = map((float) rc_channelValue[ROLL], 1000, 2000, -ROLL_PITCH_ANGLE_LIMIT, ROLL_PITCH_ANGLE_LIMIT);
-				pitch_angle_sp = map((float) rc_channelValue[PITCH], 1000, 2000, -ROLL_PITCH_ANGLE_LIMIT, ROLL_PITCH_ANGLE_LIMIT);
-
-				// shape yaw rate setpoint
-				if (rc_channelValue[THROTTLE] < 1050) {
-					// if throttle is too low, disable setting a yaw rate, since it might cause problems when disarming
-					yaw_rate_sp = shape_velocity(0, ACCEL_YAW_LIMIT, yaw_rate_sp, dt_s);
-				} else {
-					yaw_rate_sp = shape_velocity(map((float) rc_channelValue[YAW], 1000, 2000, YAW_RATE_LIMIT, -YAW_RATE_LIMIT), ACCEL_YAW_LIMIT, yaw_rate_sp, dt_s);
-				}
-			}
-
 			// shape roll and pitch rate setpoints
 			roll_rate_sp = shape_position(roll_angle_sp - roll_angle, TC_ROLL_PITCH_ANGLE, ACCEL_ROLL_PITCH_LIMIT, roll_rate_sp, dt_s);
 			pitch_rate_sp = shape_position(pitch_angle_sp - pitch_angle, TC_ROLL_PITCH_ANGLE, ACCEL_ROLL_PITCH_LIMIT, pitch_rate_sp, dt_s);
 
 			// TODO: Remove this test code
-			static float p_rate, i_rate, d_rate;
+			//static float p_rate, i_rate, d_rate;
 
 			/*
 			p_rate = constrain(map((float) rc_channelValue[4], 1000, 2000, 2.0 2.5), 2.0, 2.5);
@@ -856,12 +609,12 @@ void loop() {
 			*/
 
 			// TODO: Tune PID-controller for vertical velocity.
-			p_rate = constrain(map((float) rc_channelValue[4], 1000, 2000, 40, 100), 40, 100);
-			i_rate = constrain(map((float) rc_channelValue[5], 1000, 2000, 10, 20), 10, 20);
+			//p_rate = constrain(map((float) rc_channelValue[4], 1000, 2000, 40, 100), 40, 100);
+			//i_rate = constrain(map((float) rc_channelValue[5], 1000, 2000, 10, 20), 10, 20);
 			//d_rate = constrain(map((float) rc_channelValue[5], 1000, 2000, 20, 60), 20, 60);
 
-			velocity_v_pid.set_K_p(p_rate);
-			velocity_v_pid.set_K_i(i_rate);
+			//velocity_v_pid.set_K_p(p_rate);
+			//velocity_v_pid.set_K_i(i_rate);
 			//velocity_v_pid.set_K_d(d_rate);
 
 			// calculate manipulated variables for rates
@@ -932,24 +685,24 @@ void loop() {
 		}
 		DEBUG_PRINTLN();*/
 	}
+#elif defined(PLOT)
+	// TODO: Check if this update rate is still too fast
+	if (micros() - t0_serial > 25000) {
+		t0_serial = micros();
+		// Plot data with "Processing"
+		plot.Plot();
+	}
 #elif defined(SEND_SERIAL)
 	if (micros() - t0_serial > 16666) {
 		t0_serial = micros();
 		// Visualize data with "Processing"
 		sendSerial(dt, roll_angle, pitch_angle, yaw_angle);
 	}
-#elif defined(PLOT)
-	// TODO: Check if this update rate is still too fast
-	if (micros() - t0_serial > 25000) {
-		t0_serial = micros();
-		// Plot data with "Processing"
-		p.Plot();
-	}
 #endif
 }
 
 // estimate initial pose
-bool initPose(float beta_init, float beta, float init_angleDifference, float init_rate, float dt_s) {
+bool initPose(float beta_init, float beta, float init_angleDifference, float init_rate) {
 	static state initPose_state = state::init;
 	static float yaw_angle_last;
 
@@ -1014,7 +767,7 @@ void accelAngles(float &roll_angle_accel, float &pitch_angle_accel) {
 }
 
 // estimate initial barometer altitude
-bool initAltitude(float init_velocity_v, float dt_s) {
+bool initAltitude(float init_velocity_v) {
 	static state initAltitude_state = state::init;
 	static float dt_altitude_s;
 	static float baroAltitude_last;
@@ -1076,12 +829,270 @@ void accel_ned_rel(float &a_n_relative, float &a_e_relative, float &a_d_relative
 	a_d_relative = (a_ned_q[3] * accelRes - 1) * G;
 }
 
+// update LED according to quadcopter status (error, motors armed/disarmed and initialisation)
+void updateLedStatus()
+{
+	if ((error_code & !ERROR_GPS) != 0) {
+		// blink LED very fast to indicate an error occurrence except gps
+		updateLed(LED_PIN, 1, 200);
+	}
+	else if (motors.getState() == MotorsQuad::State::armed) {
+		// blink LED normally to indicate armed status
+		updateLed(LED_PIN, 1, 1000);
+	}
+	else if (!initialised || (error_code == ERROR_GPS)) {
+		// blink LED fast to indicate quadcopter initialisation or gps search
+		updateLed(LED_PIN, 1, 500);
+	}
+	else if (motors.getState() == MotorsQuad::State::disarmed) {
+		// turn off LED to indicate disarmed status
+		updateLed(LED_PIN, 0);
+	}
+	else {
+		// turn on LED to indicate arming/disarming status
+		updateLed(LED_PIN, 2);
+	}
+}
+
+// calculate loop time in microseconds (dt) and seconds (dt_s)
+void loopTime()
+{
+	static uint32_t t;
+	t = micros();
+	static uint32_t t0 = t;
+
+	dt = (t - t0);      // in us
+	dt_s = dt * 1.e-6f; // in s
+	t0 = t;
+}
+
+// calculate roll and pitch angle setpoints as well as yaw rate setpoint from radio control input
+void rc_rpAngle_yRate(float &roll_angle_sp, float &pitch_angle_sp, float &yaw_rate_sp)
+{
+	// roll and pitch angle setpoints
+	roll_angle_sp = map((float) rc_channelValue[ROLL], 1000, 2000, -ROLL_PITCH_ANGLE_LIMIT, ROLL_PITCH_ANGLE_LIMIT);
+	pitch_angle_sp = map((float) rc_channelValue[PITCH], 1000, 2000, -ROLL_PITCH_ANGLE_LIMIT, ROLL_PITCH_ANGLE_LIMIT);
+
+	// shape yaw rate setpoint
+	if (rc_channelValue[THROTTLE] < 1050) {
+		// if throttle is too low, disable setting a yaw rate, since it might cause problems when disarming
+		yaw_rate_sp = shape_velocity(0, ACCEL_YAW_LIMIT, yaw_rate_sp, dt_s);
+	} else {
+		yaw_rate_sp = shape_velocity(map((float) rc_channelValue[YAW], 1000, 2000, YAW_RATE_LIMIT, -YAW_RATE_LIMIT), ACCEL_YAW_LIMIT, yaw_rate_sp, dt_s);
+	}
+}
+
+// calculate xyv-velocity setpoints and yaw rate setpoint for returning to launch
+void rtl_xyVelocity_yRate(float &velocity_x_sp, float &velocity_y_sp, float &velocity_v_sp, float &yaw_rate_sp)
+{
+	static uint32_t dt_state = 0;
+	// minimum time in microseconds the condition for switching to the next state needs to be met before switching
+	static const uint32_t STATE_DT_MIN = 5000000; 
+
+	// bearing to target location (clockwise from north)
+	static float bearing, bearing_rad;
+
+	// distance to target yaw angle
+	static float distance_yaw;
+
+	// heading correction to compensate inaccurate horizontal movement caused by bad compass measurements and wind 
+	static float headingCorrection, headingCorrection_rad;
+
+	// rtl state machine
+	switch (rtlState) {
+		case RtlState::Init:
+			rtl_location = current_location;
+			altitude_sp = altitude;
+			distance_yaw = 0;
+
+			dt_state = 0;
+
+			headingCorrection = 0;
+			headingCorrection_rad = 0;
+
+			rtlState = RtlState::Wait;
+			break;
+
+		case RtlState::Wait:
+			// bearing to rtl location
+			bearing_rad = current_location.BearingTo(rtl_location);
+			bearing = bearing_rad * DEG_PER_RAD;
+
+			// distance to rtl location
+			distance = current_location.DistanceKm(rtl_location) * 1000;
+
+			// keep the current yaw angle
+			distance_yaw = 0;
+
+			// check if the rtl location is reached
+			if (distance < 2) {
+				dt_state += dt;
+				if (dt_state > STATE_DT_MIN) {
+					dt_state = 0;
+					rtlState = RtlState::Climb;
+				}
+			}
+			break;
+
+		case RtlState::Climb:
+			// bearing to rtl location
+			bearing_rad = current_location.BearingTo(rtl_location);
+			bearing = bearing_rad * DEG_PER_RAD;
+
+			// distance to rtl location
+			distance = current_location.DistanceKm(rtl_location) * 1000;
+
+			// keep the current yaw angle
+			distance_yaw = 0;
+
+			// climb to the maximum altitude reached during flight with some added offset for safety
+			altitude_sp = altitude_max + RTL_RETURN_OFFSET;
+
+			// check if the altitude setpoint is reached
+			if (abs(altitude_sp - altitude) < 2) {
+				dt_state += dt;
+				if (dt_state > STATE_DT_MIN) {
+					dt_state = 0;
+					rtlState = RtlState::YawToLaunch;
+				}
+			}
+			break;
+
+		case RtlState::YawToLaunch:
+			// bearing to rtl location
+			bearing_rad = current_location.BearingTo(rtl_location);
+			bearing = bearing_rad * DEG_PER_RAD;
+
+			// distance to rtl location
+			distance = current_location.DistanceKm(rtl_location) * 1000;
+
+			// turn the quadcopter towards the launch location, but only if it is not too close
+			if (current_location.DistanceKm(launch_location) * 1000 > 10) {
+				// turn the quadcopter towards the launch location
+				distance_yaw = current_location.BearingTo(launch_location) * DEG_PER_RAD - yaw_angle;
+
+				// check if the quadcopter is rotated towards the launch location
+				if (abs(distance_yaw) < 6) {
+					dt_state += dt;
+					if (dt_state > STATE_DT_MIN) {
+						dt_state = 0;
+						rtlState = RtlState::Return;
+					}
+				}
+			}
+			else {
+				// keep the current yaw angle
+				distance_yaw = 0;
+
+				dt_state = 0;
+				rtlState = RtlState::Return;
+			}
+			break;
+
+		case RtlState::Return:
+			// bearing to launch location
+			bearing_rad = current_location.BearingTo(launch_location);
+			bearing = bearing_rad * DEG_PER_RAD;
+
+			// distance to launch location
+			distance = current_location.DistanceKm(launch_location) * 1000;
+
+			// turn the quadcopter towards the launch location and calculate heading correction, but only if it is not too close
+			if (distance > 10) {
+				// turn the quadcopter towards the launch location
+				distance_yaw = bearing - yaw_angle;
+
+				// calculate heading correction
+				headingCorrection = ema_filter(bearing - heading, headingCorrection, EMA_HEADING_CORRECTION);
+				headingCorrection_rad = headingCorrection * RAD_PER_DEG;
+					
+				headingCorrection_rad = 0; // TODO: Remove this line and test this.
+			}
+			else {
+				// keep the current yaw angle
+				distance_yaw = 0;
+			}
+
+			// check if the launch location is reached
+			if (distance < 2) {
+				dt_state += dt;
+				if (dt_state > STATE_DT_MIN)
+				{
+					dt_state = 0;
+					rtlState = RtlState::YawToInitial;
+				}
+			}
+			break;
+
+		case RtlState::YawToInitial:
+			// bearing to launch location
+			bearing_rad = current_location.BearingTo(launch_location);
+			bearing = bearing_rad * DEG_PER_RAD;
+
+			// distance to launch location
+			distance = current_location.DistanceKm(launch_location) * 1000;
+
+			// turn the quadcopter to the initial yaw angle determined when arming
+			distance_yaw = yaw_angle_init - yaw_angle;
+
+			// check if the initial yaw angle is reached
+			if (abs(distance_yaw) < 6) {
+				dt_state += dt;
+				if (dt_state > STATE_DT_MIN)
+				{
+					dt_state = 0;
+					rtlState = RtlState::Descend;
+				}
+			}
+			break;
+
+		case RtlState::Descend:
+			// bearing to launch location
+			bearing_rad = current_location.BearingTo(launch_location);
+			bearing = bearing_rad * DEG_PER_RAD;
+
+			// distance to launch location
+			distance = current_location.DistanceKm(launch_location) * 1000;
+
+			// keep the initial yaw angle determined when arming
+			distance_yaw = yaw_angle_init - yaw_angle;
+
+			// descend to the initial altitude after arming with some added offset
+			altitude_sp = RTL_DESCEND_OFFSET;
+			break;
+
+		default:
+			break;
+	}
+
+	// because the yaw angle is inverted with gps, while the yaw rates are not, this parameter needs to be inverted
+	distance_yaw = -distance_yaw;
+
+	// adjust the yaw distance to [-180, 180) in order to make sure the quadcopter turns the shortest way
+	adjustAngleRange(-180, 180, distance_yaw);
+
+	// transform distance from ned- to horizontal frame and include heading correction to compensate inaccurate horizontal movement caused by bad compass measurements and wind
+	static float distance_x, distance_y;
+	distance_x = distance * cos(bearing_rad - yaw_angle_rad + headingCorrection_rad);
+	distance_y = distance * sin(bearing_rad - yaw_angle_rad + headingCorrection_rad);
+
+	// shape x- and y-axis velocity setpoints
+	velocity_x_sp = constrain(shape_position(distance_x, TC_DISTANCE, ACCEL_H_LIMIT, velocity_x_sp, dt_s), -VELOCITY_XY_LIMIT, VELOCITY_XY_LIMIT);
+	velocity_y_sp = constrain(shape_position(distance_y, TC_DISTANCE, ACCEL_H_LIMIT, velocity_y_sp, dt_s), -VELOCITY_XY_LIMIT, VELOCITY_XY_LIMIT);
+
+	// shape vertical velocity setpoint
+	velocity_v_sp = constrain(shape_position(altitude_sp - altitude, TC_ALTITUDE, ACCEL_V_LIMIT, velocity_v_sp, dt_s), -VELOCITY_V_LIMIT, VELOCITY_V_LIMIT);
+
+	// shape yaw rate setpoint
+	yaw_rate_sp = constrain(shape_position(distance_yaw, TC_YAW_ANGLE, ACCEL_YAW_LIMIT, yaw_rate_sp, dt_s), -YAW_RATE_LIMIT, YAW_RATE_LIMIT);
+}
+
 // arm/disarm on rc command or disarm on failsafe conditions
-void arm_failsafe(uint8_t fs_config, int32_t dt) {
+void arm_failsafe(uint8_t fs_config) {
 	static uint32_t t_arm_failsafe;
 	t_arm_failsafe = micros();
 
-	// -------------------- automatically disarm when no start happens within 15 seconds
+	// automatically disarm when no start happens within 15 seconds
 	static uint32_t t_auto_disarm = 0;
 	if (!started && (motors.getState() == MotorsQuad::State::armed)) {
 		if (t_auto_disarm == 0) {
@@ -1096,7 +1107,7 @@ void arm_failsafe(uint8_t fs_config, int32_t dt) {
 		t_auto_disarm = 0;
 	}
 
-	// -------------------- arm and disarm on rc command
+	// arm and disarm on rc command
 	static uint32_t t_arm = 0, t_disarm = 0;
 	if (rc_channelValue[ARM] == 2000 && initialised) { // arm switch needs to be set and quadcopter needs to be initialised to enable arming
 		if ((rc_channelValue[THROTTLE] < 1050) && (((rc_channelValue[ROLL] > 1450) && (rc_channelValue[ROLL] < 1550)) && ((rc_channelValue[PITCH] > 1450) && (rc_channelValue[PITCH] < 1550)))) {
@@ -1142,7 +1153,7 @@ void arm_failsafe(uint8_t fs_config, int32_t dt) {
 		t_disarm = 0;
 	}
 
-	// -------------------- disarm on failsafe conditions
+	// disarm on failsafe conditions
 	if ((motors.getState() == MotorsQuad::State::armed) || (motors.getState() == MotorsQuad::State::arming)) {
 		// imu failsafe
 		if ((FS_CONFIG & FS_IMU) == FS_IMU) {
@@ -1229,13 +1240,14 @@ void disarmAndResetQuad() {
 	velocity_x_pid.reset();
 	velocity_y_pid.reset();
 
+#ifdef USE_BAR
 	// reset altitude filter
 	altitudeFilter.reset();
+#endif
 
 	roll_rate_mv = 0;
 	pitch_rate_mv = 0;
 	yaw_rate_mv = 0;
-	velocity_v_mv = 0;
 
 	// disarm motors
 	motors.disarm();
@@ -1243,3 +1255,26 @@ void disarmAndResetQuad() {
 	// set started state to false - minimum throttle is required again to start the motors and PID calculations
 	started = false;
 }
+
+#ifdef PLOT
+// add time graphs to plot through Processing
+void addTimeGraphs(Plotter &p)
+{
+	// Add time graphs. Notice the effect of points displayed on the time scale.
+	//p.AddTimeGraph("throttle_out", 1000, "throttle_out", throttle_out);
+	//p.AddTimeGraph("Angles", 1000, "r", roll_angle, "p", pitch_angle, "y", yaw_angle);
+	//p.AddTimeGraph("Rates", 1000, "roll_rate", roll_rate, "pitch_rate", pitch_rate, "yaw_rate", yaw_rate);
+	//p.AddTimeGraph("mv", 1000, "roll_rate_sp", roll_rate_sp, "pitch_rate_sp", pitch_rate_sp, "yaw_rate_sp", yaw_rate_sp);
+	//p.AddTimeGraph("mv", 1000, "roll_rate_mv", roll_rate_mv, "pitch_rate_mv", pitch_rate_mv, "yaw_rate_mv", yaw_rate_mv);
+
+	//p.AddTimeGraph("Relative ned-acceleration", 1000, "a_n_rel", a_n_rel, "a_e_rel", a_e_rel, "a_d_rel", a_d_rel);
+	//p.AddTimeGraph("alt", 1000, "A", baroAltitude, "bA", baroAltitudeRaw);
+	//p.AddTimeGraph("v_vel", 1000, "V", velocity_v/*, "V_sp", velocity_v_sp*/);
+
+	//p.AddTimeGraph("bearing", 1000, "bearing", bearing);
+	//p.AddTimeGraph("distance_xy", 1000, "d_x", distance_x, "d_y", distance_y);
+	//p.AddTimeGraph("velocity", 1000, "v_n", velocity_north, "v_e", velocity_east, "v_x", velocity_x, "v_y", velocity_y);
+
+	//p.AddTimeGraph("yawTune", 1000, "yaw_rate_sp", yaw_rate_sp, "yaw_rate", yaw_rate, "yaw_angle", yaw_angle);
+}
+#endif
