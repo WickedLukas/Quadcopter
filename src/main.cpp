@@ -11,7 +11,6 @@
 #include <ema_filter.h>
 #include <PID_controller.h>
 #include <BMP388_DEV.h>
-#include <NMEAGPS.h>
 
 #include <Arduino.h>
 #include <EEPROM.h>
@@ -98,7 +97,7 @@ int32_t dt; // loop time in microseconds
 float dt_s; // loop time in seconds
 
 // flag used to initialise the quadcopter pose and altitude after power on or calibration
-bool initialised = false;
+bool quadInitialised = false;
 
 // initial quadcopter yaw (z-axis) angle
 float yaw_angle_init;
@@ -264,7 +263,7 @@ void loop() {
 	// perform calibration if motors are disarmed and rc calibration request was received
 	if (calibration(motors, imu, rc_channelValue, calibration_eeprom)) {
 		// reinitialise quadcopter, because calibration was performed
-		initialised = false;
+		quadInitialised = false;
 	}
 
 	// calculate loop time in microseconds (dt) and seconds (dt_s)
@@ -288,27 +287,16 @@ void loop() {
 	az_filtered = ema_filter(az, az_filtered, EMA_ACCEL);
 
 #ifdef USE_MAG
-	// read magnetometer
-	static uint32_t dt_mag = 0;
-	if (!(error_code & ERROR_MAG) && imu.read_mag(mx, my, mz)) {
-		dt_mag = 0;
-	}
-	else if (initialised) {
-		// check if magnetometer is still working
-		dt_mag += dt;
-		if ((dt_mag > SENSOR_DT_LIMIT) && !(error_code & ERROR_MAG)) {
-			// Too much time has passed since the last magnetometer reading. Set error value, which will disable arming.
-			error_code |= ERROR_MAG;
-
-			mx = my = mz = 0; // error handling
-
-			DEBUG_PRINTLN(F("Magnetometer error!"));
-		}
-	}
+	getMagData(mx, my, mz);
 #endif
 
 	// calculate pose from sensor data using Madgwick filter
 	madgwickFilter.get_euler_quaternion(dt_s, ax_filtered, ay_filtered, az_filtered, gx_rps, gy_rps, gz_rps, mx, my, mz, roll_angle, pitch_angle, yaw_angle, pose_q);
+
+	// convert to rate in deg/s
+	roll_rate = gx_rps * DEG_PER_RAD;
+	pitch_rate = gy_rps * DEG_PER_RAD;
+	yaw_rate = gz_rps * DEG_PER_RAD;
 
 	// apply offset to z-axis pose in order to compensate for the sensor mounting orientation relative to the quadcopter frame
 	yaw_angle += YAW_ANGLE_OFFSET;
@@ -320,24 +308,7 @@ void loop() {
 	yaw_angle_rad = yaw_angle * RAD_PER_DEG;
 
 #ifdef USE_BAR
-	// get raw altitude from barometer
-	static uint32_t dt_bar = 0;
-	if (barometerInterrupt) {
-		barometerInterrupt = false;
-		dt_bar = 0;
-
-		barometer.getAltitude(baroAltitudeRaw);
-	}
-	else if (initialised) {
-		// check if barometer is still working
-		dt_bar += dt;
-		if ((dt_bar > SENSOR_DT_LIMIT) && !(error_code & ERROR_BAR)) {
-			// Too much time has passed since the last barometer reading. Set error value, which will disable arming.
-			error_code |= ERROR_BAR;
-
-			DEBUG_PRINTLN(F("Barometer error!"));
-		}
-	}
+	getBarData(baroAltitudeRaw);
 
 	// ned-acceleration relative to gravity in m/s²
 	accel_ned_rel(a_n_rel, a_e_rel, a_d_rel);
@@ -352,96 +323,11 @@ void loop() {
 #endif
 
 #ifdef USE_GPS
-	// get gps data
-	static uint32_t dt_gps = 0;
-	if (gps.available(gpsPort)) {
-		dt_gps = 0;
-
-		fix = gps.read();
-
-		// set error code in order to disable arming as long as there is no solid gps fix
-		if (fix.valid.satellites && fix.satellites > 5 && fix.valid.hdop && fix.hdop < 7000 && fix.valid.location) {
-			if (error_code & ERROR_GPS) {
-				error_code &= !ERROR_GPS; // delete error value to enable arming and rtl
-
-				DEBUG_PRINTLN(F("Solid GPS fix!"));
-			}
-
-			// update launch location if the quadcopter is disarmed
-			if (motors.getState() == MotorsQuad::State::disarmed) {
-				launch_location = fix.location;
-			}
-		}
-		else if (!(error_code & ERROR_GPS)) {
-			error_code |= ERROR_GPS; // set error value to disable arming and rtl
-
-			DEBUG_PRINTLN(F("No solid GPS fix! Arming and RTL are disabled."));
-		}
-
-		if (fix.valid.location) {
-			current_location = fix.location;
-		}
-
-		if (fix.valid.heading) {
-			heading = fix.heading();
-
-			if (fix.valid.speed) {
-				// calculate north and east velocity
-				fix.calculateNorthAndEastVelocityFromSpeedAndHeading();
-
-				velocity_north = (float) fix.velocity_north * 0.01;
-				velocity_east = (float) fix.velocity_east * 0.01;
-			}
-		}
-	}
-	else {
-		// check if gps is still working
-		dt_gps += dt;
-		if ((dt_gps > SENSOR_DT_LIMIT) && !(error_code & ERROR_GPS)) {
-			// Too much time has passed since the last gps reading. Set error value, which will disable arming.
-			error_code |= ERROR_GPS;
-
-			DEBUG_PRINTLN(F("GPS error!"));
-		}
-	}
+	getGpsData(launch_location, current_location, heading, velocity_north, velocity_east);
 #endif
 
-	// initialise quadcopter after first run or calibration
-	if (!initialised) {
-		static uint8_t initStatus = 0;
-
-		switch (initStatus) {
-			case 0:
-				disarmAndResetQuad();
-				
-				++initStatus;
-				break;
-			case 1:
-				// estimate initial pose
-				if (initPose(BETA_INIT, BETA, INIT_ANGLE_DIFFERENCE, INIT_RATE)) {
-					++initStatus;
-				}
-				break;
-#ifdef USE_BAR
-			case 2:
-				// estimate initial barometer altitude
-				if (initAltitude(INIT_VELOCITY_V)) {
-					++initStatus;
-				}
-				break;
-#endif
-			default:
-				// quadcopter initialisation successful
-				initStatus = 0;
-				initialised = true;
-				break;
-		}
-		return;
-	}
-
-	roll_rate = gx_rps * DEG_PER_RAD;
-	pitch_rate = gy_rps * DEG_PER_RAD;
-	yaw_rate = gz_rps * DEG_PER_RAD;
+	// initialise quadcopter (pose, altitude) after first run or calibration
+	initQuad(quadInitialised);
 
 	// calculate flight setpoints, manipulated variables and control motors, when armed
 	if (motors.getState() == MotorsQuad::State::armed) {
@@ -840,7 +726,7 @@ void updateLedStatus()
 		// blink LED normally to indicate armed status
 		updateLed(LED_PIN, 1, 1000);
 	}
-	else if (!initialised || (error_code == ERROR_GPS)) {
+	else if (!quadInitialised || (error_code == ERROR_GPS)) {
 		// blink LED fast to indicate quadcopter initialisation or gps search
 		updateLed(LED_PIN, 1, 500);
 	}
@@ -864,6 +750,315 @@ void loopTime()
 	dt = (t - t0);      // in us
 	dt_s = dt * 1.e-6f; // in s
 	t0 = t;
+}
+
+#ifdef USE_MAG
+// get magnetometer data
+void getMagData(int16_t &mx, int16_t &my, int16_t &mz) {
+	static uint32_t dt_mag = 0;
+	if (!(error_code & ERROR_MAG) && imu.read_mag(mx, my, mz)) {
+		dt_mag = 0;
+	}
+	else if (quadInitialised) {
+		// check if magnetometer is still working
+		dt_mag += dt;
+		if ((dt_mag > SENSOR_DT_LIMIT) && !(error_code & ERROR_MAG)) {
+			// Too much time has passed since the last magnetometer reading. Set error value, which will disable arming.
+			error_code |= ERROR_MAG;
+
+			mx = my = mz = 0; // error handling
+
+			DEBUG_PRINTLN(F("Magnetometer error!"));
+		}
+	}
+}
+#endif
+
+#ifdef USE_BAR
+// get barometer data
+void getBarData(float &baroAltitudeRaw) {
+	// get raw altitude from barometer
+	static uint32_t dt_bar = 0;
+	if (barometerInterrupt) {
+		barometerInterrupt = false;
+		dt_bar = 0;
+
+		barometer.getAltitude(baroAltitudeRaw);
+	}
+	else if (quadInitialised) {
+		// check if barometer is still working
+		dt_bar += dt;
+		if ((dt_bar > SENSOR_DT_LIMIT) && !(error_code & ERROR_BAR)) {
+			// Too much time has passed since the last barometer reading. Set error value, which will disable arming.
+			error_code |= ERROR_BAR;
+
+			DEBUG_PRINTLN(F("Barometer error!"));
+		}
+	}
+}
+#endif
+
+#ifdef USE_GPS
+// get gps data
+void getGpsData(NeoGPS::Location_t &launch_location, NeoGPS::Location_t &current_location, float &heading, float &velocity_north, float &velocity_east) {
+	static uint32_t dt_gps = 0;
+	if (gps.available(gpsPort)) {
+		dt_gps = 0;
+
+		fix = gps.read();
+
+		// set error code in order to disable arming as long as there is no solid gps fix
+		if (fix.valid.satellites && fix.satellites > 5 && fix.valid.hdop && fix.hdop < 7000 && fix.valid.location) {
+			if (error_code & ERROR_GPS) {
+				error_code &= !ERROR_GPS; // delete error value to enable arming and rtl
+
+				DEBUG_PRINTLN(F("Solid GPS fix!"));
+			}
+
+			// update launch location if the quadcopter is disarmed
+			if (motors.getState() == MotorsQuad::State::disarmed) {
+				launch_location = fix.location;
+			}
+		}
+		else if (!(error_code & ERROR_GPS)) {
+			error_code |= ERROR_GPS; // set error value to disable arming and rtl
+
+			DEBUG_PRINTLN(F("No solid GPS fix! Arming and RTL are disabled."));
+		}
+
+		if (fix.valid.location) {
+			current_location = fix.location;
+		}
+
+		if (fix.valid.heading) {
+			heading = fix.heading();
+
+			if (fix.valid.speed) {
+				// calculate north and east velocity
+				fix.calculateNorthAndEastVelocityFromSpeedAndHeading();
+
+				velocity_north = (float) fix.velocity_north * 0.01;
+				velocity_east = (float) fix.velocity_east * 0.01;
+			}
+		}
+	}
+	else {
+		// check if gps is still working
+		dt_gps += dt;
+		if ((dt_gps > SENSOR_DT_LIMIT) && !(error_code & ERROR_GPS)) {
+			// Too much time has passed since the last gps reading. Set error value, which will disable arming.
+			error_code |= ERROR_GPS;
+
+			DEBUG_PRINTLN(F("GPS error!"));
+		}
+	}
+}
+#endif
+
+// initialise quadcopter (pose, altitude) after first run or calibration
+void initQuad(bool &quadInitialised) {
+	if (quadInitialised) {
+		return;
+	}
+
+	static uint8_t initStatus = 0;
+	switch (initStatus) {
+		case 0:
+			disarmAndResetQuad();
+			++initStatus;
+			break;
+
+		case 1:
+			// estimate initial pose
+			if (initPose(BETA_INIT, BETA, INIT_ANGLE_DIFFERENCE, INIT_RATE)) {
+				++initStatus;
+			}
+			break;
+
+#ifdef USE_BAR
+		case 2:
+			// estimate initial barometer altitude
+			if (initAltitude(INIT_VELOCITY_V)) {
+				++initStatus;
+			}
+			break;
+#endif
+		default:
+			// quadcopter initialisation successful
+			initStatus = 0;
+			quadInitialised = true;
+			break;
+	}
+	return;
+}
+
+// arm/disarm on rc command or disarm on failsafe conditions
+void arm_failsafe(uint8_t fs_config) {
+	static uint32_t t_arm_failsafe;
+	t_arm_failsafe = micros();
+
+	// automatically disarm when no start happens within 15 seconds
+	static uint32_t t_auto_disarm = 0;
+	if (!started && (motors.getState() == MotorsQuad::State::armed)) {
+		if (t_auto_disarm == 0) {
+			t_auto_disarm = t_arm_failsafe;
+		}
+		else if ((t_arm_failsafe - t_auto_disarm) > 15000000) {
+			disarmAndResetQuad();
+			t_auto_disarm = 0;
+		}
+	}
+	else {
+		t_auto_disarm = 0;
+	}
+
+	// arm and disarm on rc command
+	static uint32_t t_arm = 0, t_disarm = 0;
+	if (rc_channelValue[ARM] == 2000 && quadInitialised) { // arm switch needs to be set and quadcopter needs to be initialised to enable arming
+		if ((rc_channelValue[THROTTLE] < 1050) && (((rc_channelValue[ROLL] > 1450) && (rc_channelValue[ROLL] < 1550)) && ((rc_channelValue[PITCH] > 1450) && (rc_channelValue[PITCH] < 1550)))) {
+			if ((rc_channelValue[YAW] > 1950) && (motors.getState() == MotorsQuad::State::disarmed)) {
+				// hold left stick bottom-right and keep right stick centered (3s) to complete arming
+				t_disarm = 0;
+				if (t_arm == 0) {
+					t_arm = t_arm_failsafe;
+				}
+				else if ((t_arm_failsafe - t_arm) > 3000000) {
+					motors.arm();
+					t_arm = 0;
+				}
+			}
+			else if ((rc_channelValue[YAW] < 1050) && ((motors.getState() == MotorsQuad::State::armed) || (motors.getState() == MotorsQuad::State::arming))) {
+				// hold left stick bottom-left and keep right stick centered (3s) to complete disarming
+				t_arm = 0;
+				if (t_disarm == 0) {
+					t_disarm = t_arm_failsafe;
+				}
+				else if ((t_arm_failsafe - t_disarm) > 3000000) {
+					disarmAndResetQuad();
+					t_disarm = 0;
+				}
+			}
+			else {
+				t_arm = 0;
+				t_disarm = 0;
+			}
+		}
+		else {
+			t_arm = 0;
+			t_disarm = 0;
+		}
+	}
+	else if ((motors.getState() == MotorsQuad::State::armed) || (motors.getState() == MotorsQuad::State::arming)) {
+		disarmAndResetQuad();
+		t_arm = 0;
+		t_disarm = 0;
+	}
+	else {
+		t_arm = 0;
+		t_disarm = 0;
+	}
+
+	// disarm on failsafe conditions
+	if ((motors.getState() == MotorsQuad::State::armed) || (motors.getState() == MotorsQuad::State::arming)) {
+		// imu failsafe
+		if ((FS_CONFIG & FS_IMU) == FS_IMU) {
+			if (dt > FS_IMU_DT_LIMIT) {
+				// limit for imu update time exceeded
+				disarmAndResetQuad();
+				error_code |= ERROR_IMU;
+				DEBUG_PRINTLN(F("IMU failsafe caused by major IMU error!"));
+			}
+		}
+
+		// quadcopter motion failsafe
+		static uint32_t t_fs_motion = 0;
+		if ((FS_CONFIG & FS_MOTION) == FS_MOTION) {
+			if ((abs(roll_angle) > FS_MOTION_ANGLE_LIMIT) || (abs(pitch_angle) > FS_MOTION_ANGLE_LIMIT) || (abs(yaw_rate) > FS_MOTION_RATE_LIMIT)) {
+				// angle or angular rate limit exceeded
+				if (t_fs_motion == 0) {
+					t_fs_motion = t_arm_failsafe;
+				}
+				else if ((t_arm_failsafe - t_fs_motion) > FS_MOTION_CONTROL_DT_LIMIT) {
+					disarmAndResetQuad();
+					t_fs_motion = 0;
+					DEBUG_PRINTLN(F("Motion failsafe!"));
+				}
+			}
+			else {
+				t_fs_motion = 0;
+			}
+		}
+		else {
+			t_fs_motion = 0;
+		}
+
+		// failsafe conditions after the quadcopter started
+		if (started) {
+			// quadcopter control failsafe
+			static uint32_t t_fs_control = 0;
+			if ((FS_CONFIG & FS_CONTROL) == FS_CONTROL) {
+				if ((abs(roll_angle_sp - roll_angle) > FS_CONTROL_ANGLE_DIFF) || (abs(pitch_angle_sp - pitch_angle) > FS_CONTROL_ANGLE_DIFF) || (abs(yaw_rate_sp - yaw_rate) > FS_CONTROL_RATE_DIFF)) {
+					// difference to control values for angle and angular rate exceeded
+					if (t_fs_control == 0) {
+						t_fs_control = t_arm_failsafe;
+					}
+					else if ((t_arm_failsafe - t_fs_control) > FS_MOTION_CONTROL_DT_LIMIT) {
+						disarmAndResetQuad();
+						t_fs_control = 0;
+						DEBUG_PRINTLN(F("Control failsafe!"));
+					}
+				}
+				else {
+					t_fs_control = 0;
+				}
+			}
+			else {
+				t_fs_control = 0;
+			}
+		}
+	}
+}
+
+// disarm and reset quadcopter
+void disarmAndResetQuad() {
+	// set flight setpoints to zero
+	roll_angle_sp = 0;
+	pitch_angle_sp = 0;
+
+	roll_rate_sp = 0;
+	pitch_rate_sp = 0;
+	yaw_rate_sp = 0;
+
+	throttle_out = 1000;
+	velocity_v_sp = 0;
+
+	altitude_sp = altitude;
+
+	velocity_x_sp = 0;
+	velocity_y_sp = 0;
+
+	// reset PID controller
+	roll_rate_pid.reset();
+	pitch_rate_pid.reset();
+	yaw_rate_pid.reset();
+	velocity_v_pid.reset();
+	velocity_x_pid.reset();
+	velocity_y_pid.reset();
+
+#ifdef USE_BAR
+	// reset altitude filter
+	altitudeFilter.reset();
+#endif
+
+	roll_rate_mv = 0;
+	pitch_rate_mv = 0;
+	yaw_rate_mv = 0;
+
+	// disarm motors
+	motors.disarm();
+
+	// set started state to false - minimum throttle is required again to start the motors and PID calculations
+	started = false;
 }
 
 // calculate roll and pitch angle setpoints as well as yaw rate setpoint from radio control input
@@ -1085,175 +1280,6 @@ void rtl_xyVelocity_yRate(float &velocity_x_sp, float &velocity_y_sp, float &vel
 
 	// shape yaw rate setpoint
 	yaw_rate_sp = constrain(shape_position(distance_yaw, TC_YAW_ANGLE, ACCEL_YAW_LIMIT, yaw_rate_sp, dt_s), -YAW_RATE_LIMIT, YAW_RATE_LIMIT);
-}
-
-// arm/disarm on rc command or disarm on failsafe conditions
-void arm_failsafe(uint8_t fs_config) {
-	static uint32_t t_arm_failsafe;
-	t_arm_failsafe = micros();
-
-	// automatically disarm when no start happens within 15 seconds
-	static uint32_t t_auto_disarm = 0;
-	if (!started && (motors.getState() == MotorsQuad::State::armed)) {
-		if (t_auto_disarm == 0) {
-			t_auto_disarm = t_arm_failsafe;
-		}
-		else if ((t_arm_failsafe - t_auto_disarm) > 15000000) {
-			disarmAndResetQuad();
-			t_auto_disarm = 0;
-		}
-	}
-	else {
-		t_auto_disarm = 0;
-	}
-
-	// arm and disarm on rc command
-	static uint32_t t_arm = 0, t_disarm = 0;
-	if (rc_channelValue[ARM] == 2000 && initialised) { // arm switch needs to be set and quadcopter needs to be initialised to enable arming
-		if ((rc_channelValue[THROTTLE] < 1050) && (((rc_channelValue[ROLL] > 1450) && (rc_channelValue[ROLL] < 1550)) && ((rc_channelValue[PITCH] > 1450) && (rc_channelValue[PITCH] < 1550)))) {
-			if ((rc_channelValue[YAW] > 1950) && (motors.getState() == MotorsQuad::State::disarmed)) {
-				// hold left stick bottom-right and keep right stick centered (3s) to complete arming
-				t_disarm = 0;
-				if (t_arm == 0) {
-					t_arm = t_arm_failsafe;
-				}
-				else if ((t_arm_failsafe - t_arm) > 3000000) {
-					motors.arm();
-					t_arm = 0;
-				}
-			}
-			else if ((rc_channelValue[YAW] < 1050) && ((motors.getState() == MotorsQuad::State::armed) || (motors.getState() == MotorsQuad::State::arming))) {
-				// hold left stick bottom-left and keep right stick centered (3s) to complete disarming
-				t_arm = 0;
-				if (t_disarm == 0) {
-					t_disarm = t_arm_failsafe;
-				}
-				else if ((t_arm_failsafe - t_disarm) > 3000000) {
-					disarmAndResetQuad();
-					t_disarm = 0;
-				}
-			}
-			else {
-				t_arm = 0;
-				t_disarm = 0;
-			}
-		}
-		else {
-			t_arm = 0;
-			t_disarm = 0;
-		}
-	}
-	else if ((motors.getState() == MotorsQuad::State::armed) || (motors.getState() == MotorsQuad::State::arming)) {
-		disarmAndResetQuad();
-		t_arm = 0;
-		t_disarm = 0;
-	}
-	else {
-		t_arm = 0;
-		t_disarm = 0;
-	}
-
-	// disarm on failsafe conditions
-	if ((motors.getState() == MotorsQuad::State::armed) || (motors.getState() == MotorsQuad::State::arming)) {
-		// imu failsafe
-		if ((FS_CONFIG & FS_IMU) == FS_IMU) {
-			if (dt > FS_IMU_DT_LIMIT) {
-				// limit for imu update time exceeded
-				disarmAndResetQuad();
-				error_code |= ERROR_IMU;
-				DEBUG_PRINTLN(F("IMU failsafe caused by major IMU error!"));
-			}
-		}
-
-		// quadcopter motion failsafe
-		static uint32_t t_fs_motion = 0;
-		if ((FS_CONFIG & FS_MOTION) == FS_MOTION) {
-			if ((abs(roll_angle) > FS_MOTION_ANGLE_LIMIT) || (abs(pitch_angle) > FS_MOTION_ANGLE_LIMIT) || (abs(yaw_rate) > FS_MOTION_RATE_LIMIT)) {
-				// angle or angular rate limit exceeded
-				if (t_fs_motion == 0) {
-					t_fs_motion = t_arm_failsafe;
-				}
-				else if ((t_arm_failsafe - t_fs_motion) > FS_MOTION_CONTROL_DT_LIMIT) {
-					disarmAndResetQuad();
-					t_fs_motion = 0;
-					DEBUG_PRINTLN(F("Motion failsafe!"));
-				}
-			}
-			else {
-				t_fs_motion = 0;
-			}
-		}
-		else {
-			t_fs_motion = 0;
-		}
-
-		// failsafe conditions after the quadcopter started
-		if (started) {
-			// quadcopter control failsafe
-			static uint32_t t_fs_control = 0;
-			if ((FS_CONFIG & FS_CONTROL) == FS_CONTROL) {
-				if ((abs(roll_angle_sp - roll_angle) > FS_CONTROL_ANGLE_DIFF) || (abs(pitch_angle_sp - pitch_angle) > FS_CONTROL_ANGLE_DIFF) || (abs(yaw_rate_sp - yaw_rate) > FS_CONTROL_RATE_DIFF)) {
-					// difference to control values for angle and angular rate exceeded
-					if (t_fs_control == 0) {
-						t_fs_control = t_arm_failsafe;
-					}
-					else if ((t_arm_failsafe - t_fs_control) > FS_MOTION_CONTROL_DT_LIMIT) {
-						disarmAndResetQuad();
-						t_fs_control = 0;
-						DEBUG_PRINTLN(F("Control failsafe!"));
-					}
-				}
-				else {
-					t_fs_control = 0;
-				}
-			}
-			else {
-				t_fs_control = 0;
-			}
-		}
-	}
-}
-
-// disarm and reset quadcopter
-void disarmAndResetQuad() {
-	// set flight setpoints to zero
-	roll_angle_sp = 0;
-	pitch_angle_sp = 0;
-
-	roll_rate_sp = 0;
-	pitch_rate_sp = 0;
-	yaw_rate_sp = 0;
-
-	throttle_out = 1000;
-	velocity_v_sp = 0;
-
-	altitude_sp = altitude;
-
-	velocity_x_sp = 0;
-	velocity_y_sp = 0;
-
-	// reset PID controller
-	roll_rate_pid.reset();
-	pitch_rate_pid.reset();
-	yaw_rate_pid.reset();
-	velocity_v_pid.reset();
-	velocity_x_pid.reset();
-	velocity_y_pid.reset();
-
-#ifdef USE_BAR
-	// reset altitude filter
-	altitudeFilter.reset();
-#endif
-
-	roll_rate_mv = 0;
-	pitch_rate_mv = 0;
-	yaw_rate_mv = 0;
-
-	// disarm motors
-	motors.disarm();
-
-	// set started state to false - minimum throttle is required again to start the motors and PID calculations
-	started = false;
 }
 
 #ifdef PLOT

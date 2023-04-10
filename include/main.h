@@ -4,6 +4,7 @@
 #include "common.h"
 
 #include <Plotter.h>
+#include <NMEAGPS.h>
 
 #include <stdint.h>
 
@@ -201,17 +202,35 @@ void updateLedStatus();
 // calculate loop time in microseconds (dt) and seconds (dt_s)
 void loopTime();
 
-// calculate roll and pitch angle setpoints as well as yaw rate setpoint from radio control input
-void rc_rpAngle_yRate(float &roll_angle_sp, float &pitch_angle_sp, float &yaw_rate_sp);
+#ifdef USE_MAG
+// get magnetometer data
+void getMagData(int16_t &mx, int16_t &my, int16_t &mz);
+#endif
 
-// calculate xyv-velocity setpoints and yaw rate setpoint for returning to launch
-void rtl_xyVelocity_yRate(float &velocity_x_sp, float &velocity_y_sp, float &velocity_v_sp, float &yaw_rate_sp);
+#ifdef USE_BAR
+// get barometer data
+void getBarData(float &baroAltitudeRaw);
+#endif
+
+#ifdef USE_GPS
+// get gps data
+void getGpsData(NeoGPS::Location_t &launch_location, NeoGPS::Location_t &current_location, float &heading, float &velocity_north, float &velocity_east);
+#endif
+
+// initialise quadcopter (pose, altitude) after first run or calibration
+void initQuad(bool &quadInitialised);
 
 // arm/disarm on rc command and disarm on failsafe conditions
 void arm_failsafe(uint8_t fs_config);
 
 // disarm and reset quadcopter
 void disarmAndResetQuad();
+
+// calculate roll and pitch angle setpoints as well as yaw rate setpoint from radio control input
+void rc_rpAngle_yRate(float &roll_angle_sp, float &pitch_angle_sp, float &yaw_rate_sp);
+
+// calculate xyv-velocity setpoints and yaw rate setpoint for returning to launch
+void rtl_xyVelocity_yRate(float &velocity_x_sp, float &velocity_y_sp, float &velocity_v_sp, float &yaw_rate_sp);
 
 #ifdef PLOT
 // add time graphs to plot through Processing
