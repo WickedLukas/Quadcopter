@@ -1077,6 +1077,7 @@ void rc_rpAngle_yRate(float &roll_angle_sp, float &pitch_angle_sp, float &yaw_ra
 	}
 }
 
+#ifdef USE_GPS
 // calculate xyv-velocity setpoints and yaw rate setpoint for returning to launch
 void rtl_xyVelocity_yRate(float &velocity_x_sp, float &velocity_y_sp, float &velocity_v_sp, float &yaw_rate_sp)
 {
@@ -1281,6 +1282,7 @@ void rtl_xyVelocity_yRate(float &velocity_x_sp, float &velocity_y_sp, float &vel
 	// shape yaw rate setpoint
 	yaw_rate_sp = constrain(shape_position(distance_yaw, TC_YAW_ANGLE, ACCEL_YAW_LIMIT, yaw_rate_sp, dt_s), -YAW_RATE_LIMIT, YAW_RATE_LIMIT);
 }
+#endif
 
 #ifdef PLOT
 // add time graphs to plot through Processing

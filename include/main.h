@@ -229,8 +229,10 @@ void disarmAndResetQuad();
 // calculate roll and pitch angle setpoints as well as yaw rate setpoint from radio control input
 void rc_rpAngle_yRate(float &roll_angle_sp, float &pitch_angle_sp, float &yaw_rate_sp);
 
+#ifdef USE_GPS
 // calculate xyv-velocity setpoints and yaw rate setpoint for returning to launch
 void rtl_xyVelocity_yRate(float &velocity_x_sp, float &velocity_y_sp, float &velocity_v_sp, float &yaw_rate_sp);
+#endif
 
 #ifdef PLOT
 // add time graphs to plot through Processing

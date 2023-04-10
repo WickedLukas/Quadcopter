@@ -9,13 +9,20 @@ bool calibration(MotorsQuad &motors, ICM20948_SPI &imu, uint16_t* rc_channelValu
 	static uint32_t t_imuCalibration;
 	t_imuCalibration = micros();
 	
-	static uint32_t t_calibrateGyro = 0, t_calibrateAccel = 0, t_calibrateMag = 0;
+	static uint32_t t_calibrateGyro = 0, t_calibrateAccel = 0;
+#ifdef USE_MAG
+	static uint32_t t_calibrateMag = 0;
+#endif
+
 	if (motors.getState() == MotorsQuad::State::disarmed) {
 		if ((rc_channelValue[PITCH] < 1050) && (rc_channelValue[ROLL] > 1450) && (rc_channelValue[ROLL] < 1550)) {
 			if ((rc_channelValue[THROTTLE] < 1050) && (rc_channelValue[YAW] < 1050)) {
 				// hold right stick bottom center and left stick bottom-left to start gyro calibration	(2s)
 				t_calibrateAccel = 0;
+#ifdef USE_MAG
 				t_calibrateMag = 0;
+#endif
+
 				if (t_calibrateGyro == 0) {
 					t_calibrateGyro = t_imuCalibration;
 					return false;
@@ -35,7 +42,10 @@ bool calibration(MotorsQuad &motors, ICM20948_SPI &imu, uint16_t* rc_channelValu
 			else if ((rc_channelValue[THROTTLE] > 1950) && (rc_channelValue[YAW] < 1050)) {
 				// hold right stick bottom center and left stick top-left to start accel calibration	(2s)
 				t_calibrateGyro = 0;
+#ifdef USE_MAG
 				t_calibrateMag = 0;
+#endif
+
 				if (t_calibrateAccel == 0) {
 					t_calibrateAccel = t_imuCalibration;
 					return false;
@@ -79,7 +89,9 @@ bool calibration(MotorsQuad &motors, ICM20948_SPI &imu, uint16_t* rc_channelValu
 	
 	t_calibrateGyro = 0;
 	t_calibrateAccel = 0;
+#ifdef USE_MAG
 	t_calibrateMag = 0;
+#endif
 	
 	return false;
 }
