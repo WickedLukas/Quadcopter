@@ -34,8 +34,23 @@ public:
     bool start();
     bool stop();
 
-    void log(logId id, const String &value); // add log value to line data
-    bool writeLogLine();                     // write log line to ring buffer
+    // add log value to line
+    template<typename T>
+    typename std::enable_if<std::is_integral<T>::value>::type log(logId id, const T &value) {
+        if (!m_started || !m_logNow) {
+            return;
+        }
+        m_lineValues[static_cast<uint16_t>(id)] = String(value);
+    }
+    template<typename T>
+    typename std::enable_if<!std::is_integral<T>::value>::type log(logId id, const T &value, uint16_t digits = 2) {
+        if (!m_started || !m_logNow) {
+            return;
+        }
+        m_lineValues[static_cast<uint16_t>(id)] = String(value, digits);
+    }
+
+    bool writeLogLine(); // write log line to ring buffer
 
 private:
     bool writeToRb(const String &str); // write string to ring buffer

@@ -121,15 +121,6 @@ bool DataLogger::stop() {
     return success;
 }
 
-void DataLogger::log(logId id, const String &value) {
-
-    if (!m_started || !m_logNow) {
-        return;
-    }
-
-    m_lineValues[static_cast<uint16_t>(id)] = value;
-}
-
 bool DataLogger::writeLogLine() {
 
     if (!m_started) {
