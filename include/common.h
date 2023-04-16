@@ -33,6 +33,12 @@
     #define DEBUG_PRINTLN2(x, y)
 #endif
 
+// macros to help with data logging to SD card
+#define SD_LOG(id_value) sdCardLogger.log(logId::id_value, id_value);
+#define SD_LOG2D(id_value, digits) sdCardLogger.log(logId::id_value, id_value, digits);
+#define SD_LOG2(id, value) sdCardLogger.log(logId::id, value);
+#define SD_LOG3(id, value, digits) sdCardLogger.log(logId::id, value, digits);
+
 #define rcPort Serial3
 #define gpsPort Serial1
 

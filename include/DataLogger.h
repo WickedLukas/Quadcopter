@@ -10,16 +10,17 @@
 
 enum class logId : uint16_t
 {
-    first,
-    second,
-    third,
-    fourth,
-    fifth,
-    sixth,
-    seventh,
-    eight,
-    ninth,
-    tenth,
+    fMode, rtlState,
+    dt,
+    ax, ay, az,
+    ax_filtered, ay_filtered, az_filtered,
+    roll_angle, pitch_angle, yaw_angle, roll_angle_sp, pitch_angle_sp,
+    roll_rate, pitch_rate, yaw_rate, roll_rate_sp, pitch_rate_sp, yaw_rate_sp,
+    a_d_rel,
+    baroAltitudeRaw, baroAltitude,
+    altitude, altitude_sp,
+    velocity_v, velocity_x, velocity_y, velocity_v_sp, velocity_x_sp, velocity_y_sp,
+    throttle_out,
     last
 };
 
