@@ -13,6 +13,10 @@ bool DataLogger::start() {
 
     // initialize SD card and file system for SDIO mode
     if (!m_sd.begin(SdioConfig(FIFO_SDIO))) {
+        // do not return error when SD card is missing
+        if (m_sd.sdErrorCode() == 23) {
+            return true;
+        }
         return false;
     }
 
@@ -73,7 +77,7 @@ bool DataLogger::start() {
     m_logFileName[0] = '\0';
     strcat(m_logFileName, prefixString);
     strcat(m_logFileName, "__");
-    strcat(m_logFileName, m_version);
+    strcat(m_logFileName, m_name);
     strcat(m_logFileName, m_logFileSuffix);
 
     // create new log file

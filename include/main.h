@@ -79,7 +79,7 @@
 // throttle deadzone (altitude hold) in per cent of throttle range
 #define THROTTLE_DEADZONE_PCT 20
 
-// minimum time in microseconds for no sensor update in order to set error an errorcode
+// minimum time in microseconds for no sensor update in order to set an error code
 #define SENSOR_DT_LIMIT 2000000
 
 // minimum time in microseconds the motion or control failsafe conditions need to be met in order to enter failsafe
@@ -176,10 +176,11 @@ const uint8_t FS_CONTROL = 0b00000100;
 const uint8_t FS_CONFIG = 0b00000011; // imu and motion failsafe
 
 // list of error codes
-const uint8_t ERROR_IMU = 0b00000001;
-const uint8_t ERROR_MAG = 0b00000010;
-const uint8_t ERROR_BAR = 0b00000100;
-const uint8_t ERROR_GPS = 0b00001000;
+const uint8_t ERROR_IMU   = 0b00000001;
+const uint8_t ERROR_MAG   = 0b00000010;
+const uint8_t ERROR_BAR   = 0b00000100;
+const uint8_t ERROR_GPS   = 0b00001000;
+const uint8_t ERROR_SDLOG = 0b00010000;
 
 // state of initial estimation
 enum class state { init, busy };

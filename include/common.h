@@ -15,10 +15,11 @@
 // ! For safety, define MOTORS_OFF to prevent motors from running.
 //#define MOTORS_OFF
 
-// define which sensors shall be used
-#define USE_BAR // use barometer
-#define USE_MAG // use magnetometer // TODO: Check if magnetometer data is reliable when motors are running.
-#define USE_GPS // use GPS
+// define which features shall be used
+#define USE_BAR   // use barometer
+#define USE_MAG   // use magnetometer // TODO: Check if magnetometer data is reliable when motors are running.
+#define USE_GPS   // use GPS
+#define USE_SDLOG // use SD card for data logging
 
 #ifdef DEBUG
     #define DEBUG_PRINT(x) Serial.print(x)

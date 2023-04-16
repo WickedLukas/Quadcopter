@@ -3,6 +3,7 @@
 #include "motorsQuad.h"
 #include "shapeTrajectory.h"
 #include "kalmanFilter1D.h"
+#include "DataLogger.h"
 #include "sendSerial.h"
 
 #include <iBus.h>
@@ -84,6 +85,11 @@ PID_controller velocity_v_pid(P_VELOCITY_V, I_VELOCITY_V, D_VELOCITY_V, THROTTLE
 PID_controller velocity_x_pid(P_VELOCITY_H, I_VELOCITY_H, D_VELOCITY_H, ROLL_PITCH_ANGLE_LIMIT, ROLL_PITCH_ANGLE_LIMIT, EMA_VELOCITY_H_P, EMA_VELOCITY_H_D);
 PID_controller velocity_y_pid(P_VELOCITY_H, I_VELOCITY_H, D_VELOCITY_H, ROLL_PITCH_ANGLE_LIMIT, ROLL_PITCH_ANGLE_LIMIT, EMA_VELOCITY_H_P, EMA_VELOCITY_H_D);
 
+#ifdef USE_SDLOG
+// SD card logger
+DataLogger sdCardLogger("version");
+#endif
+
 // flight modes
 enum class FlightMode { Stabilize, AltitudeHold, ReturnToLaunch } fMode;
 
@@ -109,7 +115,7 @@ float baroAltitude_init;
 float altitude_max;
 
 // Stores which errors occurred. Each bit belongs to a certain error.
-// If the errorcode is unequal zero, arming is disabled.
+// If the error code is unequal zero, arming is disabled.
 // A power cycle is required to reset errors and enable arming.
 uint8_t error_code;
 
@@ -271,6 +277,32 @@ void loop() {
 
 	// arm/disarm on rc command or disarm on failsafe conditions
 	arm_failsafe(FS_CONFIG);
+
+#ifdef USE_SDLOG
+	bool sdLogEnabled{false};
+	// start/stop SD card logging when arm switch is enabled/disabled
+	if ((rc_channelValue[ARM] == 2000) && (sdLogEnabled == false)) {
+		sdLogEnabled = true;
+		if (!sdCardLogger.start()) {
+			error_code |= ERROR_SDLOG;
+		}
+		else {
+			error_code &= !ERROR_SDLOG;
+		}
+	}
+	else if ((rc_channelValue[ARM] == 1000) && (sdLogEnabled == true)) {
+		sdLogEnabled = false;
+		if (!sdCardLogger.stop()) {
+			error_code |= ERROR_SDLOG;
+		}
+	}
+
+	// write log line to file
+	if (!sdCardLogger.writeLogLine()) {
+		sdCardLogger.stop();
+		error_code |= ERROR_SDLOG;
+	}
+#endif
 
 	// continue if imu interrupt has fired
 	if (!imuInterrupt) {
@@ -718,17 +750,21 @@ void accel_ned_rel(float &a_n_relative, float &a_e_relative, float &a_d_relative
 // update LED according to quadcopter status (error, motors armed/disarmed and initialisation)
 void updateLedStatus()
 {
-	if ((error_code & !ERROR_GPS) != 0) {
-		// blink LED very fast to indicate an error occurrence except gps
-		updateLed(LED_PIN, 1, 200);
-	}
-	else if (motors.getState() == MotorsQuad::State::armed) {
+	if (motors.getState() == MotorsQuad::State::armed) {
 		// blink LED normally to indicate armed status
 		updateLed(LED_PIN, 1, 1000);
 	}
+	else if ((error_code & !ERROR_GPS & !ERROR_SDLOG) != 0) {
+		// blink LED very fast to indicate an error occurrence except gps and data logging
+		updateLed(LED_PIN, 1, 200);
+	}
 	else if (!quadInitialised || (error_code == ERROR_GPS)) {
 		// blink LED fast to indicate quadcopter initialisation or gps search
-		updateLed(LED_PIN, 1, 500);
+		updateLed(LED_PIN, 1, 400);
+	}
+	else if (error_code == ERROR_SDLOG) {
+		// blink LED slowly to indicate a data logging error
+		updateLed(LED_PIN, 1, 600);
 	}
 	else if (motors.getState() == MotorsQuad::State::disarmed) {
 		// turn off LED to indicate disarmed status

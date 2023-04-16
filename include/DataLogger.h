@@ -26,7 +26,7 @@ enum class logId : uint16_t
 class DataLogger {
 
 public:
-    DataLogger(const char* version) : m_version(version) {
+    DataLogger(const char* name, uint32_t logInterval_us = 10'000) : m_name{name}, m_logInterval_us{logInterval_us} {
     }
 
     ~DataLogger();
@@ -40,12 +40,14 @@ public:
 private:
     bool writeToRb(const String &str); // write string to ring buffer
 
-    static const uint32_t m_logInterval_us{10'000};                                             // interval between log samples in microseconds
-    static const uint32_t m_sectorSize{512};                                                    // sector size which can be efficiently written without waiting
-    static const uint32_t m_ringBufSize{2 * m_sectorSize};                                      // ring buffer size
-    static const uint32_t m_maxLogFileSize{m_sectorSize * 1'000'000 / m_logInterval_us * 3600}; // size to log samples of sector size every log interval for one hour in bytes (~176 MByte)
-    static const size_t m_maxFileNameSize{30};                                                  // maximum size of file name
-    static const uint32_t m_maxLogFiles{20};                                                    // maximum number of log files
+    const char* m_name; // name used inside log file name
+    
+    static const uint32_t m_sectorSize{512};                                             // sector size which can be efficiently written without waiting
+    static const uint32_t m_ringBufSize{2 * m_sectorSize};                               // ring buffer size
+    static const size_t m_maxFileNameSize{30};                                           // maximum size of file name
+    const uint32_t m_logInterval_us;                                                     // interval between log samples in microseconds
+    const uint32_t m_maxLogFileSize{m_sectorSize * 1'000'000 / m_logInterval_us * 3600}; // size to log samples of sector size every log interval for one hour in bytes (~176 MByte)
+    const uint32_t m_maxLogFiles{20};                                                    // maximum number of log files
 
     char m_logFileName[m_maxFileNameSize];    // log file name
     const char* m_logFileSuffix{"__log.csv"}; // log file suffix
@@ -55,8 +57,6 @@ private:
     FsFile m_root;
     FsFile m_file;
     RingBuf<FsFile, m_ringBufSize> m_rb; // ring buffer for file type FsFile
-
-    const char* m_version; // version number is used inside log file name
 
     bool m_started{false}; // true if data logger is started
     bool m_logNow{false};  // logging flag used to efficiently log with the specified log interval
