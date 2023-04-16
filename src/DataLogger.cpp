@@ -126,45 +126,45 @@ bool DataLogger::writeLogLine() {
     if (!m_started) {
         return true;
     }
-    
-    // log line each log interval
-    if (!m_logNow) {
+
+    static size_t ringBufferUsed{0};
+    if (m_logNow) {
+        m_logNow = false;
+
+        // write line with comma separated values to ring buffer
+        uint16_t id{0};
+        if (!writeToRb(m_lineValues[id])) {
+            return false;
+        }
+        for (id = 1; id < m_numLineValues; ++id) {
+            if (!writeToRb("," + m_lineValues[id])) {
+                return false;
+            }
+        }
+
+        // write line ending
+        if (!writeToRb(m_lineEnding)) {
+            return false;
+        }
+
+        ringBufferUsed = m_rb.bytesUsed(); // bytes used in ring buffer
+
+        // check for maximum log file size
+	    if ((m_file.curPosition() + ringBufferUsed) >= m_maxLogFileSize) {
+		    // log file is full
+		    return false;
+	    }
+    }
+    else {
         uint32_t writeLog_us{micros()};
         static uint32_t lastWriteLog_us;
 
+        // log every log interval
         if ((writeLog_us - lastWriteLog_us) >= m_logInterval_us) {
             m_logNow = true;
             lastWriteLog_us = writeLog_us;
         }
-        return true;
     }
-    else {
-        m_logNow = false;
-    }
-    
-    // write line with comma separated values to ring buffer
-    uint16_t id{0};
-    if (!writeToRb(m_lineValues[id])) {
-        return false;
-    }
-    for (id = 1; id < m_numLineValues; ++id) {
-        if (!writeToRb("," + m_lineValues[id])) {
-            return false;
-        }
-    }
-
-    // write line ending
-    if (!writeToRb(m_lineEnding)) {
-        return false;
-    }
-
-	size_t ringBufferUsed = m_rb.bytesUsed(); // bytes used in ring buffer
-
-    // check for maximum log file size
-	if ((m_file.curPosition() + ringBufferUsed) >= m_maxLogFileSize) {
-		// log file is full
-		return false;
-	}
 
     // transfer data from ring buffer to SD card
 	if ((ringBufferUsed >= m_sectorSize) && !m_file.isBusy()) {

@@ -58,7 +58,7 @@ private:
     const char* m_name; // name used inside log file name
     
     static const uint32_t m_sectorSize{512};                                             // sector size which can be efficiently written without waiting
-    static const uint32_t m_ringBufSize{2 * m_sectorSize};                               // ring buffer size
+    static const uint32_t m_ringBufSize{10 * m_sectorSize};                              // ring buffer size
     static const size_t m_maxFileNameSize{30};                                           // maximum size of file name
     const uint32_t m_logInterval_us;                                                     // interval between log samples in microseconds
     const uint32_t m_maxLogFileSize{m_sectorSize * 1'000'000 / m_logInterval_us * 3600}; // size to log samples of sector size every log interval for one hour in bytes (~176 MByte)
