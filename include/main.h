@@ -27,7 +27,7 @@
 #define IMU_INTERRUPT_PIN 9
 
 // barometer interrupt pin
-#define BAROMETER_INTERRUPT_PIN 20
+#define BAROMETER_INTERRUPT_PIN 22
 
 // pwm pins to control motors
 // 1: top-left (CW); 2: top-right (CCW); 3: bottom-left (CW); 4: bottom-right (CCW);

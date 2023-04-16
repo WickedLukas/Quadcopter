@@ -33,7 +33,7 @@
     #define DEBUG_PRINTLN2(x, y)
 #endif
 
-#define rcPort Serial2
+#define rcPort Serial3
 #define gpsPort Serial1
 
 // address for eeprom data
