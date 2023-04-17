@@ -37,14 +37,14 @@ public:
 
     // add log value to line
     template<typename T>
-    typename std::enable_if<std::is_integral<T>::value>::type log(logId id, const T &value) {
+    typename std::enable_if<std::is_integral<T>::value>::type log(logId id, const T value) {
         if (!m_started || !m_logNow) {
             return;
         }
         m_lineValues[static_cast<uint16_t>(id)] = String(value);
     }
     template<typename T>
-    typename std::enable_if<!std::is_integral<T>::value>::type log(logId id, const T &value, uint16_t digits = 2) {
+    typename std::enable_if<!std::is_integral<T>::value>::type log(logId id, const T value, uint16_t digits = 2) {
         if (!m_started || !m_logNow) {
             return;
         }
@@ -76,6 +76,10 @@ private:
 
     bool m_started{false}; // true if data logger is started
     bool m_logNow{false};  // logging flag used to efficiently log with the specified log interval
+    
+    uint32_t m_lastWriteLog_us{0}; // time when the last log was written in microseconds
+
+    size_t m_ringBufferUsed{0}; // bytes used in ring buffer
 
     static const uint16_t m_numLineValues{static_cast<uint16_t>(logId::last)}; // number of log values in one line 
     std::array<String, m_numLineValues> m_lineValues{};                        // array which contains log values for one line
