@@ -149,7 +149,7 @@ bool DataLogger::writeLogLine() {
         }
 
         // check for maximum log file size
-	    if ((m_file.curPosition() + m_ringBufferUsed) >= m_maxLogFileSize) {
+	    if ((m_file.curPosition() + m_rb.bytesUsed()) >= m_maxLogFileSize) {
 		    // log file is full
 		    return false;
 	    }
@@ -165,11 +165,9 @@ bool DataLogger::writeLogLine() {
     }
 
     // transfer data from ring buffer to SD card
-	if ((m_ringBufferUsed >= m_sectorSize) && !m_file.isBusy()) {
+	if ((m_rb.bytesUsed() >= m_sectorSize) && !m_file.isBusy()) {
 		// only one sector can be written before busy wait
         size_t written{m_rb.writeOut(m_sectorSize)};
-
-        m_ringBufferUsed = m_rb.bytesUsed();
 
 		if (written != m_sectorSize) {
 			return false;
@@ -196,8 +194,6 @@ bool DataLogger::writeToRb(const String &str) {
     do {
         written += m_rb.write(&cstr[written], strLength - written);
     } while ((written != strLength) && !(writeError = m_rb.getWriteError()));
-
-    m_ringBufferUsed = m_rb.bytesUsed();
 
     if (writeError) {
         // writing to ring buffer failed

@@ -82,8 +82,6 @@ private:
     uint32_t m_start_ms{0};        // data logging start time in ms
     uint32_t m_sample{0};          // logging sample number
 
-    size_t m_ringBufferUsed{0}; // bytes used in ring buffer
-
     static const uint16_t m_numLineValues{static_cast<uint16_t>(logId::last)}; // number of log values in one line 
     std::array<String, m_numLineValues> m_lineValues{};                        // array which contains log values for one line
 };
