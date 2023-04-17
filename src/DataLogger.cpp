@@ -148,8 +148,6 @@ bool DataLogger::writeLogLine() {
             return false;
         }
 
-        m_ringBufferUsed = m_rb.bytesUsed();
-
         // check for maximum log file size
 	    if ((m_file.curPosition() + m_ringBufferUsed) >= m_maxLogFileSize) {
 		    // log file is full
@@ -169,7 +167,11 @@ bool DataLogger::writeLogLine() {
     // transfer data from ring buffer to SD card
 	if ((m_ringBufferUsed >= m_sectorSize) && !m_file.isBusy()) {
 		// only one sector can be written before busy wait
-		if (m_rb.writeOut(m_sectorSize) != m_sectorSize) {
+        size_t written{m_rb.writeOut(m_sectorSize)};
+
+        m_ringBufferUsed = m_rb.bytesUsed();
+
+		if (written != m_sectorSize) {
 			return false;
 		}
 	}
@@ -182,18 +184,20 @@ bool DataLogger::writeToRb(const String &str) {
     log(logId::sample, ++m_sample);          // add sample number to log
     log(logId::time, millis() - m_start_ms); // add time in ms to log
 
-    const uint32_t strLength{str.length()};
+    const size_t strLength{str.length()};
     if ((m_rb.bytesFree() - strLength) < 0) {
         // not enough free space in ring buffer
         return false;
     }
 
     const char* cstr{str.c_str()};
-    uint32_t written{0};
+    size_t written{0};
     int writeError;
     do {
         written += m_rb.write(&cstr[written], strLength - written);
     } while ((written != strLength) && !(writeError = m_rb.getWriteError()));
+
+    m_ringBufferUsed = m_rb.bytesUsed();
 
     if (writeError) {
         // writing to ring buffer failed
