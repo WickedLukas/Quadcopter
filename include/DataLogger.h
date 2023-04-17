@@ -10,6 +10,7 @@
 
 enum class logId : uint16_t
 {
+    sample, time,
     fMode, rtlState,
     dt,
     ax, ay, az,
@@ -78,6 +79,8 @@ private:
     bool m_logNow{false};  // logging flag used to efficiently log with the specified log interval
     
     uint32_t m_lastWriteLog_us{0}; // time when the last log was written in microseconds
+    uint32_t m_start_ms{0};        // data logging start time in ms
+    uint32_t m_sample{0};          // logging sample number
 
     size_t m_ringBufferUsed{0}; // bytes used in ring buffer
 

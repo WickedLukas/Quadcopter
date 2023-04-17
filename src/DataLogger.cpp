@@ -94,6 +94,8 @@ bool DataLogger::start() {
 	// initialise ring buffer
 	m_rb.begin(&m_file);
 
+    m_sample = 0;
+    m_start_ms = millis();
     return (m_started = true);
 }
 
@@ -176,6 +178,9 @@ bool DataLogger::writeLogLine() {
 }
 
 bool DataLogger::writeToRb(const String &str) {
+
+    log(logId::sample, ++m_sample);          // add sample number to log
+    log(logId::time, millis() - m_start_ms); // add time in ms to log
 
     const uint32_t strLength{str.length()};
     if ((m_rb.bytesFree() - strLength) < 0) {
