@@ -58,7 +58,7 @@
 // parameters to check if filtered angles converged during initialisation
 #define INIT_ANGLE_DIFFERENCE 0.5 // maximum angle difference between filtered angles and accelerometer angles (x- and y-axis) after initialisation
 #define INIT_RATE 0.05            // maximum angular rate of Madgwick-filtered angle (z-axis) after initialisation
-#define INIT_VELOCITY_V 0.20      // maximum vertical velocity after initialisation
+#define INIT_VELOCITY_V 0.10      // maximum vertical velocity after initialisation
 
 // flight setpoint limits
 #define YAW_RATE_LIMIT 150        // deg/s  // 120, 180

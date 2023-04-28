@@ -272,57 +272,24 @@ void loop() {
 		quadInitialised = false;
 	}
 
-	// calculate loop time in microseconds (dt) and seconds (dt_s)
-	loopTime();
-
 	// arm/disarm on rc command or disarm on failsafe conditions
 	arm_failsafe(FS_CONFIG);
 
-#ifdef USE_SDLOG
-	SD_LOG2(fMode, static_cast<unsigned char>(fMode)); SD_LOG2(rtlState, static_cast<unsigned char>(rtlState));
-	SD_LOG(dt);
-	SD_LOG(ax); SD_LOG(ay); SD_LOG(az);
-	SD_LOG2D(ax_filtered, 0); SD_LOG2D(ay_filtered, 0); SD_LOG2D(az_filtered, 0);
-	SD_LOG2D(roll_angle, 1); SD_LOG2D(pitch_angle, 1); SD_LOG2D(yaw_angle, 1); SD_LOG2D(roll_angle_sp, 1); SD_LOG2D(pitch_angle_sp, 1);
-	SD_LOG2D(roll_rate, 1); SD_LOG2D(pitch_rate, 1); SD_LOG2D(yaw_rate, 1); SD_LOG2D(roll_rate_sp, 1); SD_LOG2D(pitch_rate_sp, 1); SD_LOG2D(yaw_rate_sp, 1);
-	SD_LOG2D(yaw_rate, 2); SD_LOG2D(yaw_rate_sp, 2);
-	SD_LOG2D(a_d_rel, 2);
-	SD_LOG2D(baroAltitudeRaw, 1); SD_LOG2D(baroAltitude, 1);
-	SD_LOG2D(altitude, 1); SD_LOG2D(altitude_sp, 1);
-	SD_LOG2D(velocity_v, 2); SD_LOG2D(velocity_x, 2); SD_LOG2D(velocity_y, 2); SD_LOG2D(velocity_v_sp, 2); SD_LOG2D(velocity_x_sp, 2); SD_LOG2D(velocity_y_sp, 2);
-	SD_LOG2D(throttle_out, 0);
-	
+	// update time
+	static uint32_t t;
+	t = micros();
+	static uint32_t t0 = t;
 
-	static bool sdLogEnabled{false};
-	// start/stop SD card logging when arm switch is enabled/disabled
-	if ((rc_channelValue[ARM] == 2000) && (sdLogEnabled == false)) {
-		sdLogEnabled = true;
-		if (!sdCardLogger.start()) {
-			error_code |= ERROR_SDLOG;
-		}
-		else {
-			error_code &= !ERROR_SDLOG;
-		}
-	}
-	else if ((rc_channelValue[ARM] == 1000) && (sdLogEnabled == true)) {
-		sdLogEnabled = false;
-		if (!sdCardLogger.stop()) {
-			error_code |= ERROR_SDLOG;
-		}
-	}
-
-	// write log line to file
-	if (!sdCardLogger.writeLogLine()) {
-		sdCardLogger.stop();
-		error_code |= ERROR_SDLOG;
-	}
-#endif
+	dt = (t - t0);      // in us
+	dt_s = dt * 1.e-6f; // in s
 
 	// continue if imu interrupt has fired
 	if (!imuInterrupt) {
 		return;
 	}
 	imuInterrupt = false; // reset imu interrupt
+
+	t0 = t;
 
 	// read accel and gyro measurements
 	imu.read_accel_gyro_rps(ax, ay, az, gx_rps, gy_rps, gz_rps);
@@ -580,6 +547,46 @@ void loop() {
 		constrain(throttle_out - roll_rate_mv + pitch_rate_mv + yaw_rate_mv, 1000, 2000),
 		constrain(throttle_out + roll_rate_mv + pitch_rate_mv - yaw_rate_mv, 1000, 2000));
 
+#ifdef USE_SDLOG
+	SD_LOG2(fMode, static_cast<unsigned char>(fMode)); SD_LOG2(rtlState, static_cast<unsigned char>(rtlState));
+	SD_LOG(dt);
+	SD_LOG(ax); SD_LOG(ay); SD_LOG(az);
+	SD_LOG2D(ax_filtered, 0); SD_LOG2D(ay_filtered, 0); SD_LOG2D(az_filtered, 0);
+	SD_LOG2D(roll_angle, 1); SD_LOG2D(pitch_angle, 1); SD_LOG2D(yaw_angle, 1); SD_LOG2D(roll_angle_sp, 1); SD_LOG2D(pitch_angle_sp, 1);
+	SD_LOG2D(roll_rate, 1); SD_LOG2D(pitch_rate, 1); SD_LOG2D(yaw_rate, 1); SD_LOG2D(roll_rate_sp, 1); SD_LOG2D(pitch_rate_sp, 1); SD_LOG2D(yaw_rate_sp, 1);
+	SD_LOG2D(yaw_rate, 2); SD_LOG2D(yaw_rate_sp, 2);
+	SD_LOG2D(a_d_rel, 2);
+	SD_LOG2D(baroAltitudeRaw, 1); SD_LOG2D(baroAltitude, 1);
+	SD_LOG2D(altitude, 1); SD_LOG2D(altitude_sp, 1);
+	SD_LOG2D(velocity_v, 2); SD_LOG2D(velocity_x, 2); SD_LOG2D(velocity_y, 2); SD_LOG2D(velocity_v_sp, 2); SD_LOG2D(velocity_x_sp, 2); SD_LOG2D(velocity_y_sp, 2);
+	SD_LOG2D(throttle_out, 0);
+
+
+	static bool sdLogEnabled{false};
+	// start/stop SD card logging when arm switch is enabled/disabled
+	if ((rc_channelValue[ARM] == 2000) && (sdLogEnabled == false)) {
+		sdLogEnabled = true;
+		if (!sdCardLogger.start()) {
+			error_code |= ERROR_SDLOG;
+		}
+		else {
+			error_code &= !ERROR_SDLOG;
+		}
+	}
+	else if ((rc_channelValue[ARM] == 1000) && (sdLogEnabled == true)) {
+		sdLogEnabled = false;
+		if (!sdCardLogger.stop()) {
+			error_code |= ERROR_SDLOG;
+		}
+	}
+
+	// write log line to file
+	if (!sdCardLogger.writeLogLine()) {
+		sdCardLogger.stop();
+		error_code |= ERROR_SDLOG;
+	}
+#endif
+
 #if defined(DEBUG) || defined(SEND_SERIAL) || defined(PLOT)
 	// run serial print at a rate independent of the main loop (micros() - t0_serial = 16666 for 60 Hz update rate)
 	static uint32_t t0_serial = micros();
@@ -717,7 +724,6 @@ bool initAltitude(float init_velocity_v) {
 		case state::busy:
 			if (dt_altitude_s > 1) {
 				// initial altitude is estimated if vertical velocity converged
-				// TODO: Use velocity from altitudeFilter instead
 				if ((abs(baroAltitude - baroAltitude_last) / dt_altitude_s) < init_velocity_v) {
 					initAltitude_state = state::init;
 
@@ -788,18 +794,6 @@ void updateLedStatus()
 		// turn on LED to indicate arming/disarming status
 		updateLed(LED_PIN, 2);
 	}
-}
-
-// calculate loop time in microseconds (dt) and seconds (dt_s)
-void loopTime()
-{
-	static uint32_t t;
-	t = micros();
-	static uint32_t t0 = t;
-
-	dt = (t - t0);      // in us
-	dt_s = dt * 1.e-6f; // in s
-	t0 = t;
 }
 
 #ifdef USE_MAG
@@ -922,6 +916,9 @@ void initQuad(bool &quadInitialised) {
 			// estimate initial pose
 			if (initPose(BETA_INIT, BETA, INIT_ANGLE_DIFFERENCE, INIT_RATE)) {
 				++initStatus;
+#ifdef USE_BAR
+				altitudeFilter.reset();
+#endif
 			}
 			break;
 
