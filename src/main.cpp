@@ -293,7 +293,7 @@ void loop() {
 	SD_LOG2D(throttle_out, 0);
 	
 
-	bool sdLogEnabled{false};
+	static bool sdLogEnabled{false};
 	// start/stop SD card logging when arm switch is enabled/disabled
 	if ((rc_channelValue[ARM] == 2000) && (sdLogEnabled == false)) {
 		sdLogEnabled = true;
