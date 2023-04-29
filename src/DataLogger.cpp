@@ -96,6 +96,7 @@ bool DataLogger::start() {
 
     m_sample = 0;
     m_start_ms = millis();
+    m_logNow = true;
     return (m_started = true);
 }
 
@@ -105,7 +106,7 @@ bool DataLogger::stop() {
 
     if (m_started) {
         m_started = false;
-        m_logNow = true;
+        m_logNow = false;
 
         if (!m_rb.sync()) {
             success = false;
@@ -132,8 +133,9 @@ bool DataLogger::writeLogLine() {
     if (m_logNow) {
         m_logNow = false;
 
-        m_lineValues[static_cast<uint16_t>(logId::sample)] = String(++m_sample);          // add sample number to log
-        m_lineValues[static_cast<uint16_t>(logId::time)] = String(millis() - m_start_ms); // add time in ms to log
+        m_lastWriteLog_us = micros();
+        m_lineValues[static_cast<uint16_t>(logId::sample)] = String(++m_sample);                          // add sample number to log
+        m_lineValues[static_cast<uint16_t>(logId::time)] = String(m_lastWriteLog_us / 1000 - m_start_ms); // add time in ms to log
 
         // write line with comma separated values to ring buffer
         uint16_t id{0};
@@ -158,12 +160,9 @@ bool DataLogger::writeLogLine() {
 	    }
     }
     else {
-        uint32_t writeLog_us{micros()};
-
         // log every log interval
-        if ((writeLog_us - m_lastWriteLog_us) >= m_logInterval_us) {
+        if ((micros() - m_lastWriteLog_us) >= m_logInterval_us) {
             m_logNow = true;
-            m_lastWriteLog_us = writeLog_us;
         }
     }
 
