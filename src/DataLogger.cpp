@@ -1,7 +1,7 @@
 #include "DataLogger.h"
 
 DataLogger::DataLogger(const char* name, uint32_t logInterval_us = 10'000) : m_name{name}, m_logInterval_us{logInterval_us} {
-    m_header[static_cast<uint16_t>(logId::sampleNumber)] = "Sample Number (" + String(1'000'000'000 / m_logInterval_us) + " samples per second)";
+    m_header[static_cast<uint16_t>(logId::sampleNumber)] = "Sample Number (" + String(1'000'000 / m_logInterval_us) + " samples per second)";
     m_header[static_cast<uint16_t>(logId::timeStamp)] = "UNIX Timestamp";
     m_header[static_cast<uint16_t>(logId::fMode)] = "fMode ()";
     m_header[static_cast<uint16_t>(logId::rtlState)] = "rtlState ()";
