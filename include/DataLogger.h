@@ -10,7 +10,7 @@
 
 enum class logId : uint16_t
 {
-    sample, time,
+    sampleNumber, timeStamp,
     fMode, rtlState,
     dt,
     ax, ay, az,
@@ -28,31 +28,30 @@ enum class logId : uint16_t
 class DataLogger {
 
 public:
-    DataLogger(const char* name, uint32_t logInterval_us = 10'000) : m_name{name}, m_logInterval_us{logInterval_us} {
-    }
+    DataLogger(const char* name, uint32_t logInterval_us = 10'000);
 
     ~DataLogger();
 
     bool start();
     bool stop();
 
-    // add log value to line
     template<typename T>
     typename std::enable_if<std::is_integral<T>::value>::type log(logId id, const T value) {
         if (!m_started || !m_logNow) {
             return;
         }
-        m_lineValues[static_cast<uint16_t>(id)] = String(value);
+        m_line[static_cast<uint16_t>(id)] = String(value);
     }
     template<typename T>
     typename std::enable_if<!std::is_integral<T>::value>::type log(logId id, const T value, uint16_t digits = 2) {
         if (!m_started || !m_logNow) {
             return;
         }
-        m_lineValues[static_cast<uint16_t>(id)] = String(value, digits);
+        m_line[static_cast<uint16_t>(id)] = String(value, digits);
     }
 
-    bool writeLogLine(); // write log line to ring buffer
+    bool writeLogHeader();
+    bool writeLogLine();
 
 private:
     bool writeToRb(const String &str); // write string to ring buffer
@@ -60,7 +59,7 @@ private:
     const char* m_name; // name used inside log file name
     
     static const uint32_t m_sectorSize{512};                                             // sector size which can be efficiently written without waiting
-    static const uint32_t m_ringBufSize{10 * m_sectorSize};                              // ring buffer size
+    static const uint32_t m_ringBufSize{20 * m_sectorSize};                              // ring buffer size
     static const size_t m_maxFileNameSize{30};                                           // maximum size of file name
     const uint32_t m_logInterval_us;                                                     // interval between log samples in microseconds
     const uint32_t m_maxLogFileSize{m_sectorSize * 1'000'000 / m_logInterval_us * 3600}; // size to log samples of sector size every log interval for one hour in bytes (~176 MByte)
@@ -82,8 +81,9 @@ private:
     uint32_t m_start_ms{0};        // data logging start time in ms
     uint32_t m_sample{0};          // logging sample number
 
-    static const uint16_t m_numLineValues{static_cast<uint16_t>(logId::last)}; // number of log values in one line 
-    std::array<String, m_numLineValues> m_lineValues{};                        // array which contains log values for one line
+    static const uint16_t m_columns{static_cast<uint16_t>(logId::last)}; // number of columns per line
+    std::array<String, m_columns> m_header{};                            // log header
+    std::array<String, m_columns> m_line{};                              // log line
 };
 
 #endif
