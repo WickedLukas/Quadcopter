@@ -132,6 +132,9 @@ bool DataLogger::writeLogLine() {
     if (m_logNow) {
         m_logNow = false;
 
+        m_lineValues[static_cast<uint16_t>(logId::sample)] = String(++m_sample);          // add sample number to log
+        m_lineValues[static_cast<uint16_t>(logId::time)] = String(millis() - m_start_ms); // add time in ms to log
+
         // write line with comma separated values to ring buffer
         uint16_t id{0};
         if (!writeToRb(m_lineValues[id])) {
@@ -178,9 +181,6 @@ bool DataLogger::writeLogLine() {
 }
 
 bool DataLogger::writeToRb(const String &str) {
-
-    log(logId::sample, ++m_sample);          // add sample number to log
-    log(logId::time, millis() - m_start_ms); // add time in ms to log
 
     const size_t strLength{str.length()};
     if ((m_rb.bytesFree() - strLength) < 0) {
