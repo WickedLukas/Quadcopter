@@ -219,7 +219,7 @@ void getGpsData(NeoGPS::Location_t &launch_location, NeoGPS::Location_t &current
 #endif
 
 // initialise quadcopter (pose, altitude) after first run or calibration
-void initQuad(bool &quadInitialised);
+bool initQuad(bool &initialiseQuad);
 
 // arm/disarm on rc command and disarm on failsafe conditions
 void arm_failsafe(uint8_t fs_config);

@@ -52,7 +52,7 @@ bool DataLogger::start() {
     // initialise SD card and file system for SDIO mode
     if (!m_sd.begin(SdioConfig(FIFO_SDIO))) {
         // do not return error when SD card is missing
-        if (m_sd.sdErrorCode() == 23) {
+        if (m_sd.sdErrorCode() == 23 || m_sd.sdErrorCode() == 38) {
             return true;
         }
         DEBUG_PRINT(F("DataLogger: Failed to initialise SD card (")); DEBUG_PRINT(m_sd.sdErrorCode()); DEBUG_PRINTLN(")");

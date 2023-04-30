@@ -102,7 +102,8 @@ calibration_data calibration_eeprom;
 int32_t dt; // loop time in microseconds
 float dt_s; // loop time in seconds
 
-// flag used to initialise the quadcopter pose and altitude after power on or calibration
+// flags used to initialise the quadcopter pose and altitude after power on or calibration
+bool intitaliseQuad = true;
 bool quadInitialised = false;
 
 // initial quadcopter yaw (z-axis) angle
@@ -267,7 +268,7 @@ void loop() {
 	// perform calibration if motors are disarmed and rc calibration request was received
 	if (calibration(motors, imu, rc_channelValue, calibration_eeprom)) {
 		// reinitialise quadcopter, because calibration was performed
-		quadInitialised = false;
+		intitaliseQuad = true;
 	}
 
 	// arm/disarm on rc command or disarm on failsafe conditions
@@ -338,7 +339,7 @@ void loop() {
 #endif
 
 	// initialise quadcopter (pose, altitude) after first run or calibration
-	initQuad(quadInitialised);
+	quadInitialised = initQuad(intitaliseQuad);
 
 	// calculate flight setpoints, manipulated variables and control motors, when armed
 	if (motors.getState() == MotorsQuad::State::armed) {
@@ -547,8 +548,8 @@ void loop() {
 
 #ifdef USE_SDLOG
 	static bool sdLogEnabled{false};
-	// start/stop SD card logging when arm switch is enabled/disabled
-	if ((rc_channelValue[ARM] == 2000) && (sdLogEnabled == false)) {
+	// start/stop SD card logging
+	if ((sdLogEnabled == false) && ((rc_channelValue[ARM] == 2000) && (quadInitialised == true))) {
 		sdLogEnabled = true;
 		if (!sdCardLogger.start()) {
 			error_code |= ERROR_SDLOG;
@@ -559,7 +560,7 @@ void loop() {
 			DEBUG_PRINTLN("SD card logging started.");
 		}
 	}
-	else if ((rc_channelValue[ARM] == 1000) && (sdLogEnabled == true)) {
+	else if ((sdLogEnabled == true) && ((rc_channelValue[ARM] == 1000) || (quadInitialised == false))) {
 		sdLogEnabled = false;
 		if (!sdCardLogger.stop()) {
 			error_code |= ERROR_SDLOG;
@@ -800,10 +801,10 @@ void updateLedStatus()
 // get magnetometer data
 void getMagData(int16_t &mx, int16_t &my, int16_t &mz) {
 	static uint32_t dt_mag = 0;
-	if (!(error_code & ERROR_MAG) && imu.read_mag(mx, my, mz)) {
+	if ((!(error_code & ERROR_MAG) && imu.read_mag(mx, my, mz)) || intitaliseQuad) {
 		dt_mag = 0;
 	}
-	else if (quadInitialised) {
+	else {
 		// check if magnetometer is still working
 		dt_mag += dt;
 		if ((dt_mag > SENSOR_DT_LIMIT) && !(error_code & ERROR_MAG)) {
@@ -823,13 +824,13 @@ void getMagData(int16_t &mx, int16_t &my, int16_t &mz) {
 void getBarData(float &baroAltitudeRaw) {
 	// get raw altitude from barometer
 	static uint32_t dt_bar = 0;
-	if (barometerInterrupt) {
+	if (barometerInterrupt || intitaliseQuad) {
 		barometerInterrupt = false;
 		dt_bar = 0;
 
 		barometer.getAltitude(baroAltitudeRaw);
 	}
-	else if (quadInitialised) {
+	else {
 		// check if barometer is still working
 		dt_bar += dt;
 		if ((dt_bar > SENSOR_DT_LIMIT) && !(error_code & ERROR_BAR)) {
@@ -900,12 +901,14 @@ void getGpsData(NeoGPS::Location_t &launch_location, NeoGPS::Location_t &current
 #endif
 
 // initialise quadcopter (pose, altitude) after first run or calibration
-void initQuad(bool &quadInitialised) {
-	if (quadInitialised) {
-		return;
+bool initQuad(bool &initialiseQuad) {
+	static uint8_t initStatus = 0;
+
+	if (initialiseQuad) {
+		initialiseQuad = false;
+		initStatus = 0;
 	}
 
-	static uint8_t initStatus = 0;
 	switch (initStatus) {
 		case 0:
 			disarmAndResetQuad();
@@ -931,12 +934,11 @@ void initQuad(bool &quadInitialised) {
 			break;
 #endif
 		default:
-			// quadcopter initialisation successful
-			initStatus = 0;
-			quadInitialised = true;
+			// quadcopter initialisation completed
+			return true;
 			break;
 	}
-	return;
+	return false;
 }
 
 // arm/disarm on rc command or disarm on failsafe conditions
