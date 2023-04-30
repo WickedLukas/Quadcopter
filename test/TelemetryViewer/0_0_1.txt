@@ -28,7 +28,7 @@ GUI Settings:
 	sample rate hz = 100
 	sync word = 0xAA
 	sync word byte count = 1
-	datasets count = 32
+	datasets count = 31
 
 		dataset location = 0
 		binary processor = null
@@ -192,21 +192,13 @@ GUI Settings:
 
 		dataset location = 20
 		binary processor = null
-		name = a_d_rel
-		color = 0x0080FF
-		unit = m/s²
-		conversion factor a = 1.0
-		conversion factor b = 1.0
-
-		dataset location = 21
-		binary processor = null
 		name = baroAltitudeRaw
 		color = 0x00BF80
 		unit = m
 		conversion factor a = 1.0
 		conversion factor b = 1.0
 
-		dataset location = 22
+		dataset location = 21
 		binary processor = null
 		name = baroAltitude
 		color = 0x80BF00
@@ -214,7 +206,7 @@ GUI Settings:
 		conversion factor a = 1.0
 		conversion factor b = 1.0
 
-		dataset location = 23
+		dataset location = 22
 		binary processor = null
 		name = altitude
 		color = 0xBF4000
@@ -222,7 +214,7 @@ GUI Settings:
 		conversion factor a = 1.0
 		conversion factor b = 1.0
 
-		dataset location = 24
+		dataset location = 23
 		binary processor = null
 		name = altitude_sp
 		color = 0xFFAB76
@@ -230,7 +222,7 @@ GUI Settings:
 		conversion factor a = 1.0
 		conversion factor b = 1.0
 
-		dataset location = 25
+		dataset location = 24
 		binary processor = null
 		name = velocity_v
 		color = 0x76ABFF
@@ -238,7 +230,7 @@ GUI Settings:
 		conversion factor a = 1.0
 		conversion factor b = 1.0
 
-		dataset location = 26
+		dataset location = 25
 		binary processor = null
 		name = velocity_x
 		color = 0xD97BFF
@@ -246,7 +238,7 @@ GUI Settings:
 		conversion factor a = 1.0
 		conversion factor b = 1.0
 
-		dataset location = 27
+		dataset location = 26
 		binary processor = null
 		name = velocity_y
 		color = 0xABFF76
@@ -254,7 +246,7 @@ GUI Settings:
 		conversion factor a = 1.0
 		conversion factor b = 1.0
 
-		dataset location = 28
+		dataset location = 27
 		binary processor = null
 		name = velocity_v_sp
 		color = 0xB6DDFF
@@ -262,7 +254,7 @@ GUI Settings:
 		conversion factor a = 1.0
 		conversion factor b = 1.0
 
-		dataset location = 29
+		dataset location = 28
 		binary processor = null
 		name = velocity_x_sp
 		color = 0xFFB9FF
@@ -270,7 +262,7 @@ GUI Settings:
 		conversion factor a = 1.0
 		conversion factor b = 1.0
 
-		dataset location = 30
+		dataset location = 29
 		binary processor = null
 		name = velocity_y_sp
 		color = 0xB1FFB1
@@ -278,7 +270,7 @@ GUI Settings:
 		conversion factor a = 1.0
 		conversion factor b = 1.0
 
-		dataset location = 31
+		dataset location = 30
 		binary processor = null
 		name = throttle_out
 		color = 0xFF0080
@@ -289,7 +281,7 @@ GUI Settings:
 		checksum location = -1
 		checksum processor = null
 
-13 Charts:
+12 Charts:
 
 	chart type = Time Domain
 	top left x = 0
@@ -408,11 +400,11 @@ GUI Settings:
 	trigger pre/post ratio = 20
 
 	chart type = Time Domain
-	top left x = 4
-	top left y = 2
-	bottom right x = 5
-	bottom right y = 2
-	datasets = connection 0 location 23,connection 0 location 24
+	top left x = 2
+	top left y = 4
+	bottom right x = 3
+	bottom right y = 5
+	datasets = connection 0 location 20,connection 0 location 21
 	bitfield edge states = 
 	bitfield level states = 
 	duration = 1000
@@ -431,17 +423,17 @@ GUI Settings:
 	trigger mode = Disabled
 	trigger affects = This Chart
 	trigger type = Rising Edge
-	trigger channel = connection 0 location 23
+	trigger channel = connection 0 location 20
 	trigger level = 0.0
 	trigger hysteresis = 0.0
 	trigger pre/post ratio = 20
 
 	chart type = Time Domain
-	top left x = 4
-	top left y = 3
-	bottom right x = 5
+	top left x = 0
+	top left y = 2
+	bottom right x = 1
 	bottom right y = 3
-	datasets = connection 0 location 25,connection 0 location 28
+	datasets = connection 0 location 25,connection 0 location 26,connection 0 location 28,connection 0 location 29
 	bitfield edge states = 
 	bitfield level states = 
 	duration = 1000
@@ -469,8 +461,8 @@ GUI Settings:
 	top left x = 2
 	top left y = 2
 	bottom right x = 3
-	bottom right y = 3
-	datasets = connection 0 location 26,connection 0 location 27,connection 0 location 29,connection 0 location 30
+	bottom right y = 2
+	datasets = connection 0 location 22,connection 0 location 23
 	bitfield edge states = 
 	bitfield level states = 
 	duration = 1000
@@ -489,7 +481,36 @@ GUI Settings:
 	trigger mode = Disabled
 	trigger affects = This Chart
 	trigger type = Rising Edge
-	trigger channel = connection 0 location 26
+	trigger channel = connection 0 location 22
+	trigger level = 0.0
+	trigger hysteresis = 0.0
+	trigger pre/post ratio = 20
+
+	chart type = Time Domain
+	top left x = 2
+	top left y = 3
+	bottom right x = 3
+	bottom right y = 3
+	datasets = connection 0 location 24,connection 0 location 27
+	bitfield edge states = 
+	bitfield level states = 
+	duration = 1000
+	duration unit = Samples
+	time axis shows = Sample Count
+	autoscale y-axis minimum = true
+	manual y-axis minimum = -1.0
+	autoscale y-axis maximum = true
+	manual y-axis maximum = 1.0
+	show x-axis title = true
+	show x-axis scale = true
+	show y-axis title = true
+	show y-axis scale = true
+	show legend = true
+	cached mode = false
+	trigger mode = Disabled
+	trigger affects = This Chart
+	trigger type = Rising Edge
+	trigger channel = connection 0 location 24
 	trigger level = 0.0
 	trigger hysteresis = 0.0
 	trigger pre/post ratio = 20
@@ -524,40 +545,11 @@ GUI Settings:
 	trigger pre/post ratio = 20
 
 	chart type = Time Domain
-	top left x = 2
-	top left y = 4
-	bottom right x = 3
-	bottom right y = 5
-	datasets = connection 0 location 21,connection 0 location 22
-	bitfield edge states = 
-	bitfield level states = 
-	duration = 1000
-	duration unit = Samples
-	time axis shows = Sample Count
-	autoscale y-axis minimum = true
-	manual y-axis minimum = -1.0
-	autoscale y-axis maximum = true
-	manual y-axis maximum = 1.0
-	show x-axis title = true
-	show x-axis scale = true
-	show y-axis title = true
-	show y-axis scale = true
-	show legend = true
-	cached mode = false
-	trigger mode = Disabled
-	trigger affects = This Chart
-	trigger type = Rising Edge
-	trigger channel = connection 0 location 21
-	trigger level = 0.0
-	trigger hysteresis = 0.0
-	trigger pre/post ratio = 20
-
-	chart type = Time Domain
 	top left x = 4
 	top left y = 4
 	bottom right x = 4
 	bottom right y = 4
-	datasets = connection 0 location 20
+	datasets = connection 0 location 30
 	bitfield edge states = 
 	bitfield level states = 
 	duration = 1000
@@ -576,36 +568,7 @@ GUI Settings:
 	trigger mode = Disabled
 	trigger affects = This Chart
 	trigger type = Rising Edge
-	trigger channel = connection 0 location 20
-	trigger level = 0.0
-	trigger hysteresis = 0.0
-	trigger pre/post ratio = 20
-
-	chart type = Time Domain
-	top left x = 4
-	top left y = 5
-	bottom right x = 4
-	bottom right y = 5
-	datasets = connection 0 location 31
-	bitfield edge states = 
-	bitfield level states = 
-	duration = 1000
-	duration unit = Samples
-	time axis shows = Sample Count
-	autoscale y-axis minimum = true
-	manual y-axis minimum = -1.0
-	autoscale y-axis maximum = true
-	manual y-axis maximum = 1.0
-	show x-axis title = true
-	show x-axis scale = true
-	show y-axis title = true
-	show y-axis scale = true
-	show legend = true
-	cached mode = false
-	trigger mode = Disabled
-	trigger affects = This Chart
-	trigger type = Rising Edge
-	trigger channel = connection 0 location 31
+	trigger channel = connection 0 location 30
 	trigger level = 0.0
 	trigger hysteresis = 0.0
 	trigger pre/post ratio = 20
@@ -615,7 +578,7 @@ GUI Settings:
 	top left y = 4
 	bottom right x = 5
 	bottom right y = 4
-	datasets = connection 0 location 0,connection 0 location 1
+	datasets = connection 0 location 0
 	bitfield edge states = 
 	bitfield level states = 
 	duration = 1000
@@ -640,7 +603,7 @@ GUI Settings:
 	trigger pre/post ratio = 20
 
 	chart type = Time Domain
-	top left x = 5
+	top left x = 4
 	top left y = 5
 	bottom right x = 5
 	bottom right y = 5
@@ -650,10 +613,10 @@ GUI Settings:
 	duration = 1000
 	duration unit = Samples
 	time axis shows = Sample Count
-	autoscale y-axis minimum = true
-	manual y-axis minimum = -1.0
-	autoscale y-axis maximum = true
-	manual y-axis maximum = 1.0
+	autoscale y-axis minimum = false
+	manual y-axis minimum = 0.0
+	autoscale y-axis maximum = false
+	manual y-axis maximum = 330.0
 	show x-axis title = true
 	show x-axis scale = true
 	show y-axis title = true
