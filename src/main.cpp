@@ -151,8 +151,6 @@ float ax_filtered, ay_filtered, az_filtered;
 float roll_angle, pitch_angle, yaw_angle, yaw_angle_rad; // euler angles
 float pose_q[4]; // quaternion
 
-//float roll_angle_accel, pitch_angle_accel;
-
 // ned-acceleration relative to gravity
 float a_n_rel, a_e_rel, a_d_rel;
 
@@ -569,13 +567,13 @@ void loop() {
 	SD_LOG2(fMode, static_cast<unsigned char>(fMode)); SD_LOG2(rtlState, static_cast<unsigned char>(rtlState));
 	SD_LOG(dt);
 	SD_LOG(ax); SD_LOG(ay); SD_LOG(az);
-	SD_LOG2D(ax_filtered, 0); SD_LOG2D(ay_filtered, 0); SD_LOG2D(az_filtered, 0);
-	SD_LOG2D(roll_angle, 1); SD_LOG2D(pitch_angle, 1); SD_LOG2D(yaw_angle, 1); SD_LOG2D(roll_angle_sp, 1); SD_LOG2D(pitch_angle_sp, 1);
-	SD_LOG2D(roll_rate, 1); SD_LOG2D(pitch_rate, 1); SD_LOG2D(yaw_rate, 1); SD_LOG2D(roll_rate_sp, 1); SD_LOG2D(pitch_rate_sp, 1); SD_LOG2D(yaw_rate_sp, 1);
+	SD_LOG2D(ax_filtered, 1); SD_LOG2D(ay_filtered, 1); SD_LOG2D(az_filtered, 1);
+	SD_LOG2D(roll_angle, 2); SD_LOG2D(pitch_angle, 2); SD_LOG2D(yaw_angle, 2); SD_LOG2D(roll_angle_sp, 2); SD_LOG2D(pitch_angle_sp, 2);
+	SD_LOG2D(roll_rate, 2); SD_LOG2D(pitch_rate, 2); SD_LOG2D(yaw_rate, 2); SD_LOG2D(roll_rate_sp, 2); SD_LOG2D(pitch_rate_sp, 2); SD_LOG2D(yaw_rate_sp, 2);
 	SD_LOG2D(yaw_rate, 2); SD_LOG2D(yaw_rate_sp, 2);
 	SD_LOG2D(a_d_rel, 2);
-	SD_LOG2D(baroAltitudeRaw, 1); SD_LOG2D(baroAltitude, 1);
-	SD_LOG2D(altitude, 1); SD_LOG2D(altitude_sp, 1);
+	SD_LOG2D(baroAltitudeRaw, 2); SD_LOG2D(baroAltitude, 2);
+	SD_LOG2D(altitude, 2); SD_LOG2D(altitude_sp, 2);
 	SD_LOG2D(velocity_v, 2); SD_LOG2D(velocity_x, 2); SD_LOG2D(velocity_y, 2); SD_LOG2D(velocity_v_sp, 2); SD_LOG2D(velocity_x_sp, 2); SD_LOG2D(velocity_y_sp, 2);
 	SD_LOG2D(throttle_out, 0);
 
