@@ -1,4 +1,5 @@
 #include "DataLogger.h"
+#include "common.h"
 
 DataLogger::DataLogger(const char* name, uint32_t logInterval_us = 10'000) : m_name{name}, m_logInterval_us{logInterval_us} {
     m_header[static_cast<uint16_t>(logId::sampleNumber)] = "Sample Number (" + String(1'000'000 / m_logInterval_us) + " samples per second)";
@@ -48,17 +49,19 @@ bool DataLogger::start() {
         return false;
     }
 
-    // initialize SD card and file system for SDIO mode
+    // initialise SD card and file system for SDIO mode
     if (!m_sd.begin(SdioConfig(FIFO_SDIO))) {
         // do not return error when SD card is missing
         if (m_sd.sdErrorCode() == 23) {
             return true;
         }
+        DEBUG_PRINT(F("DataLogger: Failed to initialise SD card (")); DEBUG_PRINT(m_sd.sdErrorCode()); DEBUG_PRINTLN(")");
         return false;
     }
 
     // open root directory
     if (!m_root.open("/")) {
+        DEBUG_PRINTLN(F("DataLogger: Failed to open root directory."));
         return false;
     }
     
@@ -119,12 +122,14 @@ bool DataLogger::start() {
 
     // create new log file
     if (!m_file.open(m_logFileName, O_RDWR | O_CREAT | O_TRUNC)) {
+        DEBUG_PRINTLN(F("DataLogger: Failed to create new log file."));
 		return false;
 	}
 
     // preallocate file to avoid huge delays searching for free clusters
 	if (!m_file.preAllocate(m_maxLogFileSize)) {
 		m_file.close();
+        DEBUG_PRINTLN(F("DataLogger: Failed to preallocate file."));
 		return false;
 	}
 
@@ -136,6 +141,7 @@ bool DataLogger::start() {
         m_rb.sync();
 		m_file.truncate();
         m_file.close();
+        DEBUG_PRINTLN(F("DataLogger: Failed to write log header."));
         return false;
 	}
 

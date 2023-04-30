@@ -224,7 +224,7 @@ void setup() {
 	if (!imu.init(calibration_eeprom.gyroOffset_1000dps_xyz, calibration_eeprom.accelOffset_32g_xyz, calibration_eeprom.magOffset_xyz, calibration_eeprom.magScale_xyz)) {
 		// imu could not be initialised
 		error_code |= ERROR_IMU; // set error value to disable arming
-		DEBUG_PRINTLN(F("IMU error: Initialisation failed!"));
+		DEBUG_PRINTLN(F("IMU Initialisation failed."));
 	}
 
 	// read accelerometer resolution in g/bit
@@ -238,7 +238,7 @@ void setup() {
 	if (!barometer.begin(NORMAL_MODE, OVERSAMPLING_SKIP, OVERSAMPLING_SKIP, IIR_FILTER_32, TIME_STANDBY_5MS)) {
 		// barometer could not be initialised
 		error_code |= ERROR_BAR; // set error value to disable arming
-		DEBUG_PRINTLN(F("BAR error: Initialisation failed!"));
+		DEBUG_PRINTLN(F("Barometer initialisation failed."));
 	}
 
 	// setup barometer interrupt pin
@@ -525,7 +525,7 @@ void loop() {
 			throttle_out = throttle;
 			if (throttle_out > THROTTLE_HOVER) {
 				started = true;
-				DEBUG_PRINTLN(F("Started!"));
+				DEBUG_PRINTLN(F("Started."));
 			}
 		}
 	}
@@ -555,6 +555,8 @@ void loop() {
 		}
 		else {
 			error_code &= !ERROR_SDLOG;
+
+			DEBUG_PRINTLN("SD card logging started.");
 		}
 	}
 	else if ((rc_channelValue[ARM] == 1000) && (sdLogEnabled == true)) {
@@ -562,6 +564,7 @@ void loop() {
 		if (!sdCardLogger.stop()) {
 			error_code |= ERROR_SDLOG;
 		}
+		DEBUG_PRINTLN("SD card logging stopped.");
 	}
 
 	SD_LOG2(fMode, static_cast<unsigned char>(fMode)); SD_LOG2(rtlState, static_cast<unsigned char>(rtlState));
@@ -776,12 +779,12 @@ void updateLedStatus()
 		updateLed(LED_PIN, 1, 200);
 	}
 	else if (!quadInitialised || (error_code == ERROR_GPS)) {
-		// blink LED fast to indicate quadcopter initialisation or gps search
-		updateLed(LED_PIN, 1, 400);
+		// blink LED slowly to indicate quadcopter initialisation or gps search
+		updateLed(LED_PIN, 1, 600);
 	}
 	else if (error_code == ERROR_SDLOG) {
-		// blink LED slowly to indicate a data logging error
-		updateLed(LED_PIN, 1, 600);
+		// blink LED fast to indicate a data logging error
+		updateLed(LED_PIN, 1, 400);
 	}
 	else if (motors.getState() == MotorsQuad::State::disarmed) {
 		// turn off LED to indicate disarmed status
