@@ -210,7 +210,7 @@ void getMagData(int16_t &mx, int16_t &my, int16_t &mz);
 
 #ifdef USE_BAR
 // get barometer data
-void getBarData(float &baroAltitudeRaw);
+void getBarData(float &baroAltRaw);
 #endif
 
 #ifdef USE_GPS

@@ -87,7 +87,7 @@ PID_controller velocity_y_pid(P_VELOCITY_H, I_VELOCITY_H, D_VELOCITY_H, ROLL_PIT
 
 #ifdef USE_SDLOG
 // SD card logger
-DataLogger sdCardLogger("version");
+DataLogger sdCardLogger("0_0_1 - connection 0 - TCP", 10'000);
 #endif
 
 // flight modes
@@ -103,14 +103,8 @@ int32_t dt; // loop time in microseconds
 float dt_s; // loop time in seconds
 
 // flags used to initialise the quadcopter pose and altitude after power on or calibration
-bool intitaliseQuad = true;
+bool initialiseQuad = true;
 bool quadInitialised = false;
-
-// initial quadcopter yaw (z-axis) angle
-float yaw_angle_init;
-
-// initial quadcopter barometer altitude
-float baroAltitude_init;
 
 // maximum quadcopter altitude relative to starting ground
 float altitude_max;
@@ -161,7 +155,10 @@ float baroAltitudeRaw;
 // filtered raw barometer altitude using altitudeFilter
 float baroAltitude;
 
-// altitude relative to starting ground
+// last quadcopter barometer altitude when disarmed
+float baroAltitude_init;
+
+// altitude relative to ground (altitude when disarmed)
 float altitude;
 
 // vertical velocity
@@ -172,6 +169,9 @@ float velocity_north, velocity_east;
 
 // velocities in horizontal frame
 float velocity_x, velocity_y; 
+
+// initial quadcopter yaw (z-axis) angle
+float yaw_angle_init;
 
 // distance to target location
 float distance;
@@ -268,7 +268,7 @@ void loop() {
 	// perform calibration if motors are disarmed and rc calibration request was received
 	if (calibration(motors, imu, rc_channelValue, calibration_eeprom)) {
 		// reinitialise quadcopter, because calibration was performed
-		intitaliseQuad = true;
+		initialiseQuad = true;
 	}
 
 	// arm/disarm on rc command or disarm on failsafe conditions
@@ -280,7 +280,6 @@ void loop() {
 	static uint32_t t0 = t;
 
 	dt = (t - t0);      // in us
-	dt_s = dt * 1.e-6f; // in s
 
 	// continue if imu interrupt has fired
 	if (!imuInterrupt) {
@@ -288,6 +287,25 @@ void loop() {
 	}
 	imuInterrupt = false; // reset imu interrupt
 
+	// ! Workaround for inconsistencies in update time caused by other sensor updates.
+	static const int32_t IMU_INTERRUPT_INTERVAL_US = 111; // ! ICM20948 update interval.
+	static const int32_t IMU_INTERRUPT_INTERVAL_TOLERANCE = IMU_INTERRUPT_INTERVAL_US / 20;
+	int32_t dt_error = dt - IMU_INTERRUPT_INTERVAL_US;
+	if (abs(dt_error) < IMU_INTERRUPT_INTERVAL_TOLERANCE) {
+		// normal, so there is nothing to do
+	}
+	else if (dt_error > IMU_INTERRUPT_INTERVAL_TOLERANCE) {
+		// update too late
+		int32_t rest = dt % IMU_INTERRUPT_INTERVAL_US;
+		dt = dt - rest;
+		t = t - rest;
+	}
+	else {
+		// update too early, so sensor measurements were not updated yet
+		return;
+	}
+	dt_s = dt * 1.e-6f; // in s
+	
 	t0 = t;
 
 	// read accel and gyro measurements
@@ -339,7 +357,7 @@ void loop() {
 #endif
 
 	// initialise quadcopter (pose, altitude) after first run or calibration
-	quadInitialised = initQuad(intitaliseQuad);
+	quadInitialised = initQuad(initialiseQuad);
 
 	// calculate flight setpoints, manipulated variables and control motors, when armed
 	if (motors.getState() == MotorsQuad::State::armed) {
@@ -575,7 +593,6 @@ void loop() {
 	SD_LOG2D(roll_angle, 2); SD_LOG2D(pitch_angle, 2); SD_LOG2D(yaw_angle, 2); SD_LOG2D(roll_angle_sp, 2); SD_LOG2D(pitch_angle_sp, 2);
 	SD_LOG2D(roll_rate, 2); SD_LOG2D(pitch_rate, 2); SD_LOG2D(yaw_rate, 2); SD_LOG2D(roll_rate_sp, 2); SD_LOG2D(pitch_rate_sp, 2); SD_LOG2D(yaw_rate_sp, 2);
 	SD_LOG2D(yaw_rate, 2); SD_LOG2D(yaw_rate_sp, 2);
-	SD_LOG2D(a_d_rel, 2);
 	SD_LOG2D(baroAltitudeRaw, 2); SD_LOG2D(baroAltitude, 2);
 	SD_LOG2D(altitude, 2); SD_LOG2D(altitude_sp, 2);
 	SD_LOG2D(velocity_v, 2); SD_LOG2D(velocity_x, 2); SD_LOG2D(velocity_y, 2); SD_LOG2D(velocity_v_sp, 2); SD_LOG2D(velocity_x_sp, 2); SD_LOG2D(velocity_y_sp, 2);
@@ -801,10 +818,10 @@ void updateLedStatus()
 // get magnetometer data
 void getMagData(int16_t &mx, int16_t &my, int16_t &mz) {
 	static uint32_t dt_mag = 0;
-	if ((!(error_code & ERROR_MAG) && imu.read_mag(mx, my, mz)) || intitaliseQuad) {
+	if (!(error_code & ERROR_MAG) && imu.read_mag(mx, my, mz)) {
 		dt_mag = 0;
 	}
-	else {
+	else if (!initialiseQuad) {
 		// check if magnetometer is still working
 		dt_mag += dt;
 		if ((dt_mag > SENSOR_DT_LIMIT) && !(error_code & ERROR_MAG)) {
@@ -821,16 +838,16 @@ void getMagData(int16_t &mx, int16_t &my, int16_t &mz) {
 
 #ifdef USE_BAR
 // get barometer data
-void getBarData(float &baroAltitudeRaw) {
+void getBarData(float &baroAltRaw) {
 	// get raw altitude from barometer
 	static uint32_t dt_bar = 0;
-	if (barometerInterrupt || intitaliseQuad) {
+	if (barometerInterrupt) {
 		barometerInterrupt = false;
 		dt_bar = 0;
 
-		barometer.getAltitude(baroAltitudeRaw);
+		barometer.getAltitude(baroAltRaw);
 	}
-	else {
+	else if (!initialiseQuad) {
 		// check if barometer is still working
 		dt_bar += dt;
 		if ((dt_bar > SENSOR_DT_LIMIT) && !(error_code & ERROR_BAR)) {
@@ -887,7 +904,7 @@ void getGpsData(NeoGPS::Location_t &launch_location, NeoGPS::Location_t &current
 			}
 		}
 	}
-	else {
+	else if (!initialiseQuad) {
 		// check if gps is still working
 		dt_gps += dt;
 		if ((dt_gps > SENSOR_DT_LIMIT) && !(error_code & ERROR_GPS)) {

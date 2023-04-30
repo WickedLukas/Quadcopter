@@ -1,7 +1,7 @@
 #include "DataLogger.h"
 #include "common.h"
 
-DataLogger::DataLogger(const char* name, uint32_t logInterval_us = 10'000) : m_name{name}, m_logInterval_us{logInterval_us} {
+DataLogger::DataLogger(const char* name, uint32_t logInterval_us) : m_name{name}, m_logInterval_us{logInterval_us} {
     m_header[static_cast<uint16_t>(logId::sampleNumber)] = "Sample Number (" + String(1'000'000 / m_logInterval_us) + " samples per second)";
     m_header[static_cast<uint16_t>(logId::timeStamp)] = "UNIX Timestamp";
     m_header[static_cast<uint16_t>(logId::fMode)] = "fMode ()";
@@ -24,7 +24,6 @@ DataLogger::DataLogger(const char* name, uint32_t logInterval_us = 10'000) : m_n
     m_header[static_cast<uint16_t>(logId::roll_rate_sp)] = "roll_rate_sp (°/s)";
     m_header[static_cast<uint16_t>(logId::pitch_rate_sp)] = "pitch_rate_sp (°/s)";
     m_header[static_cast<uint16_t>(logId::yaw_rate_sp)] = "yaw_rate_sp (°/s)";
-    m_header[static_cast<uint16_t>(logId::a_d_rel)] = "a_d_rel (m/s²)";
     m_header[static_cast<uint16_t>(logId::baroAltitudeRaw)] = "baroAltitudeRaw (m)";
     m_header[static_cast<uint16_t>(logId::baroAltitude)] = "baroAltitude (m)";
     m_header[static_cast<uint16_t>(logId::altitude)] = "altitude (m)";

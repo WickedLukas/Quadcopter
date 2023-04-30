@@ -17,7 +17,6 @@ enum class logId : uint16_t
     ax_filtered, ay_filtered, az_filtered,
     roll_angle, pitch_angle, yaw_angle, roll_angle_sp, pitch_angle_sp,
     roll_rate, pitch_rate, yaw_rate, roll_rate_sp, pitch_rate_sp, yaw_rate_sp,
-    a_d_rel,
     baroAltitudeRaw, baroAltitude,
     altitude, altitude_sp,
     velocity_v, velocity_x, velocity_y, velocity_v_sp, velocity_x_sp, velocity_y_sp,
@@ -60,14 +59,14 @@ private:
     
     static const uint32_t m_sectorSize{512};                                             // sector size which can be efficiently written without waiting
     static const uint32_t m_ringBufSize{20 * m_sectorSize};                              // ring buffer size
-    static const size_t m_maxFileNameSize{30};                                           // maximum size of file name
+    static const size_t m_maxFileNameSize{50};                                           // maximum size of file name
     const uint32_t m_logInterval_us;                                                     // interval between log samples in microseconds
     const uint32_t m_maxLogFileSize{m_sectorSize * 1'000'000 / m_logInterval_us * 3600}; // size to log samples of sector size every log interval for one hour in bytes (~176 MByte)
     const uint32_t m_maxLogFiles{20};                                                    // maximum number of log files
 
-    char m_logFileName[m_maxFileNameSize];    // log file name
-    const char* m_logFileSuffix{"__log.csv"}; // log file suffix
-    const String m_lineEnding{"\r\n"};        // log file line ending
+    char m_logFileName[m_maxFileNameSize]; // log file name
+    const char* m_logFileSuffix{".csv"};   // log file suffix
+    const String m_lineEnding{"\r\n"};     // log file line ending
 
     SdFs m_sd;
     FsFile m_root;
