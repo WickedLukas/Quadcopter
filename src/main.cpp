@@ -2,7 +2,6 @@
 #include "calibration.h"
 #include "motorsQuad.h"
 #include "shapeTrajectory.h"
-#include "kalmanFilter1D.h"
 #include "DataLogger.h"
 #include "sendSerial.h"
 
@@ -48,9 +47,6 @@ volatile bool barometerInterrupt = false;
 void barometerReady() {
 	barometerInterrupt = true;
 }
-
-// 1D-Kalman-Filter combining raw barometer altitude and vertical acceleration
-KalmanFilter1D altitudeFilter(TC_ALTITUDE_FILTER);
 #endif
 
 #ifdef USE_GPS
@@ -146,13 +142,10 @@ float ax_filtered, ay_filtered, az_filtered;
 float roll_angle, pitch_angle, yaw_angle, yaw_angle_rad; // euler angles
 float pose_q[4]; // quaternion
 
-// ned-acceleration relative to gravity
-float a_n_rel, a_e_rel, a_d_rel;
-
 // raw barometer altitude
 float baroAltitudeRaw;
 
-// filtered raw barometer altitude using altitudeFilter
+// ema filtered raw barometer altitude
 float baroAltitude;
 
 // last quadcopter barometer altitude when disarmed
@@ -340,13 +333,13 @@ void loop() {
 #ifdef USE_BAR
 	getBarData(baroAltitudeRaw);
 
-	// ned-acceleration relative to gravity in m/s²
-	accel_ned_rel(a_n_rel, a_e_rel, a_d_rel);
+	// filter raw barometer altitude measurement
+	baroAltitude = ema_filter(baroAltitudeRaw, baroAltitude, EMA_ALT);
 
-	// calculate quadcopter altitude in m and vertical velocity in m/s
-	altitudeFilter.update(a_d_rel, baroAltitudeRaw, dt_s);
-	baroAltitude = altitudeFilter.get_position();
-	velocity_v = altitudeFilter.get_velocity();
+	// calculate vertical velocity
+	static float baroAltitude_last = baroAltitude;
+	velocity_v = (baroAltitude - baroAltitude_last) / dt_s;
+	baroAltitude_last = baroAltitude;
 
 	// altitude relative to starting ground
 	altitude = baroAltitude - baroAltitude_init;
@@ -633,6 +626,8 @@ void loop() {
 		//DEBUG_PRINTLN(yaw_rate_sp);
 		//DEBUG_PRINT(roll_rate); DEBUG_PRINT("\t"); DEBUG_PRINT(pitch_rate); DEBUG_PRINT("\t"); DEBUG_PRINTLN(yaw_rate);
 
+		//DEBUG_PRINT(baroAltitudeRaw); DEBUG_PRINT("\t"); DEBUG_PRINTLN(baroAltitude);
+
 		//DEBUG_PRINTLN(dt);
 		//DEBUG_PRINTLN();
 
@@ -721,68 +716,6 @@ bool initPose(float beta_init, float beta, float init_angleDifference, float ini
 void accelAngles(float &roll_angle_accel, float &pitch_angle_accel) {
 	roll_angle_accel = atan2(ay_filtered, az_filtered) * DEG_PER_RAD;
 	pitch_angle_accel = atan2(-ax_filtered, sqrt(pow(ay_filtered, 2) + pow(az_filtered, 2))) * DEG_PER_RAD;
-}
-
-// estimate initial barometer altitude
-bool initAltitude(float init_velocity_v) {
-	static state initAltitude_state = state::init;
-	static float dt_altitude_s;
-	static float baroAltitude_last;
-
-	switch (initAltitude_state) {
-		case state::init:
-			DEBUG_PRINTLN(F("Estimating initial barometer altitude. Keep device at rest ..."));
-
-			dt_altitude_s = 0;
-			baroAltitude_last = baroAltitude - 1000;
-
-			initAltitude_state = state::busy;
-			break;
-
-		case state::busy:
-			if (dt_altitude_s > 1) {
-				// initial altitude is estimated if vertical velocity converged
-				if ((abs(baroAltitude - baroAltitude_last) / dt_altitude_s) < init_velocity_v) {
-					initAltitude_state = state::init;
-
-					DEBUG_PRINTLN(F("Initial barometer altitude estimated."));
-					DEBUG_PRINTLN2(abs(baroAltitude - baroAltitude_last) / dt_altitude_s, 2);
-
-					return true;
-				}
-				baroAltitude_last = baroAltitude;
-				dt_altitude_s = 0;
-
-				DEBUG_PRINTLN(baroAltitude);
-			}
-			dt_altitude_s += dt_s;
-
-			break;
-
-		default:
-			break;
-	}
-
-	return false;
-}
-
-// calculate the acceleration in ned-frame relative to gravity
-void accel_ned_rel(float &a_n_relative, float &a_e_relative, float &a_d_relative) {
-	// acceleration of gravity is m/s²
-	static const float G = 9.81;
-
-	// acceleration quaternion in body-frame
-	static float a_q[4];
-	a_q[0] = 0; a_q[1] = ax_filtered; a_q[2] = ay_filtered; a_q[3] = az_filtered;
-
-	// acceleration quaternion in ned-frame
-	static float a_ned_q[4];
-	body2nedFrame(pose_q, a_q, a_ned_q);
-
-	// get ned-acceleration relative to gravity in m/s²
-	a_n_relative = a_ned_q[1] * accelRes * G;
-	a_e_relative = a_ned_q[2] * accelRes * G;
-	a_d_relative = (a_ned_q[3] * accelRes - 1) * G;
 }
 
 // update LED according to quadcopter status (error, motors armed/disarmed and initialisation)
@@ -936,20 +869,9 @@ bool initQuad(bool &initialiseQuad) {
 			// estimate initial pose
 			if (initPose(BETA_INIT, BETA, INIT_ANGLE_DIFFERENCE, INIT_RATE)) {
 				++initStatus;
-#ifdef USE_BAR
-				altitudeFilter.reset();
-#endif
 			}
 			break;
 
-#ifdef USE_BAR
-		case 2:
-			// estimate initial barometer altitude
-			if (initAltitude(INIT_VELOCITY_V)) {
-				++initStatus;
-			}
-			break;
-#endif
 		default:
 			// quadcopter initialisation completed
 			return true;
@@ -1110,11 +1032,6 @@ void disarmAndResetQuad() {
 	velocity_v_pid.reset();
 	velocity_x_pid.reset();
 	velocity_y_pid.reset();
-
-#ifdef USE_BAR
-	// reset altitude filter
-	altitudeFilter.reset();
-#endif
 
 	roll_rate_mv = 0;
 	pitch_rate_mv = 0;
@@ -1361,7 +1278,6 @@ void addTimeGraphs(Plotter &p)
 	//p.AddTimeGraph("mv", 1000, "roll_rate_sp", roll_rate_sp, "pitch_rate_sp", pitch_rate_sp, "yaw_rate_sp", yaw_rate_sp);
 	//p.AddTimeGraph("mv", 1000, "roll_rate_mv", roll_rate_mv, "pitch_rate_mv", pitch_rate_mv, "yaw_rate_mv", yaw_rate_mv);
 
-	//p.AddTimeGraph("Relative ned-acceleration", 1000, "a_n_rel", a_n_rel, "a_e_rel", a_e_rel, "a_d_rel", a_d_rel);
 	//p.AddTimeGraph("alt", 1000, "A", baroAltitude, "bA", baroAltitudeRaw);
 	//p.AddTimeGraph("v_vel", 1000, "V", velocity_v/*, "V_sp", velocity_v_sp*/);
 

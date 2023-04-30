@@ -140,6 +140,9 @@ const float P_VELOCITY_H = 4.0, I_VELOCITY_H = 1.0, D_VELOCITY_H = 0; // TODO: T
 // EMA filter parameter for accelerometer
 const float EMA_ACCEL = 0.0003; // TODO: Reduce this value if angle estimation is incorrect during flight.
 
+// EMA filter parameter for altitude
+const float EMA_ALT = 0.002;
+
 // EMA filter parameters for proportional (P) and derivative (D) rate controller inputs.
 const float EMA_ROLL_RATE_P = 0.040;  // 0.040
 const float EMA_PITCH_RATE_P = 0.040; // 0.040
@@ -193,9 +196,6 @@ void accelAngles(float &roll_angle_accel, float &pitch_angle_accel);
 
 // estimate initial altitude
 bool initAltitude(float init_velocity_v);
-
-// calculate the acceleration in ned-frame relative to gravity
-void accel_ned_rel(float &a_n_rel, float &a_e_rel, float &a_d_rel);
 
 // update LED according to quadcopter status (error, motors armed/disarmed and initialisation)
 void updateLedStatus();
