@@ -85,27 +85,23 @@ bool DataLogger::start() {
             continue;
         }
  
-        // find the highest positive prefix number and the file name with the lowest positive prefix number
-        char prefixString[m_maxFileNameSize];
-        strcpy(prefixString, fileName);
-        strtok(prefixString, "-");
-        uint32_t prefix{strtoul(prefixString, nullptr, 10)};
+        uint32_t prefix{strtoul(fileName, nullptr, 10)};
         if (prefix > 0) {
             ++logFileCount;
 
             if (prefix < minPrefix) {
                 minPrefix = prefix;
 
-                // file name with the lowest positive prefix number
+                // file name with the lowest non negative prefix number
                 strcpy(firstLogFileName, fileName);
             }
-
+            // highest non negative prefix number
             maxPrefix = max(maxPrefix, prefix);
         }
     }
 
     if (logFileCount >= m_maxLogFiles) {
-        // remove the log file with the lowest prefix number
+        // remove log file with the lowest prefix number
         m_sd.remove(firstLogFileName);
     }
 
@@ -115,9 +111,9 @@ bool DataLogger::start() {
     // new log file name
     m_logFileName[0] = '\0';
     strcat(m_logFileName, prefixString);
-    strcat(m_logFileName, "__");
+    strcat(m_logFileName, " - ");
     strcat(m_logFileName, m_name);
-    strcat(m_logFileName, m_logFileSuffix);
+    strcat(m_logFileName, m_suffix);
 
     // create new log file
     if (!m_file.open(m_logFileName, O_RDWR | O_CREAT | O_TRUNC)) {
