@@ -35,6 +35,24 @@ DataLogger::DataLogger(const char* name, uint32_t logInterval_us) : m_name{name}
     m_header[static_cast<uint16_t>(logId::velocity_x_sp)] = "velocity_x_sp (m/s)";
     m_header[static_cast<uint16_t>(logId::velocity_y_sp)] = "velocity_y_sp (m/s)";
     m_header[static_cast<uint16_t>(logId::throttle_out)] = "throttle_out ()";
+    m_header[static_cast<uint16_t>(logId::roll_rate_pTerm)] = "roll_rate_pTerm ()";
+    m_header[static_cast<uint16_t>(logId::roll_rate_iTerm)] = "roll_rate_iTerm ()";
+    m_header[static_cast<uint16_t>(logId::roll_rate_dTerm)] = "roll_rate_dTerm ()";
+    m_header[static_cast<uint16_t>(logId::pitch_rate_pTerm)] = "pitch_rate_pTerm ()";
+    m_header[static_cast<uint16_t>(logId::pitch_rate_iTerm)] = "pitch_rate_iTerm ()";
+    m_header[static_cast<uint16_t>(logId::pitch_rate_dTerm)] = "pitch_rate_dTerm ()";
+    m_header[static_cast<uint16_t>(logId::yaw_rate_pTerm)] = "yaw_rate_pTerm ()";
+    m_header[static_cast<uint16_t>(logId::yaw_rate_iTerm)] = "yaw_rate_iTerm ()";
+    m_header[static_cast<uint16_t>(logId::yaw_rate_dTerm)] = "yaw_rate_dTerm ()";
+    m_header[static_cast<uint16_t>(logId::velocity_v_pTerm)] = "velocity_v_pTerm ()";
+    m_header[static_cast<uint16_t>(logId::velocity_v_iTerm)] = "velocity_v_iTerm ()";
+    m_header[static_cast<uint16_t>(logId::velocity_v_dTerm)] = "velocity_v_dTerm ()";
+    m_header[static_cast<uint16_t>(logId::velocity_x_pTerm)] = "velocity_x_pTerm ()";
+    m_header[static_cast<uint16_t>(logId::velocity_x_iTerm)] = "velocity_x_iTerm ()";
+    m_header[static_cast<uint16_t>(logId::velocity_x_dTerm)] = "velocity_x_dTerm ()";
+    m_header[static_cast<uint16_t>(logId::velocity_y_pTerm)] = "velocity_y_pTerm ()";
+    m_header[static_cast<uint16_t>(logId::velocity_y_iTerm)] = "velocity_y_iTerm ()";
+    m_header[static_cast<uint16_t>(logId::velocity_y_dTerm)] = "velocity_y_dTerm ()";
 }
 
 DataLogger::~DataLogger() {

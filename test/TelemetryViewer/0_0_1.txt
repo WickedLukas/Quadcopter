@@ -28,7 +28,7 @@ GUI Settings:
 	sample rate hz = 100
 	sync word = 0xAA
 	sync word byte count = 1
-	datasets count = 31
+	datasets count = 49
 
 		dataset location = 0
 		binary processor = null
@@ -274,6 +274,150 @@ GUI Settings:
 		binary processor = null
 		name = throttle_out
 		color = 0xFF0080
+		unit = 
+		conversion factor a = 1.0
+		conversion factor b = 1.0
+
+		dataset location = 31
+		binary processor = null
+		name = roll_rate_pTerm
+		color = 0xFF6F6F
+		unit = 
+		conversion factor a = 1.0
+		conversion factor b = 1.0
+
+		dataset location = 32
+		binary processor = null
+		name = roll_rate_iTerm
+		color = 0x6FFF6F
+		unit = 
+		conversion factor a = 1.0
+		conversion factor b = 1.0
+
+		dataset location = 33
+		binary processor = null
+		name = roll_rate_dTerm
+		color = 0x6F6FFF
+		unit = 
+		conversion factor a = 1.0
+		conversion factor b = 1.0
+
+		dataset location = 34
+		binary processor = null
+		name = pitch_rate_pTerm
+		color = 0xFF6F6F
+		unit = 
+		conversion factor a = 1.0
+		conversion factor b = 1.0
+
+		dataset location = 35
+		binary processor = null
+		name = pitch_rate_iTerm
+		color = 0x6FFF6F
+		unit = 
+		conversion factor a = 1.0
+		conversion factor b = 1.0
+
+		dataset location = 36
+		binary processor = null
+		name = pitch_rate_dTerm
+		color = 0x6F6FFF
+		unit = 
+		conversion factor a = 1.0
+		conversion factor b = 1.0
+
+		dataset location = 37
+		binary processor = null
+		name = yaw_rate_pTerm
+		color = 0xFF6F6F
+		unit = 
+		conversion factor a = 1.0
+		conversion factor b = 1.0
+
+		dataset location = 38
+		binary processor = null
+		name = yaw_rate_iTerm
+		color = 0x6FFF6F
+		unit = 
+		conversion factor a = 1.0
+		conversion factor b = 1.0
+
+		dataset location = 39
+		binary processor = null
+		name = yaw_rate_dTerm
+		color = 0x6F6FFF
+		unit = 
+		conversion factor a = 1.0
+		conversion factor b = 1.0
+
+		dataset location = 40
+		binary processor = null
+		name = velocity_v_pTerm
+		color = 0xD97BFF
+		unit = 
+		conversion factor a = 1.0
+		conversion factor b = 1.0
+
+		dataset location = 41
+		binary processor = null
+		name = velocity_v_iTerm
+		color = 0xABFF76
+		unit = 
+		conversion factor a = 1.0
+		conversion factor b = 1.0
+
+		dataset location = 42
+		binary processor = null
+		name = velocity_v_dTerm
+		color = 0x76ABFF
+		unit = 
+		conversion factor a = 1.0
+		conversion factor b = 1.0
+
+		dataset location = 43
+		binary processor = null
+		name = velocity_x_pTerm
+		color = 0xD97BFF
+		unit = 
+		conversion factor a = 1.0
+		conversion factor b = 1.0
+
+		dataset location = 44
+		binary processor = null
+		name = velocity_x_iTerm
+		color = 0xABFF76
+		unit = 
+		conversion factor a = 1.0
+		conversion factor b = 1.0
+
+		dataset location = 45
+		binary processor = null
+		name = velocity_x_dTerm
+		color = 0x76ABFF
+		unit = 
+		conversion factor a = 1.0
+		conversion factor b = 1.0
+
+		dataset location = 46
+		binary processor = null
+		name = velocity_y_pTerm
+		color = 0xD97BFF
+		unit = 
+		conversion factor a = 1.0
+		conversion factor b = 1.0
+
+		dataset location = 47
+		binary processor = null
+		name = velocity_y_iTerm
+		color = 0xABFF76
+		unit = 
+		conversion factor a = 1.0
+		conversion factor b = 1.0
+
+		dataset location = 48
+		binary processor = null
+		name = velocity_y_dTerm
+		color = 0x76ABFF
 		unit = 
 		conversion factor a = 1.0
 		conversion factor b = 1.0
