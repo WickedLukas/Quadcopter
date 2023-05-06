@@ -50,11 +50,6 @@
     #define BETA 0.033 // IMU 0.033
 #endif
 
-// time constant for altitude filter
-// TC < 1: trust the acceleration measurement more
-// TC > 1: trust the position measurement more
-#define TC_ALTITUDE_FILTER 0.9 // 0.9
-
 // parameters to check if filtered angles converged during initialisation
 #define INIT_ANGLE_DIFFERENCE 0.5 // maximum angle difference between filtered angles and accelerometer angles (x- and y-axis) after initialisation
 #define INIT_RATE 0.05            // maximum angular rate of Madgwick-filtered angle (z-axis) after initialisation
@@ -103,8 +98,8 @@ const uint16_t THROTTLE_DEADZONE_TOP = 1000 + 10 * (50 + 0.5 * THROTTLE_DEADZONE
 // angle controller acceleration limits (deg/ss)
 //const float ACCEL_MIN_ROLL_PITCH = 40;
 //const float ACCEL_MIN_YAW = 10;
-const float ACCEL_ROLL_PITCH_LIMIT = 720;  // 1100, 720
-const float ACCEL_YAW_LIMIT = 270;         // 270, 180
+const float ACCEL_ROLL_PITCH_LIMIT = 720; // 1100, 720
+const float ACCEL_YAW_LIMIT = 270;        // 270, 180
 
 // angle time constants
 const float TC_ROLL_PITCH_ANGLE = 0.15; // 0.15
@@ -123,9 +118,9 @@ const float TC_ALTITUDE = 1;
 const float TC_DISTANCE = 2;
 
 // angular rate PID values
-const float P_ROLL_RATE = 5.0, I_ROLL_RATE = 15, D_ROLL_RATE = 0.020;    // 5.000, 20.000, 0.020
-const float P_PITCH_RATE = 5.0, I_PITCH_RATE = 15, D_PITCH_RATE = 0.020; // 5.000, 20.000, 0.020
-const float P_YAW_RATE = 3.5, I_YAW_RATE = 10.0, D_YAW_RATE = 0.020;     // 3.500, 10.000, 0.000
+const float P_ROLL_RATE = 5.0, I_ROLL_RATE = 15, D_ROLL_RATE = 0.020;    // 5.000, 15.000, 0.020
+const float P_PITCH_RATE = 5.0, I_PITCH_RATE = 15, D_PITCH_RATE = 0.020; // 5.000, 15.000, 0.020
+const float P_YAW_RATE = 4.0, I_YAW_RATE = 10.0, D_YAW_RATE = 0.000;     // 4.000, 10.000, 0.000
 
 // vertical velocity PID values for altitude hold
 const float P_VELOCITY_V = 40, I_VELOCITY_V = 10, D_VELOCITY_V = 0; // TODO: Tune PID.
@@ -146,7 +141,7 @@ const float EMA_ALT = 0.002;
 // EMA filter parameters for proportional (P) and derivative (D) rate controller inputs.
 const float EMA_ROLL_RATE_P = 0.030;  // 0.030
 const float EMA_PITCH_RATE_P = 0.030; // 0.030
-const float EMA_YAW_RATE_P = 0.020;   // 0.020
+const float EMA_YAW_RATE_P = 0.010;   // 0.010
 
 const float EMA_ROLL_RATE_D = 0.005;  // 0.005
 const float EMA_PITCH_RATE_D = 0.005; // 0.005
