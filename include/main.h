@@ -103,7 +103,7 @@ const uint16_t THROTTLE_DEADZONE_TOP = 1000 + 10 * (50 + 0.5 * THROTTLE_DEADZONE
 // angle controller acceleration limits (deg/ss)
 //const float ACCEL_MIN_ROLL_PITCH = 40;
 //const float ACCEL_MIN_YAW = 10;
-const float ACCEL_ROLL_PITCH_LIMIT = 1100; // 1100, 720
+const float ACCEL_ROLL_PITCH_LIMIT = 720;  // 1100, 720
 const float ACCEL_YAW_LIMIT = 270;         // 270, 180
 
 // angle time constants
