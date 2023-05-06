@@ -123,9 +123,9 @@ const float TC_ALTITUDE = 1;
 const float TC_DISTANCE = 2;
 
 // angular rate PID values
-const float P_ROLL_RATE = 2.0, I_ROLL_RATE = 6.0, D_ROLL_RATE = 0.020;    // 2.000, 0.000, 0.023 @ 0.006 EMA_RATE
-const float P_PITCH_RATE = 2.0, I_PITCH_RATE = 6.0, D_PITCH_RATE = 0.020; // 2.000, 0.000, 0.023 @ 0.006 EMA_RATE
-const float P_YAW_RATE = 3.5, I_YAW_RATE = 10.0, D_YAW_RATE = 0.020;      // 3.500, 2.000, 0.000
+const float P_ROLL_RATE = 5.0, I_ROLL_RATE = 15, D_ROLL_RATE = 0.020;    // 5.000, 20.000, 0.020
+const float P_PITCH_RATE = 5.0, I_PITCH_RATE = 15, D_PITCH_RATE = 0.020; // 5.000, 20.000, 0.020
+const float P_YAW_RATE = 3.5, I_YAW_RATE = 10.0, D_YAW_RATE = 0.020;     // 3.500, 10.000, 0.000
 
 // vertical velocity PID values for altitude hold
 const float P_VELOCITY_V = 40, I_VELOCITY_V = 10, D_VELOCITY_V = 0; // TODO: Tune PID.
@@ -144,8 +144,8 @@ const float EMA_ACCEL = 0.0003; // TODO: Reduce this value if angle estimation i
 const float EMA_ALT = 0.002;
 
 // EMA filter parameters for proportional (P) and derivative (D) rate controller inputs.
-const float EMA_ROLL_RATE_P = 0.040;  // 0.040
-const float EMA_PITCH_RATE_P = 0.040; // 0.040
+const float EMA_ROLL_RATE_P = 0.030;  // 0.030
+const float EMA_PITCH_RATE_P = 0.030; // 0.030
 const float EMA_YAW_RATE_P = 0.020;   // 0.020
 
 const float EMA_ROLL_RATE_D = 0.005;  // 0.005
