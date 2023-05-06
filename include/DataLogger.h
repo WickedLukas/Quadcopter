@@ -65,7 +65,7 @@ private:
     
     static const uint32_t m_sectorSize{512};                                                 // sector size which can be efficiently written without waiting
     static const uint32_t m_ringBufSize{20 * m_sectorSize};                                  // ring buffer size
-    static const size_t m_maxFileNameSize{50};                                               // maximum size of file name
+    static const size_t m_maxFileNameSize{255};                                              // maximum size of file name
     const uint32_t m_logInterval_us;                                                         // interval between log samples in microseconds
     const uint32_t m_maxLogFileSize{2 * m_sectorSize * 1'000'000 / m_logInterval_us * 3600}; // size to log samples of 2 * sector size every log interval for one hour in bytes (~369 MByte)
     const uint64_t m_maxLogFiles{32'000'000'000u / m_maxLogFileSize};                        // maximum number of log files
