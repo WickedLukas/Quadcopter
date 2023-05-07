@@ -63,11 +63,11 @@
 #define VELOCITY_XY_LIMIT 2.5 // m/s // TODO: Increase this to 5.0 m/s later.
 
 // throttle when armed (slightly above esc/motor deadzone)
-#define THROTTLE_ARMED 1125
+#define THROTTLE_ARMED 1150
 // Throttle to enter started state and begin PID calculations.
 // The throttle stick position is centered around this value.
 // To ensure a smooth start, this value should be close to the throttle necessary for take off.
-#define THROTTLE_HOVER 1475
+#define THROTTLE_HOVER 1500
 // Set throttle limit (< 2000), so there is some headroom for pid control in order to keep the quadcopter stable during full throttle.
 #define THROTTLE_LIMIT 1825
 
@@ -105,9 +105,6 @@ const float ACCEL_YAW_LIMIT = 270;        // 270, 180
 const float TC_ROLL_PITCH_ANGLE = 0.15; // 0.15
 const float TC_YAW_ANGLE = 0.15;
 
-// throttle expo parameter used to achieve less throttle sensitivity around hover
-const float THROTTLE_EXPO = 0.3; // 0.3
-
 // vertical acceleration limit (m/ss)
 const float ACCEL_V_LIMIT = 2.5;
 // horizontal acceleration limit (m/ss)
@@ -133,7 +130,7 @@ const float P_VELOCITY_H = 4.0, I_VELOCITY_H = 1.0, D_VELOCITY_H = 0; // TODO: T
 // EMA = 0.1301 --> f_c = 200 Hz; EMA = 0.0674 --> f_c = 100 Hz;
 
 // EMA filter parameter for accelerometer
-const float EMA_ACCEL = 0.0003; // TODO: Reduce this value if angle estimation is incorrect during flight.
+const float EMA_ACCEL = 0.0003; // too high values will result in incorrect angle estimation within Madgwick filter 
 
 // EMA filter parameter for altitude
 const float EMA_ALT = 0.002;

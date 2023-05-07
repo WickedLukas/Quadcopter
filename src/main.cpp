@@ -376,12 +376,8 @@ void loop() {
 		}
 
 		static float throttle;
-		// map throttle to [-1, 1]
-		throttle = map((float) rc_channelValue[THROTTLE], 1000, 2000, -1, 1);
-		// apply expo to throttle for less sensitivity around hover
-		throttle = expo_curve(throttle, THROTTLE_EXPO);
 		// map throttle through THROTTLE_ARMED, THROTTLE_HOVER and THROTTLE_LIMIT
-		throttle = map3(throttle, -1, 0, 1, THROTTLE_ARMED, THROTTLE_HOVER, THROTTLE_LIMIT);
+		throttle = map3((float) rc_channelValue[THROTTLE], 1000, 1500, 2000, THROTTLE_ARMED, THROTTLE_HOVER, THROTTLE_LIMIT);
 
 		// in order to ensure a smooth start, PID calculations are delayed until hover throttle is reached
 		if (started) {
