@@ -584,14 +584,14 @@ void loop() {
 	SD_LOG2D(yaw_rate, 2); SD_LOG2D(yaw_rate_sp, 2);
 	SD_LOG2D(baroAltitudeRaw, 2); SD_LOG2D(baroAltitude, 2);
 	SD_LOG2D(altitude, 2); SD_LOG2D(altitude_sp, 2);
-	SD_LOG2D(velocity_v, 2); SD_LOG2D(velocity_x, 2); SD_LOG2D(velocity_y, 2); SD_LOG2D(velocity_v_sp, 2); SD_LOG2D(velocity_x_sp, 2); SD_LOG2D(velocity_y_sp, 2);
+	SD_LOG2D(velocity_v, 3); SD_LOG2D(velocity_x, 3); SD_LOG2D(velocity_y, 3); SD_LOG2D(velocity_v_sp, 3); SD_LOG2D(velocity_x_sp, 3); SD_LOG2D(velocity_y_sp, 3);
 	SD_LOG2D(throttle_out, 0);
 	SD_LOG3(roll_rate_pTerm, roll_rate_pid.get_pTerm(), 2); SD_LOG3(roll_rate_iTerm, roll_rate_pid.get_iTerm(),  2); SD_LOG3(roll_rate_dTerm, roll_rate_pid.get_dTerm(), 2);
 	SD_LOG3(pitch_rate_pTerm, pitch_rate_pid.get_pTerm(), 2); SD_LOG3(pitch_rate_iTerm, pitch_rate_pid.get_iTerm(), 2); SD_LOG3(pitch_rate_dTerm, pitch_rate_pid.get_dTerm(), 2);
 	SD_LOG3(yaw_rate_pTerm, yaw_rate_pid.get_pTerm(), 2); SD_LOG3(yaw_rate_iTerm, yaw_rate_pid.get_iTerm(), 2); SD_LOG3(yaw_rate_dTerm, yaw_rate_pid.get_dTerm(), 2);
-	SD_LOG3(velocity_v_pTerm, velocity_v_pid.get_pTerm(), 2); SD_LOG3(velocity_v_iTerm, velocity_v_pid.get_iTerm(), 2); SD_LOG3(velocity_v_dTerm, velocity_v_pid.get_dTerm(), 2);
-	SD_LOG3(velocity_x_pTerm, velocity_x_pid.get_pTerm(), 2); SD_LOG3(velocity_x_iTerm, velocity_x_pid.get_iTerm(), 2); SD_LOG3(velocity_x_dTerm, velocity_x_pid.get_dTerm(), 2);
-	SD_LOG3(velocity_y_pTerm, velocity_y_pid.get_pTerm(), 2); SD_LOG3(velocity_y_iTerm, velocity_y_pid.get_iTerm(), 2); SD_LOG3(velocity_y_dTerm, velocity_y_pid.get_dTerm(), 2);
+	SD_LOG3(velocity_v_pTerm, velocity_v_pid.get_pTerm(), 3); SD_LOG3(velocity_v_iTerm, velocity_v_pid.get_iTerm(), 3); SD_LOG3(velocity_v_dTerm, velocity_v_pid.get_dTerm(), 3);
+	SD_LOG3(velocity_x_pTerm, velocity_x_pid.get_pTerm(), 3); SD_LOG3(velocity_x_iTerm, velocity_x_pid.get_iTerm(), 3); SD_LOG3(velocity_x_dTerm, velocity_x_pid.get_dTerm(), 3);
+	SD_LOG3(velocity_y_pTerm, velocity_y_pid.get_pTerm(), 3); SD_LOG3(velocity_y_iTerm, velocity_y_pid.get_iTerm(), 3); SD_LOG3(velocity_y_dTerm, velocity_y_pid.get_dTerm(), 3);
 
 
 	// write log line to file
