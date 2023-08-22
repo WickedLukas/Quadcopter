@@ -40,7 +40,7 @@
 #define SD_LOG3(id, value, digits) sdCardLogger.log(logId::id, value, digits);
 
 #define rcPort Serial3
-#define gpsPort Serial1
+#define gpsPort Serial5
 
 // address for eeprom data
 #define ADDRESS_EEPROM 64
