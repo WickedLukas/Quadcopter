@@ -2,57 +2,57 @@
 #include "common.h"
 
 DataLogger::DataLogger(const char* name, uint32_t logInterval_us) : m_name{name}, m_logInterval_us{logInterval_us} {
-    m_header[static_cast<uint16_t>(logId::sampleNumber)] = "Sample Number (" + String(1'000'000 / m_logInterval_us) + " samples per second)";
-    m_header[static_cast<uint16_t>(logId::timeStamp)] = "UNIX Timestamp";
-    m_header[static_cast<uint16_t>(logId::fMode)] = "fMode ()";
-    m_header[static_cast<uint16_t>(logId::rtlState)] = "rtlState ()";
-    m_header[static_cast<uint16_t>(logId::dt)] = "dt (us)";
-    m_header[static_cast<uint16_t>(logId::ax)] = "ax ()";
-    m_header[static_cast<uint16_t>(logId::ay)] = "ay ()";
-    m_header[static_cast<uint16_t>(logId::az)] = "az ()";
-    m_header[static_cast<uint16_t>(logId::ax_filtered)] = "ax_filtered ()";
-    m_header[static_cast<uint16_t>(logId::ay_filtered)] = "ay_filtered ()";
-    m_header[static_cast<uint16_t>(logId::az_filtered)] = "az_filtered ()";
-    m_header[static_cast<uint16_t>(logId::roll_angle)] = "roll_angle (°)";
-    m_header[static_cast<uint16_t>(logId::pitch_angle)] = "pitch_angle (°)";
-    m_header[static_cast<uint16_t>(logId::yaw_angle)] = "yaw_angle (°)";
-    m_header[static_cast<uint16_t>(logId::roll_angle_sp)] = "roll_angle_sp (°)";
-    m_header[static_cast<uint16_t>(logId::pitch_angle_sp)] = "pitch_angle_sp (°)";
-    m_header[static_cast<uint16_t>(logId::roll_rate)] = "roll_rate (°/s)";
-    m_header[static_cast<uint16_t>(logId::pitch_rate)] = "pitch_rate (°/s)";
-    m_header[static_cast<uint16_t>(logId::yaw_rate)] = "yaw_rate (°/s)";
-    m_header[static_cast<uint16_t>(logId::roll_rate_sp)] = "roll_rate_sp (°/s)";
-    m_header[static_cast<uint16_t>(logId::pitch_rate_sp)] = "pitch_rate_sp (°/s)";
-    m_header[static_cast<uint16_t>(logId::yaw_rate_sp)] = "yaw_rate_sp (°/s)";
-    m_header[static_cast<uint16_t>(logId::baroAltitudeRaw)] = "baroAltitudeRaw (m)";
-    m_header[static_cast<uint16_t>(logId::baroAltitude)] = "baroAltitude (m)";
-    m_header[static_cast<uint16_t>(logId::altitude)] = "altitude (m)";
-    m_header[static_cast<uint16_t>(logId::altitude_sp)] = "altitude_sp (m)";
-    m_header[static_cast<uint16_t>(logId::velocity_v)] = "velocity_v (m/s)";
-    m_header[static_cast<uint16_t>(logId::velocity_x)] = "velocity_x (m/s)";
-    m_header[static_cast<uint16_t>(logId::velocity_y)] = "velocity_y (m/s)";
-    m_header[static_cast<uint16_t>(logId::velocity_v_sp)] = "velocity_v_sp (m/s)";
-    m_header[static_cast<uint16_t>(logId::velocity_x_sp)] = "velocity_x_sp (m/s)";
-    m_header[static_cast<uint16_t>(logId::velocity_y_sp)] = "velocity_y_sp (m/s)";
-    m_header[static_cast<uint16_t>(logId::throttle_out)] = "throttle_out ()";
-    m_header[static_cast<uint16_t>(logId::roll_rate_pTerm)] = "roll_rate_pTerm ()";
-    m_header[static_cast<uint16_t>(logId::roll_rate_iTerm)] = "roll_rate_iTerm ()";
-    m_header[static_cast<uint16_t>(logId::roll_rate_dTerm)] = "roll_rate_dTerm ()";
-    m_header[static_cast<uint16_t>(logId::pitch_rate_pTerm)] = "pitch_rate_pTerm ()";
-    m_header[static_cast<uint16_t>(logId::pitch_rate_iTerm)] = "pitch_rate_iTerm ()";
-    m_header[static_cast<uint16_t>(logId::pitch_rate_dTerm)] = "pitch_rate_dTerm ()";
-    m_header[static_cast<uint16_t>(logId::yaw_rate_pTerm)] = "yaw_rate_pTerm ()";
-    m_header[static_cast<uint16_t>(logId::yaw_rate_iTerm)] = "yaw_rate_iTerm ()";
-    m_header[static_cast<uint16_t>(logId::yaw_rate_dTerm)] = "yaw_rate_dTerm ()";
-    m_header[static_cast<uint16_t>(logId::velocity_v_pTerm)] = "velocity_v_pTerm ()";
-    m_header[static_cast<uint16_t>(logId::velocity_v_iTerm)] = "velocity_v_iTerm ()";
-    m_header[static_cast<uint16_t>(logId::velocity_v_dTerm)] = "velocity_v_dTerm ()";
-    m_header[static_cast<uint16_t>(logId::velocity_x_pTerm)] = "velocity_x_pTerm ()";
-    m_header[static_cast<uint16_t>(logId::velocity_x_iTerm)] = "velocity_x_iTerm ()";
-    m_header[static_cast<uint16_t>(logId::velocity_x_dTerm)] = "velocity_x_dTerm ()";
-    m_header[static_cast<uint16_t>(logId::velocity_y_pTerm)] = "velocity_y_pTerm ()";
-    m_header[static_cast<uint16_t>(logId::velocity_y_iTerm)] = "velocity_y_iTerm ()";
-    m_header[static_cast<uint16_t>(logId::velocity_y_dTerm)] = "velocity_y_dTerm ()";
+    m_header[(uint16_t) logId::sampleNumber] = "Sample Number (" + String(1'000'000 / m_logInterval_us) + " samples per second)";
+    m_header[(uint16_t) logId::timeStamp] = "UNIX Timestamp";
+    m_header[(uint16_t) logId::fMode] = "fMode ()";
+    m_header[(uint16_t) logId::rtlState] = "rtlState ()";
+    m_header[(uint16_t) logId::dt] = "dt (us)";
+    m_header[(uint16_t) logId::ax] = "ax ()";
+    m_header[(uint16_t) logId::ay] = "ay ()";
+    m_header[(uint16_t) logId::az] = "az ()";
+    m_header[(uint16_t) logId::ax_filtered] = "ax_filtered ()";
+    m_header[(uint16_t) logId::ay_filtered] = "ay_filtered ()";
+    m_header[(uint16_t) logId::az_filtered] = "az_filtered ()";
+    m_header[(uint16_t) logId::roll_angle] = "roll_angle (°)";
+    m_header[(uint16_t) logId::pitch_angle] = "pitch_angle (°)";
+    m_header[(uint16_t) logId::yaw_angle] = "yaw_angle (°)";
+    m_header[(uint16_t) logId::roll_angle_sp] = "roll_angle_sp (°)";
+    m_header[(uint16_t) logId::pitch_angle_sp] = "pitch_angle_sp (°)";
+    m_header[(uint16_t) logId::roll_rate] = "roll_rate (°/s)";
+    m_header[(uint16_t) logId::pitch_rate] = "pitch_rate (°/s)";
+    m_header[(uint16_t) logId::yaw_rate] = "yaw_rate (°/s)";
+    m_header[(uint16_t) logId::roll_rate_sp] = "roll_rate_sp (°/s)";
+    m_header[(uint16_t) logId::pitch_rate_sp] = "pitch_rate_sp (°/s)";
+    m_header[(uint16_t) logId::yaw_rate_sp] = "yaw_rate_sp (°/s)";
+    m_header[(uint16_t) logId::baroAltitudeRaw] = "baroAltitudeRaw (m)";
+    m_header[(uint16_t) logId::baroAltitude] = "baroAltitude (m)";
+    m_header[(uint16_t) logId::altitude] = "altitude (m)";
+    m_header[(uint16_t) logId::altitude_sp] = "altitude_sp (m)";
+    m_header[(uint16_t) logId::velocity_v] = "velocity_v (m/s)";
+    m_header[(uint16_t) logId::velocity_x] = "velocity_x (m/s)";
+    m_header[(uint16_t) logId::velocity_y] = "velocity_y (m/s)";
+    m_header[(uint16_t) logId::velocity_v_sp] = "velocity_v_sp (m/s)";
+    m_header[(uint16_t) logId::velocity_x_sp] = "velocity_x_sp (m/s)";
+    m_header[(uint16_t) logId::velocity_y_sp] = "velocity_y_sp (m/s)";
+    m_header[(uint16_t) logId::throttle_out] = "throttle_out ()";
+    m_header[(uint16_t) logId::roll_rate_pTerm] = "roll_rate_pTerm ()";
+    m_header[(uint16_t) logId::roll_rate_iTerm] = "roll_rate_iTerm ()";
+    m_header[(uint16_t) logId::roll_rate_dTerm] = "roll_rate_dTerm ()";
+    m_header[(uint16_t) logId::pitch_rate_pTerm] = "pitch_rate_pTerm ()";
+    m_header[(uint16_t) logId::pitch_rate_iTerm] = "pitch_rate_iTerm ()";
+    m_header[(uint16_t) logId::pitch_rate_dTerm] = "pitch_rate_dTerm ()";
+    m_header[(uint16_t) logId::yaw_rate_pTerm] = "yaw_rate_pTerm ()";
+    m_header[(uint16_t) logId::yaw_rate_iTerm] = "yaw_rate_iTerm ()";
+    m_header[(uint16_t) logId::yaw_rate_dTerm] = "yaw_rate_dTerm ()";
+    m_header[(uint16_t) logId::velocity_v_pTerm] = "velocity_v_pTerm ()";
+    m_header[(uint16_t) logId::velocity_v_iTerm] = "velocity_v_iTerm ()";
+    m_header[(uint16_t) logId::velocity_v_dTerm] = "velocity_v_dTerm ()";
+    m_header[(uint16_t) logId::velocity_x_pTerm] = "velocity_x_pTerm ()";
+    m_header[(uint16_t) logId::velocity_x_iTerm] = "velocity_x_iTerm ()";
+    m_header[(uint16_t) logId::velocity_x_dTerm] = "velocity_x_dTerm ()";
+    m_header[(uint16_t) logId::velocity_y_pTerm] = "velocity_y_pTerm ()";
+    m_header[(uint16_t) logId::velocity_y_iTerm] = "velocity_y_iTerm ()";
+    m_header[(uint16_t) logId::velocity_y_dTerm] = "velocity_y_dTerm ()";
 }
 
 DataLogger::~DataLogger() {
@@ -220,8 +220,8 @@ bool DataLogger::writeLogLine() {
         m_logNow = false;
 
         m_lastWriteLog_us = micros();
-        m_line[static_cast<uint16_t>(logId::sampleNumber)] = String(m_sample++);                         // add sample number to log
-        m_line[static_cast<uint16_t>(logId::timeStamp)] = String(m_lastWriteLog_us / 1000 - m_start_ms); // add time in ms to log
+        m_line[(uint16_t) logId::sampleNumber] = String(m_sample++);                         // add sample number to log
+        m_line[(uint16_t) logId::timeStamp] = String(m_lastWriteLog_us / 1000 - m_start_ms); // add time in ms to log
 
         // write line with comma separated values to ring buffer
         uint16_t id{0};

@@ -45,14 +45,14 @@ public:
         if (!m_started || !m_logNow) {
             return;
         }
-        m_line[static_cast<uint16_t>(id)] = String(value);
+        m_line[(uint16_t) id] = String(value);
     }
     template<typename T>
     typename std::enable_if<!std::is_integral<T>::value>::type log(logId id, const T value, uint16_t digits = 2) {
         if (!m_started || !m_logNow) {
             return;
         }
-        m_line[static_cast<uint16_t>(id)] = String(value, digits);
+        m_line[(uint16_t) id] = String(value, digits);
     }
 
     bool writeLogHeader();
@@ -86,9 +86,9 @@ private:
     uint32_t m_start_ms{0};        // data logging start time in ms
     uint32_t m_sample{0};          // logging sample number
 
-    static const uint16_t m_columns{static_cast<uint16_t>(logId::last)}; // number of columns per line
-    std::array<String, m_columns> m_header{};                            // log header
-    std::array<String, m_columns> m_line{};                              // log line
+    static const uint16_t m_columns{(uint16_t) logId::last}; // number of columns per line
+    std::array<String, m_columns> m_header{};                // log header
+    std::array<String, m_columns> m_line{};                  // log line
 };
 
 #endif

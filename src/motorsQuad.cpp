@@ -4,15 +4,13 @@
 #include <Arduino.h>
 
 // constructor
-MotorsQuad::MotorsQuad(uint8_t motor1_pin, uint8_t motor2_pin, uint8_t motor3_pin, uint8_t motor4_pin, uint8_t motor_pwm_resolution, uint16_t motor_pwm_frequency)
-{
+MotorsQuad::MotorsQuad(uint8_t motor1_pin, uint8_t motor2_pin, uint8_t motor3_pin, uint8_t motor4_pin, uint16_t motor_pwm_frequency) {
     // initialise member variables
     m_motor1_pin = motor1_pin;
     m_motor2_pin = motor2_pin;
     m_motor3_pin = motor3_pin;
     m_motor4_pin = motor4_pin;
 
-    m_motor_pwm_resolution = motor_pwm_resolution;
     m_motor_pwm_frequency = motor_pwm_frequency;
 
     m_state = State::disarmed;
@@ -24,13 +22,11 @@ MotorsQuad::MotorsQuad(uint8_t motor1_pin, uint8_t motor2_pin, uint8_t motor3_pi
     init_pin(m_motor4_pin);
 }
 
-void MotorsQuad::output(uint16_t pwm1, uint16_t pwm2, uint16_t pwm3, uint16_t pwm4)
-{
+void MotorsQuad::output(uint16_t pwm1, uint16_t pwm2, uint16_t pwm3, uint16_t pwm4) {
     noInterrupts();
-    m_oldResolution = analogWriteResolution(m_motor_pwm_resolution);
+    m_oldResolution = analogWriteResolution(11);
 
-    switch (m_state)
-    {
+    switch (m_state) {
     case State::armed:
         analogWriteMotors(pwm1, pwm2, pwm3, pwm4);
         break;
@@ -97,10 +93,10 @@ void MotorsQuad::init_pin(uint8_t pin) {
 
 // analogWrite to all motors
 void MotorsQuad::analogWriteMotors(uint16_t pwm1, uint16_t pwm2, uint16_t pwm3, uint16_t pwm4) {
-	#ifndef MOTORS_OFF // for safety, MOTORS_OFF can be defined to prevent motors from running
-		analogWrite(m_motor1_pin, pwm1);
-		analogWrite(m_motor2_pin, pwm2);
-		analogWrite(m_motor3_pin, pwm3);
-		analogWrite(m_motor4_pin, pwm4);
-	#endif
+#ifndef MOTORS_OFF // for safety, MOTORS_OFF can be defined to prevent motors from running
+    analogWrite(m_motor1_pin, pwm1);
+    analogWrite(m_motor2_pin, pwm2);
+    analogWrite(m_motor3_pin, pwm3);
+    analogWrite(m_motor4_pin, pwm4);
+#endif
 }

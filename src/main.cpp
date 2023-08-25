@@ -67,7 +67,7 @@ NeoGPS::Location_t rtl_location;
 #endif
 
 // motors
-MotorsQuad motors(MOTOR_PIN_1, MOTOR_PIN_2, MOTOR_PIN_3, MOTOR_PIN_4, MOTOR_PWM_RESOLUTION, MOTOR_PWM_FREQUENCY);
+MotorsQuad motors(MOTOR_PIN_1, MOTOR_PIN_2, MOTOR_PIN_3, MOTOR_PIN_4, MOTOR_PWM_FREQUENCY);
 
 // rate PID controller
 PID_controller roll_rate_pid(P_ROLL_RATE, I_ROLL_RATE, D_ROLL_RATE, 350, 100, EMA_ROLL_RATE_P, EMA_ROLL_RATE_D, true);
@@ -480,7 +480,7 @@ void loop() {
 
 			// Tilt compensated thrust: Increase throttle when the quadcopter is tilted, to compensate for height loss during horizontal movement.
 			// Note: In order to maintain stability, throttle is limited to the throttle limit.
-			throttle_out = constrain((float) (throttle_out - 1000) / (pose_q[0] * pose_q[0] - pose_q[1] * pose_q[1] - pose_q[2] * pose_q[2] + pose_q[3] * pose_q[3]) + 1000, 1000, THROTTLE_LIMIT);
+			throttle_out = constrain((throttle_out - 1000) / (pose_q[0] * pose_q[0] - pose_q[1] * pose_q[1] - pose_q[2] * pose_q[2] + pose_q[3] * pose_q[3]) + 1000, 1000.f, (float) THROTTLE_LIMIT);
 
 			// shape roll and pitch rate setpoints
 			roll_rate_sp = shape_position(roll_angle_sp - roll_angle, TC_ROLL_PITCH_ANGLE, ACCEL_ROLL_PITCH_LIMIT, roll_rate_sp, dt_s);
@@ -490,9 +490,9 @@ void loop() {
 			//static float p_rate, i_rate, d_rate;
 
 			/*
-			p_rate = constrain(map((float) rc_channelValue[4], 1000, 2000, 2.0 2.5), 2.0, 2.5);
-			i_rate = constrain(map((float) rc_channelValue[5], 1000, 2000, 1.0, 2.0), 1.0, 2.0);
-			//d_rate = constrain(map((float) rc_channelValue[5], 1000, 2000, 0.02, 0.03), 0.02, 0.03);
+			p_rate = constrain(map((float) rc_channelValue[4], 1000.0, 2000.0, 2.0 2.5), 2.0, 2.5);
+			i_rate = constrain(map((float) rc_channelValue[5], 1000.0, 2000.0, 1.0, 2.0), 1.0, 2.0);
+			//d_rate = constrain(map((float) rc_channelValue[5], 1000.0, 2000.0, 0.02, 0.03), 0.02, 0.03);
 
 			roll_rate_pid.set_K_p(p_rate);
 			roll_rate_pid.set_K_i(i_rate);
@@ -504,9 +504,9 @@ void loop() {
 			*/
 
 			/*
-			p_rate = constrain(map((float) rc_channelValue[4], 1000, 2000, 3.5, 4.5), 3.5, 4.5);
-			i_rate = constrain(map((float) rc_channelValue[5], 1000, 2000, 2.0, 4.0), 2.0, 4.0);
-			//d_rate = constrain(map((float) rc_channelValue[5], 1000, 2000, 0.02, 0.025), 0.02, 0.025);
+			p_rate = constrain(map((float) rc_channelValue[4], 1000.0, 2000.0, 3.5, 4.5), 3.5, 4.5);
+			i_rate = constrain(map((float) rc_channelValue[5], 1000.0, 2000.0, 2.0, 4.0), 2.0, 4.0);
+			//d_rate = constrain(map((float) rc_channelValue[5], 1000.0, 2000.0, 0.02, 0.025), 0.02, 0.025);
 
 			yaw_rate_pid.set_K_p(p_rate);
 			yaw_rate_pid.set_K_i(i_rate);
@@ -514,9 +514,9 @@ void loop() {
 			*/
 
 			// TODO: Tune PID-controller for vertical velocity.
-			//p_rate = constrain(map((float) rc_channelValue[4], 1000, 2000, 40, 100), 40, 100);
-			//i_rate = constrain(map((float) rc_channelValue[5], 1000, 2000, 10, 20), 10, 20);
-			//d_rate = constrain(map((float) rc_channelValue[5], 1000, 2000, 20, 60), 20, 60);
+			//p_rate = constrain(map((float) rc_channelValue[4], 1000.0, 2000.0, 40.0, 100.0), 40.0, 100.0);
+			//i_rate = constrain(map((float) rc_channelValue[5], 1000.0, 2000.0, 10.0, 20.0), 10.0, 20.0);
+			//d_rate = constrain(map((float) rc_channelValue[5], 1000.0, 2000.0, 20.0, 60.0), 20.0, 60.0);
 
 			//velocity_v_pid.set_K_p(p_rate);
 			//velocity_v_pid.set_K_i(i_rate);
@@ -575,7 +575,7 @@ void loop() {
 		DEBUG_PRINTLN("SD card logging stopped.");
 	}
 
-	SD_LOG2(fMode, static_cast<unsigned char>(fMode)); SD_LOG2(rtlState, static_cast<unsigned char>(rtlState));
+	SD_LOG2(fMode, (unsigned char) fMode); SD_LOG2(rtlState, (unsigned char) rtlState);
 	SD_LOG(dt);
 	SD_LOG(ax); SD_LOG(ay); SD_LOG(az);
 	SD_LOG2D(ax_filtered, 1); SD_LOG2D(ay_filtered, 1); SD_LOG2D(az_filtered, 1);
