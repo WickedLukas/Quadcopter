@@ -67,7 +67,7 @@ NeoGPS::Location_t rtl_location;
 #endif
 
 // motors
-MotorsQuad motors(MOTOR_PIN_1, MOTOR_PIN_2, MOTOR_PIN_3, MOTOR_PIN_4, MOTOR_PWM_FREQUENCY);
+MotorsQuad motors(MOTOR_PIN_1, MOTOR_PIN_2, MOTOR_PIN_3, MOTOR_PIN_4, MOTOR_PWM_FREQUENCY, 0.15, 0.95, 0.65);
 
 // rate PID controller
 PID_controller roll_rate_pid(P_ROLL_RATE, I_ROLL_RATE, D_ROLL_RATE, 350, 100, EMA_ROLL_RATE_P, EMA_ROLL_RATE_D, true);
@@ -376,8 +376,8 @@ void loop() {
 		}
 
 		static float throttle;
-		// map throttle through THROTTLE_ARMED, THROTTLE_HOVER and THROTTLE_LIMIT
-		throttle = map3((float) rc_channelValue[THROTTLE], 1000, 1500, 2000, THROTTLE_ARMED, THROTTLE_HOVER, THROTTLE_LIMIT);
+		// adjust throttle range to throttle limit
+		throttle = map((float) rc_channelValue[THROTTLE], 1000.f, 2000.f, 1000.f, (float) THROTTLE_LIMIT);
 
 		// in order to ensure a smooth start, PID calculations are delayed until hover throttle is reached
 		if (started) {
@@ -548,10 +548,10 @@ void loop() {
 
 	// motor mixing
 	motors.output(
-		constrain(throttle_out + roll_rate_mv - pitch_rate_mv + yaw_rate_mv, 1000, 2000),
-		constrain(throttle_out - roll_rate_mv - pitch_rate_mv - yaw_rate_mv, 1000, 2000),
-		constrain(throttle_out - roll_rate_mv + pitch_rate_mv + yaw_rate_mv, 1000, 2000),
-		constrain(throttle_out + roll_rate_mv + pitch_rate_mv - yaw_rate_mv, 1000, 2000));
+		throttle_out + roll_rate_mv - pitch_rate_mv + yaw_rate_mv,
+		throttle_out - roll_rate_mv - pitch_rate_mv - yaw_rate_mv,
+		throttle_out - roll_rate_mv + pitch_rate_mv + yaw_rate_mv,
+		throttle_out + roll_rate_mv + pitch_rate_mv - yaw_rate_mv);
 
 #ifdef USE_SDLOG
 	static bool sdLogEnabled{false};

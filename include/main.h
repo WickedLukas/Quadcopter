@@ -59,15 +59,12 @@
 #define VELOCITY_V_LIMIT 2.5  // m/s
 #define VELOCITY_XY_LIMIT 2.5 // m/s // TODO: Increase this to 5.0 m/s later.
 
-// throttle when armed (slightly above esc/motor deadzone)
-#define THROTTLE_ARMED 1150
 // Throttle to enter started state and begin PID calculations.
-// The throttle stick position is centered around this value.
 // To ensure a smooth start, this value should be close to the throttle necessary for take off.
 // An accurate value close to hover throttle also helps when switching flight modes from Stabilize to AltitudeHold or ReturnToLaunch.
-#define THROTTLE_HOVER 1500
+#define THROTTLE_HOVER 1275
 // Set throttle limit (< 2000), so there is some headroom for pid control in order to keep the quadcopter stable during full throttle.
-#define THROTTLE_LIMIT 1825
+#define THROTTLE_LIMIT 1760
 
 // throttle deadzone (altitude hold) in per cent of throttle range
 #define THROTTLE_DEADZONE_PCT 20
