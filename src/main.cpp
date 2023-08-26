@@ -433,13 +433,13 @@ void loop() {
 					rc_rpAngle_yRate(roll_angle_sp, pitch_angle_sp, yaw_rate_sp);
 
 					if (rc_channelValue[THROTTLE] < THROTTLE_DEADZONE_BOT) {
-						// shape vertical velocity setpoint from rc input for upwards velocity
+						// shape vertical velocity setpoint from rc input for downwards velocity
 						velocity_v_sp = shape_velocity(map(rc_channelValue[THROTTLE], 1000, THROTTLE_DEADZONE_BOT, VELOCITY_V_LOWER_LIMIT, 0), ACCEL_V_LIMIT, velocity_v_sp, dt_s);
 
 						altitude_sp = altitude;
 					}
 					else if (rc_channelValue[THROTTLE] > THROTTLE_DEADZONE_TOP) {
-						// shape vertical velocity setpoint from rc input for downwards velocity
+						// shape vertical velocity setpoint from rc input for upwards velocity
 						velocity_v_sp = shape_velocity(map(rc_channelValue[THROTTLE], THROTTLE_DEADZONE_TOP, 2000, 0, VELOCITY_V_UPPER_LIMIT), ACCEL_V_LIMIT, velocity_v_sp, dt_s);
 
 						altitude_sp = altitude;
