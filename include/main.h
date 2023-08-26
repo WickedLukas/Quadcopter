@@ -54,9 +54,9 @@
 
 // flight setpoint limits
 #define ROLL_PITCH_THROTTLE_LIMIT 350
-#define ROLL_PITCH_THROTTLE_ITERM_LIMIT 100
+#define ROLL_PITCH_THROTTLE_ITERM_LIMIT 150 // 100
 #define YAW_THROTTLE_LIMIT 250
-#define YAW_THROTTLE_ITERM_LIMIT 150
+#define YAW_THROTTLE_ITERM_LIMIT 200    	// 150
 #define ROLL_PITCH_ANGLE_LIMIT 32           // deg    // 30, 35
 #define YAW_RATE_LIMIT 150                  // deg/s  // 120, 180
 #define VELOCITY_V_UPPER_LIMIT 2.5          // m/s
@@ -112,9 +112,9 @@ const float TC_ALTITUDE = 1;
 const float TC_DISTANCE = 2;
 
 // angular rate PID values
-const float P_ROLL_RATE = 5.0, I_ROLL_RATE = 15, D_ROLL_RATE = 0.020;    // 5.000, 15.000, 0.020
-const float P_PITCH_RATE = 5.0, I_PITCH_RATE = 15, D_PITCH_RATE = 0.020; // 5.000, 15.000, 0.020
-const float P_YAW_RATE = 4.0, I_YAW_RATE = 10.0, D_YAW_RATE = 0.000;     // 4.000, 10.000, 0.000
+const float P_ROLL_RATE = 4.0, I_ROLL_RATE = 12, D_ROLL_RATE = 0.015;    // 5.000, 15.000, 0.020
+const float P_PITCH_RATE = 4.0, I_PITCH_RATE = 12, D_PITCH_RATE = 0.015; // 5.000, 15.000, 0.020
+const float P_YAW_RATE = 4.0, I_YAW_RATE = 8.0, D_YAW_RATE = 0.000;      // 4.000, 10.000, 0.000
 
 // vertical velocity PID values for altitude hold
 const float P_VELOCITY_V = 40, I_VELOCITY_V = 10, D_VELOCITY_V = 0; // TODO: Tune PID.
