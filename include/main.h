@@ -53,11 +53,15 @@
 #define INIT_VELOCITY_V 0.10      // maximum vertical velocity after initialisation
 
 // flight setpoint limits
-#define YAW_RATE_LIMIT 150        // deg/s  // 120, 180
-#define ROLL_PITCH_ANGLE_LIMIT 32 // deg    // 30, 35
-
-#define VELOCITY_V_LIMIT 2.5  // m/s
-#define VELOCITY_XY_LIMIT 2.5 // m/s // TODO: Increase this to 5.0 m/s later.
+#define ROLL_PITCH_THROTTLE_LIMIT 350
+#define ROLL_PITCH_THROTTLE_ITERM_LIMIT 100
+#define YAW_THROTTLE_LIMIT 250
+#define YAW_THROTTLE_ITERM_LIMIT 150
+#define ROLL_PITCH_ANGLE_LIMIT 32           // deg    // 30, 35
+#define YAW_RATE_LIMIT 150                  // deg/s  // 120, 180
+#define VELOCITY_V_UPPER_LIMIT 2.5          // m/s
+#define VELOCITY_V_LOWER_LIMIT -1.5         // m/s
+#define VELOCITY_XY_LIMIT 2.5               // m/s // TODO: Increase this to 5.0 m/s later.
 
 // Throttle to enter started state and begin PID calculations.
 // To ensure a smooth start, this value should be close to the throttle necessary for take off.

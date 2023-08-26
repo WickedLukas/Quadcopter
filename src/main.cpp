@@ -70,9 +70,9 @@ NeoGPS::Location_t rtl_location;
 MotorsQuad motors(MOTOR_PIN_1, MOTOR_PIN_2, MOTOR_PIN_3, MOTOR_PIN_4, MOTOR_PWM_FREQUENCY, 0.15, 0.95, 0.65);
 
 // rate PID controller
-PID_controller roll_rate_pid(P_ROLL_RATE, I_ROLL_RATE, D_ROLL_RATE, 350, 100, EMA_ROLL_RATE_P, EMA_ROLL_RATE_D, true);
-PID_controller pitch_rate_pid(P_PITCH_RATE, I_PITCH_RATE, D_PITCH_RATE, 350, 100, EMA_PITCH_RATE_P, EMA_PITCH_RATE_D, true);
-PID_controller yaw_rate_pid(P_YAW_RATE, I_YAW_RATE, D_YAW_RATE, 250, 150, EMA_YAW_RATE_P, EMA_YAW_RATE_D, true);
+PID_controller roll_rate_pid(P_ROLL_RATE, I_ROLL_RATE, D_ROLL_RATE, ROLL_PITCH_THROTTLE_LIMIT, ROLL_PITCH_THROTTLE_ITERM_LIMIT, EMA_ROLL_RATE_P, EMA_ROLL_RATE_D, true);
+PID_controller pitch_rate_pid(P_PITCH_RATE, I_PITCH_RATE, D_PITCH_RATE, ROLL_PITCH_THROTTLE_LIMIT, ROLL_PITCH_THROTTLE_ITERM_LIMIT, EMA_PITCH_RATE_P, EMA_PITCH_RATE_D, true);
+PID_controller yaw_rate_pid(P_YAW_RATE, I_YAW_RATE, D_YAW_RATE, YAW_THROTTLE_LIMIT, YAW_THROTTLE_ITERM_LIMIT, EMA_YAW_RATE_P, EMA_YAW_RATE_D, true);
 
 // vertical velocity PID controller for altitude hold
 PID_controller velocity_v_pid(P_VELOCITY_V, I_VELOCITY_V, D_VELOCITY_V, THROTTLE_LIMIT - THROTTLE_HOVER, THROTTLE_LIMIT - THROTTLE_HOVER, EMA_VELOCITY_V_P, EMA_VELOCITY_V_D);
@@ -434,19 +434,19 @@ void loop() {
 
 					if (rc_channelValue[THROTTLE] < THROTTLE_DEADZONE_BOT) {
 						// shape vertical velocity setpoint from rc input for upwards velocity
-						velocity_v_sp = shape_velocity(map(rc_channelValue[THROTTLE], 1000, THROTTLE_DEADZONE_BOT, -VELOCITY_V_LIMIT, 0), ACCEL_V_LIMIT, velocity_v_sp, dt_s);
+						velocity_v_sp = shape_velocity(map(rc_channelValue[THROTTLE], 1000, THROTTLE_DEADZONE_BOT, VELOCITY_V_LOWER_LIMIT, 0), ACCEL_V_LIMIT, velocity_v_sp, dt_s);
 
 						altitude_sp = altitude;
 					}
 					else if (rc_channelValue[THROTTLE] > THROTTLE_DEADZONE_TOP) {
 						// shape vertical velocity setpoint from rc input for downwards velocity
-						velocity_v_sp = shape_velocity(map(rc_channelValue[THROTTLE], THROTTLE_DEADZONE_TOP, 2000, 0, VELOCITY_V_LIMIT), ACCEL_V_LIMIT, velocity_v_sp, dt_s);
+						velocity_v_sp = shape_velocity(map(rc_channelValue[THROTTLE], THROTTLE_DEADZONE_TOP, 2000, 0, VELOCITY_V_UPPER_LIMIT), ACCEL_V_LIMIT, velocity_v_sp, dt_s);
 
 						altitude_sp = altitude;
 					}
 					else {
 						// shape vertical velocity setpoint to hold altitude
-						velocity_v_sp = constrain(shape_position(altitude_sp - altitude, TC_ALTITUDE, ACCEL_V_LIMIT, velocity_v_sp, dt_s), -VELOCITY_V_LIMIT, VELOCITY_V_LIMIT);
+						velocity_v_sp = constrain(shape_position(altitude_sp - altitude, TC_ALTITUDE, ACCEL_V_LIMIT, velocity_v_sp, dt_s), VELOCITY_V_LOWER_LIMIT, VELOCITY_V_UPPER_LIMIT);
 					}
 
 					// calculate manipulated variable for vertical velocity
