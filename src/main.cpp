@@ -1263,7 +1263,7 @@ void rtl_xyVelocity_yRate(float &velocity_x_sp, float &velocity_y_sp, float &vel
 	velocity_y_sp = constrain(shape_position(distance_y, TC_DISTANCE, ACCEL_H_LIMIT, velocity_y_sp, dt_s), -VELOCITY_XY_LIMIT, VELOCITY_XY_LIMIT);
 
 	// shape vertical velocity setpoint
-	velocity_v_sp = constrain(shape_position(altitude_sp - altitude, TC_ALTITUDE, ACCEL_V_LIMIT, velocity_v_sp, dt_s), -VELOCITY_V_LIMIT, VELOCITY_V_LIMIT);
+	velocity_v_sp = constrain(shape_position(altitude_sp - altitude, TC_ALTITUDE, ACCEL_V_LIMIT, velocity_v_sp, dt_s), VELOCITY_V_LOWER_LIMIT, VELOCITY_V_UPPER_LIMIT);
 
 	// shape yaw rate setpoint
 	yaw_rate_sp = constrain(shape_position(distance_yaw, TC_YAW_ANGLE, ACCEL_YAW_LIMIT, yaw_rate_sp, dt_s), -YAW_RATE_LIMIT, YAW_RATE_LIMIT);
