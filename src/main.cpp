@@ -146,7 +146,7 @@ float pose_q[4]; // quaternion
 float baroAltitudeRaw;
 
 // ema filtered raw barometer altitude
-float baroAltitude;
+double baroAltitude;
 
 // last quadcopter barometer altitude when disarmed
 float baroAltitude_init;
@@ -337,7 +337,7 @@ void loop() {
 	baroAltitude = ema_filter(baroAltitudeRaw, baroAltitude, EMA_ALT);
 
 	// calculate vertical velocity
-	static float baroAltitude_last = baroAltitude;
+	static double baroAltitude_last = baroAltitude;
 	velocity_v = (baroAltitude - baroAltitude_last) / dt_s;
 	baroAltitude_last = baroAltitude;
 
