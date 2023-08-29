@@ -44,7 +44,14 @@ BMP388_DEV barometer;
 
 // barometer interrupt
 volatile bool barometerInterrupt = false;
+volatile float dt_bar_s = 0;
 void barometerReady() {
+	static uint32_t t_bar;
+	t_bar = micros();
+	static uint32_t t_bar_last = t_bar;
+	dt_bar_s = (t_bar - t_bar_last) * 1.e-6f;
+	t_bar_last = t_bar;
+
 	barometerInterrupt = true;
 }
 #endif
@@ -229,7 +236,7 @@ void setup() {
 
 #ifdef USE_BAR
 	// initialise barometer with mode, pressure oversampling, temperature oversampling, IIR-Filter and standby time
-	if (!barometer.begin(NORMAL_MODE, OVERSAMPLING_SKIP, OVERSAMPLING_SKIP, IIR_FILTER_32, TIME_STANDBY_5MS)) {
+	if (!barometer.begin(NORMAL_MODE, OVERSAMPLING_SKIP, OVERSAMPLING_SKIP, IIR_FILTER_32, TIME_STANDBY_5MS, 1'000'000)) {
 		// barometer could not be initialised
 		error_code |= ERROR_BAR; // set error value to disable arming
 		DEBUG_PRINTLN(F("Barometer initialisation failed."));
@@ -331,15 +338,17 @@ void loop() {
 	yaw_angle_rad = yaw_angle * RAD_PER_DEG;
 
 #ifdef USE_BAR
-	getBarData(baroAltitudeRaw);
+	if (getBarData(baroAltitudeRaw)) {
+		// calculate vertical velocity
+		static double baroAltitudeRaw_last = baroAltitudeRaw;
+		if (dt_bar_s > 0) {
+			velocity_v = (baroAltitudeRaw - baroAltitudeRaw_last) / dt_bar_s;
+		}
+		baroAltitudeRaw_last = baroAltitudeRaw;
+	}
 
 	// filter raw barometer altitude measurement
 	baroAltitude = ema_filter(baroAltitudeRaw, baroAltitude, EMA_ALT);
-
-	// calculate vertical velocity
-	static double baroAltitude_last = baroAltitude;
-	velocity_v = (baroAltitude - baroAltitude_last) / dt_s;
-	baroAltitude_last = baroAltitude;
 
 	// altitude relative to starting ground
 	altitude = baroAltitude - baroAltitude_init;
@@ -434,19 +443,19 @@ void loop() {
 
 					if (rc_channelValue[THROTTLE] < THROTTLE_DEADZONE_BOT) {
 						// shape vertical velocity setpoint from rc input for downwards velocity
-						velocity_v_sp = shape_velocity(map(rc_channelValue[THROTTLE], 1000, THROTTLE_DEADZONE_BOT, VELOCITY_V_LOWER_LIMIT, 0), ACCEL_V_LIMIT, velocity_v_sp, dt_s);
+						velocity_v_sp = shape_velocity(map(rc_channelValue[THROTTLE], 1000, THROTTLE_DEADZONE_BOT, -VELOCITY_V_LIMIT, 0), ACCEL_V_LIMIT, velocity_v_sp, dt_s);
 
 						altitude_sp = altitude;
 					}
 					else if (rc_channelValue[THROTTLE] > THROTTLE_DEADZONE_TOP) {
 						// shape vertical velocity setpoint from rc input for upwards velocity
-						velocity_v_sp = shape_velocity(map(rc_channelValue[THROTTLE], THROTTLE_DEADZONE_TOP, 2000, 0, VELOCITY_V_UPPER_LIMIT), ACCEL_V_LIMIT, velocity_v_sp, dt_s);
+						velocity_v_sp = shape_velocity(map(rc_channelValue[THROTTLE], THROTTLE_DEADZONE_TOP, 2000, 0, VELOCITY_V_LIMIT), ACCEL_V_LIMIT, velocity_v_sp, dt_s);
 
 						altitude_sp = altitude;
 					}
 					else {
 						// shape vertical velocity setpoint to hold altitude
-						velocity_v_sp = constrain(shape_position(altitude_sp - altitude, TC_ALTITUDE, ACCEL_V_LIMIT, velocity_v_sp, dt_s), VELOCITY_V_LOWER_LIMIT, VELOCITY_V_UPPER_LIMIT);
+						velocity_v_sp = constrain(shape_position(altitude_sp - altitude, TC_ALTITUDE, ACCEL_V_LIMIT, velocity_v_sp, dt_s), -VELOCITY_V_LIMIT, VELOCITY_V_LIMIT);
 					}
 
 					// calculate manipulated variable for vertical velocity
@@ -774,7 +783,7 @@ void getMagData(int16_t &mx, int16_t &my, int16_t &mz) {
 
 #ifdef USE_BAR
 // get barometer data
-void getBarData(float &baroAltRaw) {
+bool getBarData(float &baroAltRaw) {
 	// get raw altitude from barometer
 	static uint32_t dt_bar = 0;
 	if (barometerInterrupt) {
@@ -782,6 +791,8 @@ void getBarData(float &baroAltRaw) {
 		dt_bar = 0;
 
 		barometer.getAltitude(baroAltRaw);
+
+		return true;
 	}
 	else if (!initialiseQuad) {
 		// check if barometer is still working
@@ -793,6 +804,8 @@ void getBarData(float &baroAltRaw) {
 			DEBUG_PRINTLN(F("Barometer error!"));
 		}
 	}
+
+	return false;
 }
 #endif
 
@@ -1263,7 +1276,7 @@ void rtl_xyVelocity_yRate(float &velocity_x_sp, float &velocity_y_sp, float &vel
 	velocity_y_sp = constrain(shape_position(distance_y, TC_DISTANCE, ACCEL_H_LIMIT, velocity_y_sp, dt_s), -VELOCITY_XY_LIMIT, VELOCITY_XY_LIMIT);
 
 	// shape vertical velocity setpoint
-	velocity_v_sp = constrain(shape_position(altitude_sp - altitude, TC_ALTITUDE, ACCEL_V_LIMIT, velocity_v_sp, dt_s), VELOCITY_V_LOWER_LIMIT, VELOCITY_V_UPPER_LIMIT);
+	velocity_v_sp = constrain(shape_position(altitude_sp - altitude, TC_ALTITUDE, ACCEL_V_LIMIT, velocity_v_sp, dt_s), -VELOCITY_V_LIMIT, VELOCITY_V_LIMIT);
 
 	// shape yaw rate setpoint
 	yaw_rate_sp = constrain(shape_position(distance_yaw, TC_YAW_ANGLE, ACCEL_YAW_LIMIT, yaw_rate_sp, dt_s), -YAW_RATE_LIMIT, YAW_RATE_LIMIT);

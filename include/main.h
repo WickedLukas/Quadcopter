@@ -59,8 +59,7 @@
 #define YAW_THROTTLE_ITERM_LIMIT 200    	// 150
 #define ROLL_PITCH_ANGLE_LIMIT 32           // deg    // 30, 35
 #define YAW_RATE_LIMIT 150                  // deg/s  // 120, 180
-#define VELOCITY_V_UPPER_LIMIT 2.5          // m/s
-#define VELOCITY_V_LOWER_LIMIT -1.5         // m/s
+#define VELOCITY_V_LIMIT 2.5                // m/s
 #define VELOCITY_XY_LIMIT 2.5               // m/s // TODO: Increase this to 5.0 m/s later.
 
 // Throttle to enter started state and begin PID calculations.
@@ -199,7 +198,7 @@ void getMagData(int16_t &mx, int16_t &my, int16_t &mz);
 
 #ifdef USE_BAR
 // get barometer data
-void getBarData(float &baroAltRaw);
+bool getBarData(float &baroAltRaw);
 #endif
 
 #ifdef USE_GPS
