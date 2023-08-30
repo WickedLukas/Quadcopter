@@ -128,24 +128,26 @@ const float P_VELOCITY_H = 4.0, I_VELOCITY_H = 1.0, D_VELOCITY_H = 0; // TODO: T
 // EMA filter parameter for accelerometer
 const float EMA_ACCEL = 0.0003; // too high values will result in incorrect angle estimation within Madgwick filter
 
-// EMA filter parameter for altitude
-const float EMA_ALT = 0.002;
-
-// EMA filter parameters for proportional (P) and derivative (D) rate controller inputs.
-const float EMA_ROLL_RATE_P = 0.030;  // 0.030
-const float EMA_PITCH_RATE_P = 0.030; // 0.030
-const float EMA_YAW_RATE_P = 0.010;   // 0.010
-
+// EMA filter parameters for rates and proportional rate controller inputs.
+const float EMA_ROLL_RATE = 0.030;  // 0.030
+const float EMA_PITCH_RATE = 0.030; // 0.030
+const float EMA_YAW_RATE = 0.010;   // 0.010
+// EMA filter parameters for derivative rate controller inputs
 const float EMA_ROLL_RATE_D = 0.005;  // 0.005
 const float EMA_PITCH_RATE_D = 0.005; // 0.005
 const float EMA_YAW_RATE_D = 0.005;   // 0.005
 
-// EMA filter parameters for proportional (P) and derivative (D) vertical velocity controller inputs.
-const float EMA_VELOCITY_V_P = 0.015; // 0.015
+// EMA filter parameter for altitude (this does not affect the vertical velocity which is calculated using the raw altitude and filtered afterwards)
+const float EMA_ALT = 0.002;
+
+// EMA filter parameter for vertical velocity and proportional vertical velocity controller input.
+const float EMA_VELOCITY_V = 0.015; // 0.015
+// EMA filter parameter for derivative vertical velocity controller input.
 const float EMA_VELOCITY_V_D = 0.005; // 0.005
 
-// EMA filter parameters for proportional (P) and derivative (D) horizontal velocity controller inputs.
-const float EMA_VELOCITY_H_P = 0.020;
+// EMA filter parameter for horizontal velocity and proportional horizontal velocity controller input.
+const float EMA_VELOCITY_H = 0.020;
+// EMA filter parameter for derivative horizontal velocity controller input.
 const float EMA_VELOCITY_H_D = 0.005;
 
 // EMA filter parameter for heading correction.

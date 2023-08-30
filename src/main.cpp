@@ -77,16 +77,16 @@ NeoGPS::Location_t rtl_location;
 MotorsQuad motors(MOTOR_PIN_1, MOTOR_PIN_2, MOTOR_PIN_3, MOTOR_PIN_4, MOTOR_PWM_FREQUENCY, 0.15, 0.95, 0.65);
 
 // rate PID controller
-PID_controller roll_rate_pid(P_ROLL_RATE, I_ROLL_RATE, D_ROLL_RATE, ROLL_PITCH_THROTTLE_LIMIT, ROLL_PITCH_THROTTLE_ITERM_LIMIT, EMA_ROLL_RATE_P, EMA_ROLL_RATE_D, true);
-PID_controller pitch_rate_pid(P_PITCH_RATE, I_PITCH_RATE, D_PITCH_RATE, ROLL_PITCH_THROTTLE_LIMIT, ROLL_PITCH_THROTTLE_ITERM_LIMIT, EMA_PITCH_RATE_P, EMA_PITCH_RATE_D, true);
-PID_controller yaw_rate_pid(P_YAW_RATE, I_YAW_RATE, D_YAW_RATE, YAW_THROTTLE_LIMIT, YAW_THROTTLE_ITERM_LIMIT, EMA_YAW_RATE_P, EMA_YAW_RATE_D, true);
+PID_controller roll_rate_pid(P_ROLL_RATE, I_ROLL_RATE, D_ROLL_RATE, ROLL_PITCH_THROTTLE_LIMIT, ROLL_PITCH_THROTTLE_ITERM_LIMIT, EMA_ROLL_RATE, EMA_ROLL_RATE_D, true);
+PID_controller pitch_rate_pid(P_PITCH_RATE, I_PITCH_RATE, D_PITCH_RATE, ROLL_PITCH_THROTTLE_LIMIT, ROLL_PITCH_THROTTLE_ITERM_LIMIT, EMA_PITCH_RATE, EMA_PITCH_RATE_D, true);
+PID_controller yaw_rate_pid(P_YAW_RATE, I_YAW_RATE, D_YAW_RATE, YAW_THROTTLE_LIMIT, YAW_THROTTLE_ITERM_LIMIT, EMA_YAW_RATE, EMA_YAW_RATE_D, true);
 
 // vertical velocity PID controller for altitude hold
-PID_controller velocity_v_pid(P_VELOCITY_V, I_VELOCITY_V, D_VELOCITY_V, THROTTLE_LIMIT - THROTTLE_HOVER, THROTTLE_LIMIT - THROTTLE_HOVER, EMA_VELOCITY_V_P, EMA_VELOCITY_V_D);
+PID_controller velocity_v_pid(P_VELOCITY_V, I_VELOCITY_V, D_VELOCITY_V, THROTTLE_LIMIT - THROTTLE_HOVER, THROTTLE_LIMIT - THROTTLE_HOVER, EMA_VELOCITY_V, EMA_VELOCITY_V_D);
 
 // horizontal velocity PID controllers for return to launch
-PID_controller velocity_x_pid(P_VELOCITY_H, I_VELOCITY_H, D_VELOCITY_H, ROLL_PITCH_ANGLE_LIMIT, ROLL_PITCH_ANGLE_LIMIT, EMA_VELOCITY_H_P, EMA_VELOCITY_H_D);
-PID_controller velocity_y_pid(P_VELOCITY_H, I_VELOCITY_H, D_VELOCITY_H, ROLL_PITCH_ANGLE_LIMIT, ROLL_PITCH_ANGLE_LIMIT, EMA_VELOCITY_H_P, EMA_VELOCITY_H_D);
+PID_controller velocity_x_pid(P_VELOCITY_H, I_VELOCITY_H, D_VELOCITY_H, ROLL_PITCH_ANGLE_LIMIT, ROLL_PITCH_ANGLE_LIMIT, EMA_VELOCITY_H, EMA_VELOCITY_H_D);
+PID_controller velocity_y_pid(P_VELOCITY_H, I_VELOCITY_H, D_VELOCITY_H, ROLL_PITCH_ANGLE_LIMIT, ROLL_PITCH_ANGLE_LIMIT, EMA_VELOCITY_H, EMA_VELOCITY_H_D);
 
 #ifdef USE_SDLOG
 // SD card logger
@@ -142,7 +142,11 @@ int16_t ax, ay, az;
 float gx_rps, gy_rps, gz_rps;
 int16_t mx, my, mz;
 
-// ema filtered acceleration
+// gyro rates
+float roll_rate, pitch_rate, yaw_rate;
+float roll_rate_filtered, pitch_rate_filtered, yaw_rate_filtered;
+
+// filtered acceleration
 float ax_filtered, ay_filtered, az_filtered;
 
 // pose
@@ -152,8 +156,8 @@ float pose_q[4]; // quaternion
 // raw barometer altitude
 float baroAltitudeRaw;
 
-// ema filtered raw barometer altitude
-double baroAltitude;
+// filtered barometer altitude
+float baroAltitude;
 
 // last quadcopter barometer altitude when disarmed
 float baroAltitude_init;
@@ -163,12 +167,14 @@ float altitude;
 
 // vertical velocity
 float velocity_v;
+float velocity_v_filtered;
 
 // velocities in ned-frame
 float velocity_north, velocity_east;
 
 // velocities in horizontal frame
-float velocity_x, velocity_y; 
+float velocity_x, velocity_y;
+float velocity_x_filtered, velocity_y_filtered; 
 
 // initial quadcopter yaw (z-axis) angle
 float yaw_angle_init;
@@ -178,9 +184,6 @@ float distance;
 
 // heading
 float heading;
-
-// filtered gyro rates
-float roll_rate, pitch_rate, yaw_rate;
 
 // PID calculations are delayed until started flag becomes true, which happens when minimum throttle is reached
 bool started = false;
@@ -328,6 +331,11 @@ void loop() {
 	pitch_rate = gy_rps * DEG_PER_RAD;
 	yaw_rate = gz_rps * DEG_PER_RAD;
 
+	// filter rates
+	roll_rate_filtered = ema_filter(roll_rate, roll_rate_filtered, EMA_ROLL_RATE);
+	pitch_rate_filtered = ema_filter(pitch_rate, pitch_rate_filtered, EMA_PITCH_RATE);
+	yaw_rate_filtered = ema_filter(yaw_rate, yaw_rate_filtered, EMA_YAW_RATE);
+
 	// apply offset to z-axis pose in order to compensate for the sensor mounting orientation relative to the quadcopter frame
 	yaw_angle += YAW_ANGLE_OFFSET;
 #ifdef USE_GPS
@@ -340,15 +348,18 @@ void loop() {
 #ifdef USE_BAR
 	if (getBarData(baroAltitudeRaw)) {
 		// calculate vertical velocity
-		static double baroAltitudeRaw_last = baroAltitudeRaw;
+		static float baroAltitudeRaw_last = baroAltitudeRaw;
 		if (dt_bar_s > 0) {
 			velocity_v = (baroAltitudeRaw - baroAltitudeRaw_last) / dt_bar_s;
 		}
 		baroAltitudeRaw_last = baroAltitudeRaw;
 	}
 
-	// filter raw barometer altitude measurement
+	// filter barometer altitude
 	baroAltitude = ema_filter(baroAltitudeRaw, baroAltitude, EMA_ALT);
+
+	// filter vertical velocity
+	velocity_v_filtered = ema_filter(velocity_v, velocity_v_filtered, EMA_VELOCITY_V);
 
 	// altitude relative to starting ground
 	altitude = baroAltitude - baroAltitude_init;
@@ -474,6 +485,10 @@ void loop() {
 					velocity_x = velocity_north * cos(yaw_angle_rad) + velocity_east * sin(yaw_angle_rad);
 					velocity_y = velocity_north * (-sin(yaw_angle_rad)) + velocity_east * cos(yaw_angle_rad);
 
+					// filter horizontal frame velocities
+					velocity_x_filtered = ema_filter(velocity_x, velocity_x_filtered, EMA_VELOCITY_H);
+					velocity_y_filtered = ema_filter(velocity_y, velocity_y_filtered, EMA_VELOCITY_H);
+
 					// calculate angle setpoints from velocity setpoints
 					roll_angle_sp = velocity_y_pid.get_mv(velocity_y_sp, velocity_y, dt_s);
 					pitch_angle_sp = velocity_x_pid.get_mv(velocity_x_sp, velocity_x, dt_s);
@@ -589,11 +604,11 @@ void loop() {
 	SD_LOG(ax); SD_LOG(ay); SD_LOG(az);
 	SD_LOG2D(ax_filtered, 1); SD_LOG2D(ay_filtered, 1); SD_LOG2D(az_filtered, 1);
 	SD_LOG2D(roll_angle, 2); SD_LOG2D(pitch_angle, 2); SD_LOG2D(yaw_angle, 2); SD_LOG2D(roll_angle_sp, 2); SD_LOG2D(pitch_angle_sp, 2);
-	SD_LOG2D(roll_rate, 2); SD_LOG2D(pitch_rate, 2); SD_LOG2D(yaw_rate, 2); SD_LOG2D(roll_rate_sp, 2); SD_LOG2D(pitch_rate_sp, 2); SD_LOG2D(yaw_rate_sp, 2);
+	SD_LOG3(roll_rate, roll_rate_filtered, 2); SD_LOG3(pitch_rate, pitch_rate_filtered, 2); SD_LOG3(yaw_rate, yaw_rate_filtered, 2); SD_LOG2D(roll_rate_sp, 2); SD_LOG2D(pitch_rate_sp, 2); SD_LOG2D(yaw_rate_sp, 2);
 	SD_LOG2D(yaw_rate, 2); SD_LOG2D(yaw_rate_sp, 2);
 	SD_LOG2D(baroAltitudeRaw, 2); SD_LOG2D(baroAltitude, 2);
 	SD_LOG2D(altitude, 2); SD_LOG2D(altitude_sp, 2);
-	SD_LOG2D(velocity_v, 3); SD_LOG2D(velocity_x, 3); SD_LOG2D(velocity_y, 3); SD_LOG2D(velocity_v_sp, 3); SD_LOG2D(velocity_x_sp, 3); SD_LOG2D(velocity_y_sp, 3);
+	SD_LOG3(velocity_v, velocity_v_filtered, 3); SD_LOG3(velocity_x, velocity_x_filtered, 3); SD_LOG3(velocity_y, velocity_y_filtered, 3); SD_LOG2D(velocity_v_sp, 3); SD_LOG2D(velocity_x_sp, 3); SD_LOG2D(velocity_y_sp, 3);
 	SD_LOG2D(throttle_out, 0);
 	SD_LOG3(roll_rate_pTerm, roll_rate_pid.get_pTerm(), 2); SD_LOG3(roll_rate_iTerm, roll_rate_pid.get_iTerm(),  2); SD_LOG3(roll_rate_dTerm, roll_rate_pid.get_dTerm(), 2);
 	SD_LOG3(pitch_rate_pTerm, pitch_rate_pid.get_pTerm(), 2); SD_LOG3(pitch_rate_iTerm, pitch_rate_pid.get_iTerm(), 2); SD_LOG3(pitch_rate_dTerm, pitch_rate_pid.get_dTerm(), 2);
@@ -636,7 +651,7 @@ void loop() {
 
 		//DEBUG_PRINT(roll_angle); DEBUG_PRINT("\t"); DEBUG_PRINT(pitch_angle); DEBUG_PRINT("\t"); DEBUG_PRINT(yaw_angle); DEBUG_PRINT("\t");
 		//DEBUG_PRINTLN(yaw_rate_sp);
-		//DEBUG_PRINT(roll_rate); DEBUG_PRINT("\t"); DEBUG_PRINT(pitch_rate); DEBUG_PRINT("\t"); DEBUG_PRINTLN(yaw_rate);
+		//DEBUG_PRINT(roll_rate_filtered); DEBUG_PRINT("\t"); DEBUG_PRINT(pitch_rate_filtered); DEBUG_PRINT("\t"); DEBUG_PRINTLN(yaw_rate_filtered);
 
 		//DEBUG_PRINT(baroAltitudeRaw); DEBUG_PRINT("\t"); DEBUG_PRINTLN(baroAltitude);
 
@@ -1290,12 +1305,12 @@ void addTimeGraphs(Plotter &p)
 	// Add time graphs. Notice the effect of points displayed on the time scale.
 	//p.AddTimeGraph("throttle_out", 1000, "throttle_out", throttle_out);
 	//p.AddTimeGraph("Angles", 1000, "r", roll_angle, "p", pitch_angle, "y", yaw_angle);
-	//p.AddTimeGraph("Rates", 1000, "roll_rate", roll_rate, "pitch_rate", pitch_rate, "yaw_rate", yaw_rate);
+	//p.AddTimeGraph("Rates", 1000, "roll_rate", roll_rate_filtered, "pitch_rate", pitch_rate_filtered, "yaw_rate", yaw_rate_filtered);
 	//p.AddTimeGraph("mv", 1000, "roll_rate_sp", roll_rate_sp, "pitch_rate_sp", pitch_rate_sp, "yaw_rate_sp", yaw_rate_sp);
 	//p.AddTimeGraph("mv", 1000, "roll_rate_mv", roll_rate_mv, "pitch_rate_mv", pitch_rate_mv, "yaw_rate_mv", yaw_rate_mv);
 
 	//p.AddTimeGraph("alt", 1000, "A", baroAltitude, "bA", baroAltitudeRaw);
-	//p.AddTimeGraph("v_vel", 1000, "V", velocity_v/*, "V_sp", velocity_v_sp*/);
+	//p.AddTimeGraph("v_vel", 1000, "V", velocity_v_filtered/*, "V_sp", velocity_v_sp*/);
 
 	//p.AddTimeGraph("bearing", 1000, "bearing", bearing);
 	//p.AddTimeGraph("distance_xy", 1000, "d_x", distance_x, "d_y", distance_y);
