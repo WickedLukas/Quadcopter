@@ -605,9 +605,8 @@ void loop() {
 	SD_LOG2D(ax_filtered, 1); SD_LOG2D(ay_filtered, 1); SD_LOG2D(az_filtered, 1);
 	SD_LOG2D(roll_angle, 2); SD_LOG2D(pitch_angle, 2); SD_LOG2D(yaw_angle, 2); SD_LOG2D(roll_angle_sp, 2); SD_LOG2D(pitch_angle_sp, 2);
 	SD_LOG3(roll_rate, roll_rate_filtered, 2); SD_LOG3(pitch_rate, pitch_rate_filtered, 2); SD_LOG3(yaw_rate, yaw_rate_filtered, 2); SD_LOG2D(roll_rate_sp, 2); SD_LOG2D(pitch_rate_sp, 2); SD_LOG2D(yaw_rate_sp, 2);
-	SD_LOG2D(yaw_rate, 2); SD_LOG2D(yaw_rate_sp, 2);
-	SD_LOG2D(baroAltitudeRaw, 2); SD_LOG2D(baroAltitude, 2);
-	SD_LOG2D(altitude, 2); SD_LOG2D(altitude_sp, 2);
+	SD_LOG2D(baroAltitudeRaw, 3); SD_LOG2D(baroAltitude, 3);
+	SD_LOG2D(altitude, 3); SD_LOG2D(altitude_sp, 3);
 	SD_LOG3(velocity_v, velocity_v_filtered, 3); SD_LOG3(velocity_x, velocity_x_filtered, 3); SD_LOG3(velocity_y, velocity_y_filtered, 3); SD_LOG2D(velocity_v_sp, 3); SD_LOG2D(velocity_x_sp, 3); SD_LOG2D(velocity_y_sp, 3);
 	SD_LOG2D(throttle_out, 0);
 	SD_LOG3(roll_rate_pTerm, roll_rate_pid.get_pTerm(), 2); SD_LOG3(roll_rate_iTerm, roll_rate_pid.get_iTerm(),  2); SD_LOG3(roll_rate_dTerm, roll_rate_pid.get_dTerm(), 2);
