@@ -137,13 +137,13 @@ const float EMA_ROLL_RATE_D = 0.005;  // 0.005
 const float EMA_PITCH_RATE_D = 0.005; // 0.005
 const float EMA_YAW_RATE_D = 0.005;   // 0.005
 
-// EMA filter parameter for altitude (this does not affect the vertical velocity which is calculated using the raw altitude and filtered afterwards)
-const float EMA_ALT = 0.002;
+// EMA filter parameter for altitude
+const float EMA_ALT = 0.0020;
 
 // EMA filter parameter for vertical velocity and proportional vertical velocity controller input.
-const float EMA_VELOCITY_V = 0.015; // 0.015
+const float EMA_VELOCITY_V = 0.0020; // 0.0150
 // EMA filter parameter for derivative vertical velocity controller input.
-const float EMA_VELOCITY_V_D = 0.005; // 0.005
+const float EMA_VELOCITY_V_D = 0.0005; // 0.0050
 
 // EMA filter parameter for horizontal velocity and proportional horizontal velocity controller input.
 const float EMA_VELOCITY_H = 0.020;
@@ -153,7 +153,7 @@ const float EMA_VELOCITY_H_D = 0.005;
 // EMA filter parameter for heading correction.
 // This filter needs to be very strong, so the heading correction used to compensate inaccurate horizontal movement,
 // caused by bad compass measurements and wind, is applied slowly.
-const float EMA_HEADING_CORRECTION = 0.0005; // TODO: Test this parameter.
+const float EMA_HEADING_CORRECTION = 0.00005; // TODO: Test this parameter.
 
 // the altitude for returning to launch is calculated by adding this offset to the maximum altitude reached during flight
 const float RTL_RETURN_OFFSET = 0; // TODO: Add some offset when tested.
@@ -200,7 +200,7 @@ void getMagData(int16_t &mx, int16_t &my, int16_t &mz);
 
 #ifdef USE_BAR
 // get barometer data
-bool getBarData(float &baroAltRaw);
+bool getBaroData(float &baroAltRaw);
 #endif
 
 #ifdef USE_GPS

@@ -157,7 +157,7 @@ float pose_q[4]; // quaternion
 float baroAltitudeRaw;
 
 // filtered barometer altitude
-float baroAltitude;
+float baroAltitude, baroAltitude_last;
 
 // last quadcopter barometer altitude when disarmed
 float baroAltitude_init;
@@ -314,6 +314,7 @@ void loop() {
 	// read accel and gyro measurements
 	imu.read_accel_gyro_rps(ax, ay, az, gx_rps, gy_rps, gz_rps);
 
+	// TODO: Maybe a different kind of filter (SMA?) can filter the strong noise in the acceleration measurements with less delay.
 	// filter accelerometer measurements
 	ax_filtered = ema_filter(ax, ax_filtered, EMA_ACCEL);
 	ay_filtered = ema_filter(ay, ay_filtered, EMA_ACCEL);
@@ -346,17 +347,16 @@ void loop() {
 	yaw_angle_rad = yaw_angle * RAD_PER_DEG;
 
 #ifdef USE_BAR
-	if (getBarData(baroAltitudeRaw)) {
-		// calculate vertical velocity
-		static float baroAltitudeRaw_last = baroAltitudeRaw;
-		if (dt_bar_s > 0) {
-			velocity_v = (baroAltitudeRaw - baroAltitudeRaw_last) / dt_bar_s;
-		}
-		baroAltitudeRaw_last = baroAltitudeRaw;
-	}
-
 	// filter barometer altitude
 	baroAltitude = ema_filter(baroAltitudeRaw, baroAltitude, EMA_ALT);
+
+	// calculate vertical velocity when there is new barometer data
+	if (getBaroData(baroAltitudeRaw)) {
+		if (dt_bar_s > 0) {
+			velocity_v = (baroAltitude - baroAltitude_last) / dt_bar_s;
+		}
+		baroAltitude_last = baroAltitude;
+	}
 
 	// filter vertical velocity
 	velocity_v_filtered = ema_filter(velocity_v, velocity_v_filtered, EMA_VELOCITY_V);
@@ -797,7 +797,7 @@ void getMagData(int16_t &mx, int16_t &my, int16_t &mz) {
 
 #ifdef USE_BAR
 // get barometer data
-bool getBarData(float &baroAltRaw) {
+bool getBaroData(float &baroAltRaw) {
 	// get raw altitude from barometer
 	static uint32_t dt_bar = 0;
 	if (barometerInterrupt) {
@@ -901,6 +901,18 @@ bool initQuad(bool &initialiseQuad) {
 				++initStatus;
 			}
 			break;
+
+#ifdef USE_BAR
+		case 2:
+			// get initial barometer altitude in order to calculate a proper initial vertical velocity later
+			while (!getBaroData(baroAltitudeRaw)) {}
+			baroAltitude = baroAltitudeRaw;
+			baroAltitude_last = baroAltitude;
+			velocity_v = 0;
+			velocity_v_filtered = velocity_v;
+			++initStatus;
+			break;
+#endif
 
 		default:
 			// quadcopter initialisation completed
