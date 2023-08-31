@@ -992,7 +992,7 @@ void arm_failsafe(uint8_t fs_config) {
 		// quadcopter motion failsafe
 		static uint32_t t_fs_motion = 0;
 		if ((FS_CONFIG & FS_MOTION) == FS_MOTION) {
-			if ((abs(roll_angle) > FS_MOTION_ANGLE_LIMIT) || (abs(pitch_angle) > FS_MOTION_ANGLE_LIMIT) || (abs(yaw_rate) > FS_MOTION_RATE_LIMIT)) {
+			if ((abs(roll_angle) > FS_MOTION_ANGLE_LIMIT) || (abs(pitch_angle) > FS_MOTION_ANGLE_LIMIT) || (abs(yaw_rate_filtered) > FS_MOTION_RATE_LIMIT)) {
 				// angle or angular rate limit exceeded
 				if (t_fs_motion == 0) {
 					t_fs_motion = t_arm_failsafe;
