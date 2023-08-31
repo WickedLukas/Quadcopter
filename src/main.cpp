@@ -347,9 +347,6 @@ void loop() {
 	yaw_angle_rad = yaw_angle * RAD_PER_DEG;
 
 #ifdef USE_BAR
-	// filter barometer altitude
-	baroAltitude = ema_filter(baroAltitudeRaw, baroAltitude, EMA_ALT);
-
 	// calculate vertical velocity when there is new barometer data
 	if (getBaroData(baroAltitudeRaw)) {
 		if (dt_bar_s > 0) {
@@ -357,6 +354,9 @@ void loop() {
 		}
 		baroAltitude_last = baroAltitude;
 	}
+
+	// filter barometer altitude
+	baroAltitude = ema_filter(baroAltitudeRaw, baroAltitude, EMA_ALT);
 
 	// filter vertical velocity
 	velocity_v_filtered = ema_filter(velocity_v, velocity_v_filtered, EMA_VELOCITY_V);
