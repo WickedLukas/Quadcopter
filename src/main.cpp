@@ -156,8 +156,8 @@ float pose_q[4]; // quaternion
 // raw barometer altitude
 float baroAltitudeRaw;
 
-// filtered barometer altitude
-float baroAltitude, baroAltitude_last;
+// filtered barometer altitude (double is used instead of float for a more accurate vertical velocity)
+double baroAltitude, baroAltitude_last;
 
 // last quadcopter barometer altitude when disarmed
 float baroAltitude_init;
