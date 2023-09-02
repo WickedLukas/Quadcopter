@@ -555,7 +555,7 @@ void loop() {
 			altitude_sp = altitude;
 
 			throttle_out = throttle;
-			if (throttle_out > THROTTLE_HOVER) {
+			if (throttle_out > (THROTTLE_HOVER - 50)) {
 				started = true;
 				DEBUG_PRINTLN(F("Started."));
 			}
