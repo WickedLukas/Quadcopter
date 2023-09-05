@@ -68,9 +68,6 @@ NeoGPS::Location_t current_location;
 
 // launch location determined before arming
 NeoGPS::Location_t launch_location;
-
-// location where rtl mode was entered
-NeoGPS::Location_t rtl_location;
 #endif
 
 // motors
@@ -179,11 +176,14 @@ float velocity_x_filtered, velocity_y_filtered;
 // initial quadcopter yaw (z-axis) angle
 float yaw_angle_init;
 
-// distance to target location
-float distance;
-
 // heading
 float heading;
+
+// distance and horizontal distance to target location
+float distance, distance_h;
+
+// distance to target yaw angle
+float distance_yaw;
 
 // PID calculations are delayed until started flag becomes true, which happens when minimum throttle is reached
 bool started = false;
@@ -1106,185 +1106,107 @@ void rc_rpAngle_yRate(float &roll_angle_sp, float &pitch_angle_sp, float &yaw_ra
 // calculate xyv-velocity setpoints and yaw rate setpoint for returning to launch
 void rtl_xyVelocity_yRate(float &velocity_x_sp, float &velocity_y_sp, float &velocity_v_sp, float &yaw_rate_sp)
 {
-	static uint32_t dt_state = 0;
-	// minimum time in microseconds the condition for switching to the next state needs to be met before switching
-	static const uint32_t STATE_DT_MIN = 5000000; 
+	// target location
+	NeoGPS::Location_t target_location;
+
+	// the next rtl state
+	static RtlState rtlStateNext;
 
 	// bearing to target location (clockwise from north)
 	static float bearing, bearing_rad;
 
-	// distance to target yaw angle
-	static float distance_yaw;
-
 	// heading correction to compensate inaccurate horizontal movement caused by bad compass measurements and wind 
 	static float headingCorrection, headingCorrection_rad;
+
+	// quadcopter velocity
+	static float velocity;
+	velocity = sqrt(pow(velocity_north, 2) + pow(velocity_east, 2) + pow(velocity_v_filtered, 2));
+
+	distance_yaw = 0;
 
 	// rtl state machine
 	switch (rtlState) {
 		case RtlState::Init:
-			rtl_location = current_location;
+			// set the rtl location to the current location
+			target_location = current_location;
+
+			// set the rtl altitude to the current altitude
 			altitude_sp = altitude;
-			distance_yaw = 0;
 
-			dt_state = 0;
-
-			headingCorrection = 0;
-			headingCorrection_rad = 0;
-
+			// switch to the next rtl state
 			rtlState = RtlState::Wait;
+			rtlStateNext = RtlState::Wait;
 			break;
 
 		case RtlState::Wait:
-			// bearing to rtl location
-			bearing_rad = current_location.BearingTo(rtl_location);
-			bearing = bearing_rad * DEG_PER_RAD;
-
-			// distance to rtl location
-			distance = current_location.DistanceKm(rtl_location) * 1000;
-
-			// keep the current yaw angle
-			distance_yaw = 0;
-
-			// check if the rtl location is reached
-			if (distance < 2) {
-				dt_state += dt;
-				if (dt_state > STATE_DT_MIN) {
-					dt_state = 0;
-					rtlState = RtlState::Climb;
-				}
-			}
+			// define the next rtl state
+			rtlStateNext = RtlState::Climb;
 			break;
 
 		case RtlState::Climb:
-			// bearing to rtl location
-			bearing_rad = current_location.BearingTo(rtl_location);
-			bearing = bearing_rad * DEG_PER_RAD;
-
-			// distance to rtl location
-			distance = current_location.DistanceKm(rtl_location) * 1000;
-
-			// keep the current yaw angle
-			distance_yaw = 0;
-
 			// climb to the maximum altitude reached during flight with some added offset for safety
 			altitude_sp = altitude_max + RTL_RETURN_OFFSET;
 
-			// check if the altitude setpoint is reached
-			if (abs(altitude_sp - altitude) < 2) {
-				dt_state += dt;
-				if (dt_state > STATE_DT_MIN) {
-					dt_state = 0;
-					rtlState = RtlState::YawToLaunch;
-				}
-			}
+			// define the next rtl state
+			rtlStateNext = RtlState::YawToLaunch;
 			break;
 
 		case RtlState::YawToLaunch:
-			// bearing to rtl location
-			bearing_rad = current_location.BearingTo(rtl_location);
-			bearing = bearing_rad * DEG_PER_RAD;
-
-			// distance to rtl location
-			distance = current_location.DistanceKm(rtl_location) * 1000;
-
 			// turn the quadcopter towards the launch location, but only if it is not too close
 			if (current_location.DistanceKm(launch_location) * 1000 > 10) {
 				// turn the quadcopter towards the launch location
 				distance_yaw = current_location.BearingTo(launch_location) * DEG_PER_RAD - yaw_angle;
-
-				// check if the quadcopter is rotated towards the launch location
-				if (abs(distance_yaw) < 6) {
-					dt_state += dt;
-					if (dt_state > STATE_DT_MIN) {
-						dt_state = 0;
-						rtlState = RtlState::Return;
-					}
-				}
 			}
-			else {
-				// keep the current yaw angle
-				distance_yaw = 0;
 
-				dt_state = 0;
-				rtlState = RtlState::Return;
-			}
+			// define the next rtl state
+			rtlStateNext = RtlState::Return;
 			break;
 
 		case RtlState::Return:
-			// bearing to launch location
-			bearing_rad = current_location.BearingTo(launch_location);
-			bearing = bearing_rad * DEG_PER_RAD;
+			// set the target location to the launch location
+			target_location = launch_location;
 
-			// distance to launch location
-			distance = current_location.DistanceKm(launch_location) * 1000;
+			// turn the quadcopter towards the launch location and calculate the heading correction, but only if it is not too close
+			if (current_location.DistanceKm(launch_location) * 1000 > 10) {
+				// turn the quadcopter towards the target location
+				distance_yaw = current_location.BearingTo(target_location) * DEG_PER_RAD - yaw_angle;
 
-			// turn the quadcopter towards the launch location and calculate heading correction, but only if it is not too close
-			if (distance > 10) {
-				// turn the quadcopter towards the launch location
-				distance_yaw = bearing - yaw_angle;
-
-				// calculate heading correction
-				headingCorrection = ema_filter(bearing - heading, headingCorrection, EMA_HEADING_CORRECTION);
-				headingCorrection_rad = headingCorrection * RAD_PER_DEG;
-					
+				// calculate the heading correction
+				if ((velocity_north > 0.6) || (velocity_east > 0.6)) { // gps heading is only available during horizontal movement
+					headingCorrection = ema_filter(bearing - heading, headingCorrection, EMA_HEADING_CORRECTION);
+					headingCorrection_rad = headingCorrection * RAD_PER_DEG;
+				}
 				headingCorrection_rad = 0; // TODO: Remove this line and test this.
 			}
-			else {
-				// keep the current yaw angle
-				distance_yaw = 0;
-			}
 
-			// check if the launch location is reached
-			if (distance < 2) {
-				dt_state += dt;
-				if (dt_state > STATE_DT_MIN)
-				{
-					dt_state = 0;
-					rtlState = RtlState::YawToInitial;
-				}
-			}
+			// define the next rtl state
+			rtlStateNext = RtlState::YawToInitial;
 			break;
 
 		case RtlState::YawToInitial:
-			// bearing to launch location
-			bearing_rad = current_location.BearingTo(launch_location);
-			bearing = bearing_rad * DEG_PER_RAD;
-
-			// distance to launch location
-			distance = current_location.DistanceKm(launch_location) * 1000;
-
 			// turn the quadcopter to the initial yaw angle determined when arming
 			distance_yaw = yaw_angle_init - yaw_angle;
 
-			// check if the initial yaw angle is reached
-			if (abs(distance_yaw) < 6) {
-				dt_state += dt;
-				if (dt_state > STATE_DT_MIN)
-				{
-					dt_state = 0;
-					rtlState = RtlState::Descend;
-				}
-			}
+			// define the next rtl state
+			rtlStateNext = RtlState::Descend;
 			break;
 
 		case RtlState::Descend:
-			// bearing to launch location
-			bearing_rad = current_location.BearingTo(launch_location);
-			bearing = bearing_rad * DEG_PER_RAD;
-
-			// distance to launch location
-			distance = current_location.DistanceKm(launch_location) * 1000;
-
-			// keep the initial yaw angle determined when arming
-			distance_yaw = yaw_angle_init - yaw_angle;
-
 			// descend to the initial altitude after arming with some added offset
 			altitude_sp = RTL_DESCEND_OFFSET;
+
+			// hold the initial yaw angle determined when arming
+			distance_yaw = yaw_angle_init - yaw_angle;
 			break;
 
 		default:
 			break;
 	}
+
+	// horizontal distance to target location
+	distance_h = current_location.DistanceKm(target_location) * 1000;
+	// distance to target location at altitude
+	distance = sqrt(pow(distance_h, 2) + pow(altitude_sp - altitude, 2));
 
 	// because the yaw angle is inverted with gps, while the yaw rates are not, this parameter needs to be inverted
 	distance_yaw = -distance_yaw;
@@ -1292,10 +1214,25 @@ void rtl_xyVelocity_yRate(float &velocity_x_sp, float &velocity_y_sp, float &vel
 	// adjust the yaw distance to [-180, 180) in order to make sure the quadcopter turns the shortest way
 	adjustAngleRange(-180, 180, distance_yaw);
 
+	// limits before switching to the next RTL state	
+	static const float RTL_STATE_MAX_DISTANCE = 3;     // maximum target distance in m
+	static const float RTL_STATE_MAX_VELOCITY = 0.5;   // maximum velocity in m/s
+	static const float RTL_STATE_MAX_YAW_DISTANCE = 5; // maximum target angle distance in °
+	static const float RTL_STATE_MAX_YAW_RATE = 10;    // maximum yaw rate in °/s
+
+	// switch to the next rtl state when all targets are reached
+	if ((distance < RTL_STATE_MAX_DISTANCE) && (velocity < RTL_STATE_MAX_VELOCITY) && 
+	(abs(distance_yaw) < RTL_STATE_MAX_YAW_DISTANCE) && (abs(yaw_rate_filtered) < RTL_STATE_MAX_YAW_RATE)) {
+		rtlState = rtlStateNext;
+	}
+
+	// bearing to the target location
+	bearing_rad = current_location.BearingTo(target_location);
+
 	// transform distance from ned- to horizontal frame and include heading correction to compensate inaccurate horizontal movement caused by bad compass measurements and wind
 	static float distance_x, distance_y;
-	distance_x = distance * cos(bearing_rad - yaw_angle_rad + headingCorrection_rad);
-	distance_y = distance * sin(bearing_rad - yaw_angle_rad + headingCorrection_rad);
+	distance_x = distance_h * cos(bearing_rad - yaw_angle_rad + headingCorrection_rad);
+	distance_y = distance_h * sin(bearing_rad - yaw_angle_rad + headingCorrection_rad);
 
 	// shape x- and y-axis velocity setpoints
 	velocity_x_sp = constrain(shape_position(distance_x, TC_DISTANCE, ACCEL_H_LIMIT, velocity_x_sp, dt_s), -VELOCITY_XY_LIMIT, VELOCITY_XY_LIMIT);
