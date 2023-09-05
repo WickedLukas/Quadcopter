@@ -94,7 +94,7 @@ DataLogger sdCardLogger("0_0_1 - connection 0 - TCP", 10'000);
 enum class FlightMode : unsigned char { Stabilize, AltitudeHold, ReturnToLaunch } fMode;
 
 // return to launch states
-enum class RtlState : unsigned char { Init, Wait, Climb, YawToLaunch, Return, YawToInitial, Descend } rtlState;
+enum class RtlState : unsigned char { Init, Wait, YawRearToLaunch, Climb, Return, YawToInitial, Descend } rtlState;
 
 // calibration data
 calibration_data calibration_eeprom;
@@ -1140,6 +1140,17 @@ void rtl_xyVelocity_yRate(float &velocity_x_sp, float &velocity_y_sp, float &vel
 
 		case RtlState::Wait:
 			// define the next rtl state
+			rtlStateNext = RtlState::YawRearToLaunch;
+			break;
+
+		case RtlState::YawRearToLaunch:
+			// turn the quadcopter rear towards the launch location, but only if it is not too close
+			if (current_location.DistanceKm(launch_location) * 1000 > 10) {
+				// turn the quadcopter rear towards the launch location
+				distance_yaw = current_location.BearingTo(launch_location) * DEG_PER_RAD + 180 - yaw_angle;
+			}
+
+			// define the next rtl state
 			rtlStateNext = RtlState::Climb;
 			break;
 
@@ -1147,15 +1158,10 @@ void rtl_xyVelocity_yRate(float &velocity_x_sp, float &velocity_y_sp, float &vel
 			// climb to the maximum altitude reached during flight with some added offset for safety
 			altitude_sp = altitude_max + RTL_RETURN_OFFSET;
 
-			// define the next rtl state
-			rtlStateNext = RtlState::YawToLaunch;
-			break;
-
-		case RtlState::YawToLaunch:
-			// turn the quadcopter towards the launch location, but only if it is not too close
+			// turn the quadcopter rear towards the launch location, but only if it is not too close
 			if (current_location.DistanceKm(launch_location) * 1000 > 10) {
-				// turn the quadcopter towards the launch location
-				distance_yaw = current_location.BearingTo(launch_location) * DEG_PER_RAD - yaw_angle;
+				// turn the quadcopter rear towards the launch location
+				distance_yaw = current_location.BearingTo(launch_location) * DEG_PER_RAD + 180 - yaw_angle;
 			}
 
 			// define the next rtl state
@@ -1166,10 +1172,10 @@ void rtl_xyVelocity_yRate(float &velocity_x_sp, float &velocity_y_sp, float &vel
 			// set the target location to the launch location
 			target_location = launch_location;
 
-			// turn the quadcopter towards the launch location and calculate the heading correction, but only if it is not too close
+			// turn the quadcopter rear towards the launch location and calculate the heading correction, but only if it is not too close
 			if (current_location.DistanceKm(launch_location) * 1000 > 10) {
-				// turn the quadcopter towards the target location
-				distance_yaw = current_location.BearingTo(target_location) * DEG_PER_RAD - yaw_angle;
+				// turn the quadcopter rear towards the launch/target location
+				distance_yaw = current_location.BearingTo(target_location) * DEG_PER_RAD + 180 - yaw_angle;
 
 				// calculate the heading correction
 				if ((velocity_north > 0.6) || (velocity_east > 0.6)) { // gps heading is only available during horizontal movement
