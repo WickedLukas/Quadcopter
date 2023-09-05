@@ -5,4 +5,13 @@
 .vscode/ipch
 .vscode/settings.json
 
-lib/**/
+/lib/**/
+
+/KiCad/Quadcopter/Quadcopter-backups/
+/KiCad/Quadcopter/fp-info-cache
+/KiCad/Quadcopter/*.zip
+
+*.h.bak
+*.hpp.bak
+*.c.bak
+*.cpp.bak
