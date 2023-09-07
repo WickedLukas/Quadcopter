@@ -131,9 +131,6 @@ float velocity_x_sp, velocity_y_sp;
 float roll_rate_mv, pitch_rate_mv, yaw_rate_mv;
 float velocity_v_mv;
 
-// accelerometer resolution
-float accelRes;
-
 // imu measurements
 int16_t ax, ay, az;
 float gx_rps, gy_rps, gz_rps;
@@ -231,9 +228,6 @@ void setup() {
 		DEBUG_PRINTLN(F("IMU Initialisation failed."));
 	}
 
-	// read accelerometer resolution in g/bit
-	imu.read_accelRes(accelRes);
-
 	// attach imu interrupt
 	attachInterrupt(digitalPinToInterrupt(IMU_INTERRUPT_PIN), imuReady, FALLING);
 
@@ -308,7 +302,7 @@ void loop() {
 		return;
 	}
 	dt_s = dt * 1.e-6f; // in s
-	
+
 	t0 = t;
 
 	// read accel and gyro measurements
@@ -572,10 +566,10 @@ void loop() {
 
 	// motor mixing
 	motors.output(
-		throttle_out + roll_rate_mv - pitch_rate_mv + yaw_rate_mv,
-		throttle_out - roll_rate_mv - pitch_rate_mv - yaw_rate_mv,
-		throttle_out - roll_rate_mv + pitch_rate_mv + yaw_rate_mv,
-		throttle_out + roll_rate_mv + pitch_rate_mv - yaw_rate_mv);
+		throttle_out + roll_rate_mv - pitch_rate_mv + yaw_rate_mv + 0.5,
+		throttle_out - roll_rate_mv - pitch_rate_mv - yaw_rate_mv + 0.5,
+		throttle_out - roll_rate_mv + pitch_rate_mv + yaw_rate_mv + 0.5,
+		throttle_out + roll_rate_mv + pitch_rate_mv - yaw_rate_mv + 0.5);
 
 #ifdef USE_SDLOG
 	static bool sdLogEnabled{false};
@@ -1106,17 +1100,14 @@ void rc_rpAngle_yRate(float &roll_angle_sp, float &pitch_angle_sp, float &yaw_ra
 // calculate xyv-velocity setpoints and yaw rate setpoint for returning to launch
 void rtl_xyVelocity_yRate(float &velocity_x_sp, float &velocity_y_sp, float &velocity_v_sp, float &yaw_rate_sp)
 {
+	// minimum distance in m for performing yaw angle adjustments relative to the target location
+	static const float MIN_DISTANCE_YAW_TO_TARGET = 10;
+
 	// target location
 	NeoGPS::Location_t target_location;
 
 	// the next rtl state
 	static RtlState rtlStateNext;
-
-	// bearing to target location (clockwise from north)
-	static float bearing, bearing_rad;
-
-	// heading correction to compensate inaccurate horizontal movement caused by bad compass measurements and wind 
-	static float headingCorrection, headingCorrection_rad;
 
 	// quadcopter velocity
 	static float velocity;
@@ -1145,7 +1136,7 @@ void rtl_xyVelocity_yRate(float &velocity_x_sp, float &velocity_y_sp, float &vel
 
 		case RtlState::YawRearToLaunch:
 			// turn the quadcopter rear towards the launch location, but only if it is not too close
-			if (current_location.DistanceKm(launch_location) * 1000 > 10) {
+			if (current_location.DistanceKm(launch_location) * 1000 > MIN_DISTANCE_YAW_TO_TARGET) {
 				// turn the quadcopter rear towards the launch location
 				distance_yaw = current_location.BearingTo(launch_location) * DEG_PER_RAD + 180 - yaw_angle;
 			}
@@ -1158,8 +1149,8 @@ void rtl_xyVelocity_yRate(float &velocity_x_sp, float &velocity_y_sp, float &vel
 			// climb to the maximum altitude reached during flight with some added offset for safety
 			altitude_sp = altitude_max + RTL_RETURN_OFFSET;
 
-			// turn the quadcopter rear towards the launch location, but only if it is not too close
-			if (current_location.DistanceKm(launch_location) * 1000 > 10) {
+			// continue turning the quadcopter rear towards the launch location, but only if it is not too close
+			if (current_location.DistanceKm(launch_location) * 1000 > MIN_DISTANCE_YAW_TO_TARGET) {
 				// turn the quadcopter rear towards the launch location
 				distance_yaw = current_location.BearingTo(launch_location) * DEG_PER_RAD + 180 - yaw_angle;
 			}
@@ -1172,17 +1163,10 @@ void rtl_xyVelocity_yRate(float &velocity_x_sp, float &velocity_y_sp, float &vel
 			// set the target location to the launch location
 			target_location = launch_location;
 
-			// turn the quadcopter rear towards the launch location and calculate the heading correction, but only if it is not too close
-			if (current_location.DistanceKm(launch_location) * 1000 > 10) {
+			// continue turning the quadcopter rear towards the launch location, but only if it is not too close
+			if (current_location.DistanceKm(launch_location) * 1000 > MIN_DISTANCE_YAW_TO_TARGET) {
 				// turn the quadcopter rear towards the launch/target location
 				distance_yaw = current_location.BearingTo(target_location) * DEG_PER_RAD + 180 - yaw_angle;
-
-				// calculate the heading correction
-				if ((velocity_north > 0.6) || (velocity_east > 0.6)) { // gps heading is only available during horizontal movement
-					headingCorrection = ema_filter(bearing - heading, headingCorrection, EMA_HEADING_CORRECTION);
-					headingCorrection_rad = headingCorrection * RAD_PER_DEG;
-				}
-				headingCorrection_rad = 0; // TODO: Remove this line and test this.
 			}
 
 			// define the next rtl state
@@ -1232,8 +1216,19 @@ void rtl_xyVelocity_yRate(float &velocity_x_sp, float &velocity_y_sp, float &vel
 		rtlState = rtlStateNext;
 	}
 
-	// bearing to the target location
+	// bearing to target location (clockwise from north)
+	static float bearing_rad, bearing;
 	bearing_rad = current_location.BearingTo(target_location);
+	bearing = bearing_rad * DEG_PER_RAD;
+
+	// heading correction to compensate inaccurate horizontal movement caused by bad compass measurements and wind 
+	static float headingCorrection, headingCorrection_rad;
+	// calculate the heading correction if the target location is not too close, so the bearing is stable and the quadcopter is moving horizontally, so the heading is available
+	if ((current_location.DistanceKm(target_location) * 1000 > MIN_DISTANCE_YAW_TO_TARGET) && ((velocity_north > 0.6) || (velocity_east > 0.6))) {
+		headingCorrection = ema_filter(bearing - heading, headingCorrection, EMA_HEADING_CORRECTION);
+		headingCorrection_rad = headingCorrection * RAD_PER_DEG;
+	}
+	headingCorrection_rad = 0; // TODO: Remove this line to activate the heading correction.
 
 	// transform distance from ned- to horizontal frame and include heading correction to compensate inaccurate horizontal movement caused by bad compass measurements and wind
 	static float distance_x, distance_y;
