@@ -27,6 +27,13 @@ enum class logId : uint16_t
     velocity_v_pTerm, velocity_v_iTerm, velocity_v_dTerm,
     velocity_x_pTerm, velocity_x_iTerm, velocity_x_dTerm,
     velocity_y_pTerm, velocity_y_iTerm, velocity_y_dTerm,
+    distance,
+    velocity,
+    distance_x, distance_y,
+    distance_yaw,
+    bearing,
+    heading,
+    headingCorrection,
     last
 };
 

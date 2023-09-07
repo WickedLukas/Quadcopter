@@ -28,7 +28,7 @@ GUI Settings:
 	sample rate hz = 100
 	sync word = 0xAA
 	sync word byte count = 1
-	datasets count = 49
+	datasets count = 57
 
 		dataset location = 0
 		binary processor = null
@@ -419,6 +419,70 @@ GUI Settings:
 		name = velocity_y_dTerm
 		color = 0x76ABFF
 		unit = 
+		conversion factor a = 1.0
+		conversion factor b = 1.0
+
+		dataset location = 49
+		binary processor = null
+		name = distance
+		color = 0x0080FF
+		unit = m
+		conversion factor a = 1.0
+		conversion factor b = 1.0
+
+		dataset location = 50
+		binary processor = null
+		name = velocity
+		color = 0x80FF00
+		unit = m/s
+		conversion factor a = 1.0
+		conversion factor b = 1.0
+
+		dataset location = 51
+		binary processor = null
+		name = distance_x
+		color = 0xFF0040
+		unit = m
+		conversion factor a = 1.0
+		conversion factor b = 1.0
+
+		dataset location = 52
+		binary processor = null
+		name = distance_y
+		color = 0xBF00FF
+		unit = m
+		conversion factor a = 1.0
+		conversion factor b = 1.0
+
+		dataset location = 53
+		binary processor = null
+		name = distance_yaw
+		color = 0x800080
+		unit = °
+		conversion factor a = 1.0
+		conversion factor b = 1.0
+
+		dataset location = 54
+		binary processor = null
+		name = bearing
+		color = 0xBF0080
+		unit = °
+		conversion factor a = 1.0
+		conversion factor b = 1.0
+
+		dataset location = 55
+		binary processor = null
+		name = heading
+		color = 0x00BF40
+		unit = °
+		conversion factor a = 1.0
+		conversion factor b = 1.0
+
+		dataset location = 56
+		binary processor = null
+		name = headingCorrection
+		color = 0xBF8000
+		unit = °
 		conversion factor a = 1.0
 		conversion factor b = 1.0
 

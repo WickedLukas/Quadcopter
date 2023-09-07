@@ -53,6 +53,14 @@ DataLogger::DataLogger(const char* name, uint32_t logInterval_us) : m_name{name}
     m_header[(uint16_t) logId::velocity_y_pTerm] = "velocity_y_pTerm ()";
     m_header[(uint16_t) logId::velocity_y_iTerm] = "velocity_y_iTerm ()";
     m_header[(uint16_t) logId::velocity_y_dTerm] = "velocity_y_dTerm ()";
+    m_header[(uint16_t) logId::distance] = "distance (m)";
+    m_header[(uint16_t) logId::velocity] = "velocity (m/s)";
+    m_header[(uint16_t) logId::distance_x] = "distance_x (m)";
+    m_header[(uint16_t) logId::distance_y] = "distance_y (m)";
+    m_header[(uint16_t) logId::distance_yaw] = "distance_yaw (°)";
+    m_header[(uint16_t) logId::bearing] = "bearing (°)";
+    m_header[(uint16_t) logId::heading] = "heading (°)";
+    m_header[(uint16_t) logId::headingCorrection] = "headingCorrection (°)";
 }
 
 DataLogger::~DataLogger() {

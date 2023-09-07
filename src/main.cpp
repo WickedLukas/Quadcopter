@@ -87,7 +87,7 @@ PID_controller velocity_y_pid(P_VELOCITY_H, I_VELOCITY_H, D_VELOCITY_H, ROLL_PIT
 
 #ifdef USE_SDLOG
 // SD card logger
-DataLogger sdCardLogger("0_0_1 - connection 0 - TCP", 10'000);
+DataLogger sdCardLogger("0_0_2 - connection 0 - TCP", 10'000);
 #endif
 
 // flight modes
@@ -175,12 +175,6 @@ float yaw_angle_init;
 
 // heading
 float heading;
-
-// distance and horizontal distance to target location
-float distance, distance_h;
-
-// distance to target yaw angle
-float distance_yaw;
 
 // PID calculations are delayed until started flag becomes true, which happens when minimum throttle is reached
 bool started = false;
@@ -301,18 +295,22 @@ void loop() {
 		// update too early, so sensor measurements were not updated yet
 		return;
 	}
+	SD_LOG(dt);
+
 	dt_s = dt * 1.e-6f; // in s
 
 	t0 = t;
 
 	// read accel and gyro measurements
 	imu.read_accel_gyro_rps(ax, ay, az, gx_rps, gy_rps, gz_rps);
+	SD_LOG(ax); SD_LOG(ay); SD_LOG(az);
 
 	// TODO: Maybe a different kind of filter (SMA?) can filter the strong noise in the acceleration measurements with less delay.
 	// filter accelerometer measurements
 	ax_filtered = ema_filter(ax, ax_filtered, EMA_ACCEL);
 	ay_filtered = ema_filter(ay, ay_filtered, EMA_ACCEL);
 	az_filtered = ema_filter(az, az_filtered, EMA_ACCEL);
+	SD_LOG2D(ax_filtered, 1); SD_LOG2D(ay_filtered, 1); SD_LOG2D(az_filtered, 1);
 
 #ifdef USE_MAG
 	getMagData(mx, my, mz);
@@ -320,6 +318,7 @@ void loop() {
 
 	// calculate pose from sensor data using Madgwick filter
 	madgwickFilter.get_euler_quaternion(dt_s, ax_filtered, ay_filtered, az_filtered, gx_rps, gy_rps, gz_rps, mx, my, mz, roll_angle, pitch_angle, yaw_angle, pose_q);
+	SD_LOG2D(roll_angle, 2); SD_LOG2D(pitch_angle, 2); SD_LOG2D(yaw_angle, 2);
 
 	// convert to rate in deg/s
 	roll_rate = gx_rps * DEG_PER_RAD;
@@ -330,6 +329,7 @@ void loop() {
 	roll_rate_filtered = ema_filter(roll_rate, roll_rate_filtered, EMA_ROLL_RATE);
 	pitch_rate_filtered = ema_filter(pitch_rate, pitch_rate_filtered, EMA_PITCH_RATE);
 	yaw_rate_filtered = ema_filter(yaw_rate, yaw_rate_filtered, EMA_YAW_RATE);
+	SD_LOG3(roll_rate, roll_rate_filtered, 2); SD_LOG3(pitch_rate, pitch_rate_filtered, 2); SD_LOG3(yaw_rate, yaw_rate_filtered, 2);
 
 	// apply offset to z-axis pose in order to compensate for the sensor mounting orientation relative to the quadcopter frame
 	yaw_angle += YAW_ANGLE_OFFSET;
@@ -348,15 +348,18 @@ void loop() {
 		}
 		baroAltitude_last = baroAltitude;
 	}
+	SD_LOG2D(baroAltitudeRaw, 3);
 
 	// filter barometer altitude
 	baroAltitude = ema_filter(baroAltitudeRaw, baroAltitude, EMA_ALT);
+	SD_LOG2D(baroAltitude, 3);
 
 	// filter vertical velocity
 	velocity_v_filtered = ema_filter(velocity_v, velocity_v_filtered, EMA_VELOCITY_V);
 
 	// altitude relative to starting ground
 	altitude = baroAltitude - baroAltitude_init;
+	SD_LOG2D(altitude, 3);
 #endif
 
 #ifdef USE_GPS
@@ -430,6 +433,7 @@ void loop() {
 				
 				fMode_last = fMode;
 			}
+			SD_LOG2(fMode, (unsigned char) fMode);
 
 			switch (fMode) {
 				case FlightMode::Stabilize:
@@ -474,6 +478,7 @@ void loop() {
 				case FlightMode::ReturnToLaunch:
 					// calculate xyv-velocity setpoints and yaw rate setpoint for returning to launch
 					rtl_xyVelocity_yRate(velocity_x_sp, velocity_y_sp, velocity_v_sp, yaw_rate_sp);
+					SD_LOG2(rtlState, (unsigned char) rtlState);
 
 					// transform velocity from ned- to horizontal frame.
 					velocity_x = velocity_north * cos(yaw_angle_rad) + velocity_east * sin(yaw_angle_rad);
@@ -495,14 +500,22 @@ void loop() {
 				default:
 					break;
 			}
+			SD_LOG2D(roll_angle_sp, 2); SD_LOG2D(pitch_angle_sp, 2);
+			SD_LOG2D(velocity_x_sp, 3); SD_LOG2D(velocity_y_sp, 3); SD_LOG2D(velocity_v_sp, 3); 
+			SD_LOG3(velocity_x, velocity_x_filtered, 3); SD_LOG3(velocity_y, velocity_y_filtered, 3); SD_LOG3(velocity_v, velocity_v_filtered, 3);
+			SD_LOG3(velocity_v_pTerm, velocity_v_pid.get_pTerm(), 3); SD_LOG3(velocity_v_iTerm, velocity_v_pid.get_iTerm(), 3); SD_LOG3(velocity_v_dTerm, velocity_v_pid.get_dTerm(), 3);
+			SD_LOG3(velocity_x_pTerm, velocity_x_pid.get_pTerm(), 3); SD_LOG3(velocity_x_iTerm, velocity_x_pid.get_iTerm(), 3); SD_LOG3(velocity_x_dTerm, velocity_x_pid.get_dTerm(), 3);
+			SD_LOG3(velocity_y_pTerm, velocity_y_pid.get_pTerm(), 3); SD_LOG3(velocity_y_iTerm, velocity_y_pid.get_iTerm(), 3); SD_LOG3(velocity_y_dTerm, velocity_y_pid.get_dTerm(), 3);
 
 			// Tilt compensated thrust: Increase throttle when the quadcopter is tilted, to compensate for height loss during horizontal movement.
 			// Note: In order to maintain stability, throttle is limited to the throttle limit.
 			throttle_out = constrain((throttle_out - 1000) / (pose_q[0] * pose_q[0] - pose_q[1] * pose_q[1] - pose_q[2] * pose_q[2] + pose_q[3] * pose_q[3]) + 1000, 1000.f, (float) THROTTLE_LIMIT);
+			SD_LOG2D(throttle_out, 0);
 
 			// shape roll and pitch rate setpoints
 			roll_rate_sp = shape_position(roll_angle_sp - roll_angle, TC_ROLL_PITCH_ANGLE, ACCEL_ROLL_PITCH_LIMIT, roll_rate_sp, dt_s);
 			pitch_rate_sp = shape_position(pitch_angle_sp - pitch_angle, TC_ROLL_PITCH_ANGLE, ACCEL_ROLL_PITCH_LIMIT, pitch_rate_sp, dt_s);
+			SD_LOG2D(roll_rate_sp, 2); SD_LOG2D(pitch_rate_sp, 2); SD_LOG2D(yaw_rate_sp, 2);
 
 			// TODO: Remove this test code
 			//static float p_rate, i_rate, d_rate;
@@ -544,6 +557,9 @@ void loop() {
 			roll_rate_mv = roll_rate_pid.get_mv(roll_rate_sp, roll_rate, dt_s);
 			pitch_rate_mv = pitch_rate_pid.get_mv(pitch_rate_sp, pitch_rate, dt_s);
 			yaw_rate_mv = yaw_rate_pid.get_mv(yaw_rate_sp, yaw_rate, dt_s);
+			SD_LOG3(roll_rate_pTerm, roll_rate_pid.get_pTerm(), 2); SD_LOG3(roll_rate_iTerm, roll_rate_pid.get_iTerm(),  2); SD_LOG3(roll_rate_dTerm, roll_rate_pid.get_dTerm(), 2);
+			SD_LOG3(pitch_rate_pTerm, pitch_rate_pid.get_pTerm(), 2); SD_LOG3(pitch_rate_iTerm, pitch_rate_pid.get_iTerm(), 2); SD_LOG3(pitch_rate_dTerm, pitch_rate_pid.get_dTerm(), 2);
+			SD_LOG3(yaw_rate_pTerm, yaw_rate_pid.get_pTerm(), 2); SD_LOG3(yaw_rate_iTerm, yaw_rate_pid.get_iTerm(), 2); SD_LOG3(yaw_rate_dTerm, yaw_rate_pid.get_dTerm(), 2);
 		}
 		else {
 			altitude_sp = altitude;
@@ -563,6 +579,7 @@ void loop() {
 		// reset the maximum altitude
 		altitude_max = -10000;
 	}
+	SD_LOG2D(altitude_sp, 3);
 
 	// motor mixing
 	motors.output(
@@ -592,23 +609,6 @@ void loop() {
 		}
 		DEBUG_PRINTLN("SD card logging stopped.");
 	}
-
-	SD_LOG2(fMode, (unsigned char) fMode); SD_LOG2(rtlState, (unsigned char) rtlState);
-	SD_LOG(dt);
-	SD_LOG(ax); SD_LOG(ay); SD_LOG(az);
-	SD_LOG2D(ax_filtered, 1); SD_LOG2D(ay_filtered, 1); SD_LOG2D(az_filtered, 1);
-	SD_LOG2D(roll_angle, 2); SD_LOG2D(pitch_angle, 2); SD_LOG2D(yaw_angle, 2); SD_LOG2D(roll_angle_sp, 2); SD_LOG2D(pitch_angle_sp, 2);
-	SD_LOG3(roll_rate, roll_rate_filtered, 2); SD_LOG3(pitch_rate, pitch_rate_filtered, 2); SD_LOG3(yaw_rate, yaw_rate_filtered, 2); SD_LOG2D(roll_rate_sp, 2); SD_LOG2D(pitch_rate_sp, 2); SD_LOG2D(yaw_rate_sp, 2);
-	SD_LOG2D(baroAltitudeRaw, 3); SD_LOG2D(baroAltitude, 3);
-	SD_LOG2D(altitude, 3); SD_LOG2D(altitude_sp, 3);
-	SD_LOG3(velocity_v, velocity_v_filtered, 3); SD_LOG3(velocity_x, velocity_x_filtered, 3); SD_LOG3(velocity_y, velocity_y_filtered, 3); SD_LOG2D(velocity_v_sp, 3); SD_LOG2D(velocity_x_sp, 3); SD_LOG2D(velocity_y_sp, 3);
-	SD_LOG2D(throttle_out, 0);
-	SD_LOG3(roll_rate_pTerm, roll_rate_pid.get_pTerm(), 2); SD_LOG3(roll_rate_iTerm, roll_rate_pid.get_iTerm(),  2); SD_LOG3(roll_rate_dTerm, roll_rate_pid.get_dTerm(), 2);
-	SD_LOG3(pitch_rate_pTerm, pitch_rate_pid.get_pTerm(), 2); SD_LOG3(pitch_rate_iTerm, pitch_rate_pid.get_iTerm(), 2); SD_LOG3(pitch_rate_dTerm, pitch_rate_pid.get_dTerm(), 2);
-	SD_LOG3(yaw_rate_pTerm, yaw_rate_pid.get_pTerm(), 2); SD_LOG3(yaw_rate_iTerm, yaw_rate_pid.get_iTerm(), 2); SD_LOG3(yaw_rate_dTerm, yaw_rate_pid.get_dTerm(), 2);
-	SD_LOG3(velocity_v_pTerm, velocity_v_pid.get_pTerm(), 3); SD_LOG3(velocity_v_iTerm, velocity_v_pid.get_iTerm(), 3); SD_LOG3(velocity_v_dTerm, velocity_v_pid.get_dTerm(), 3);
-	SD_LOG3(velocity_x_pTerm, velocity_x_pid.get_pTerm(), 3); SD_LOG3(velocity_x_iTerm, velocity_x_pid.get_iTerm(), 3); SD_LOG3(velocity_x_dTerm, velocity_x_pid.get_dTerm(), 3);
-	SD_LOG3(velocity_y_pTerm, velocity_y_pid.get_pTerm(), 3); SD_LOG3(velocity_y_iTerm, velocity_y_pid.get_iTerm(), 3); SD_LOG3(velocity_y_dTerm, velocity_y_pid.get_dTerm(), 3);
 
 
 	// write log line to file
@@ -851,6 +851,7 @@ void getGpsData(NeoGPS::Location_t &launch_location, NeoGPS::Location_t &current
 
 		if (fix.valid.heading) {
 			heading = fix.heading();
+			SD_LOG2D(heading, 2);
 
 			if (fix.valid.speed) {
 				// calculate north and east velocity
@@ -1112,7 +1113,10 @@ void rtl_xyVelocity_yRate(float &velocity_x_sp, float &velocity_y_sp, float &vel
 	// quadcopter velocity
 	static float velocity;
 	velocity = sqrt(pow(velocity_north, 2) + pow(velocity_east, 2) + pow(velocity_v_filtered, 2));
+	SD_LOG2D(velocity, 2);
 
+	// distance to target yaw angle
+	static float distance_yaw;
 	distance_yaw = 0;
 
 	// rtl state machine
@@ -1194,15 +1198,20 @@ void rtl_xyVelocity_yRate(float &velocity_x_sp, float &velocity_y_sp, float &vel
 	}
 
 	// horizontal distance to target location
+	static float distance_h;
 	distance_h = current_location.DistanceKm(target_location) * 1000;
+
 	// distance to target location at altitude
+	static float distance;
 	distance = sqrt(pow(distance_h, 2) + pow(altitude_sp - altitude, 2));
+	SD_LOG2D(distance, 2);
 
 	// because the yaw angle is inverted with gps, while the yaw rates are not, this parameter needs to be inverted
 	distance_yaw = -distance_yaw;
 
 	// adjust the yaw distance to [-180, 180) in order to make sure the quadcopter turns the shortest way
 	adjustAngleRange(-180, 180, distance_yaw);
+	SD_LOG2D(distance_yaw, 2);
 
 	// limits before switching to the next RTL state	
 	static const float RTL_STATE_MAX_DISTANCE = 3;     // maximum target distance in m
@@ -1220,6 +1229,7 @@ void rtl_xyVelocity_yRate(float &velocity_x_sp, float &velocity_y_sp, float &vel
 	static float bearing_rad, bearing;
 	bearing_rad = current_location.BearingTo(target_location);
 	bearing = bearing_rad * DEG_PER_RAD;
+	SD_LOG2D(bearing, 2);
 
 	// heading correction to compensate inaccurate horizontal movement caused by bad compass measurements and wind 
 	static float headingCorrection, headingCorrection_rad;
@@ -1227,6 +1237,7 @@ void rtl_xyVelocity_yRate(float &velocity_x_sp, float &velocity_y_sp, float &vel
 	if ((current_location.DistanceKm(target_location) * 1000 > MIN_DISTANCE_YAW_TO_TARGET) && ((velocity_north > 0.6) || (velocity_east > 0.6))) {
 		headingCorrection = ema_filter(bearing - heading, headingCorrection, EMA_HEADING_CORRECTION);
 		headingCorrection_rad = headingCorrection * RAD_PER_DEG;
+		SD_LOG2D(headingCorrection, 2);
 	}
 	headingCorrection_rad = 0; // TODO: Remove this line to activate the heading correction.
 
@@ -1234,6 +1245,7 @@ void rtl_xyVelocity_yRate(float &velocity_x_sp, float &velocity_y_sp, float &vel
 	static float distance_x, distance_y;
 	distance_x = distance_h * cos(bearing_rad - yaw_angle_rad + headingCorrection_rad);
 	distance_y = distance_h * sin(bearing_rad - yaw_angle_rad + headingCorrection_rad);
+	SD_LOG2D(distance_x, 2); SD_LOG2D(distance_y, 2);
 
 	// shape x- and y-axis velocity setpoints
 	velocity_x_sp = constrain(shape_position(distance_x, TC_DISTANCE, ACCEL_H_LIMIT, velocity_x_sp, dt_s), -VELOCITY_XY_LIMIT, VELOCITY_XY_LIMIT);
