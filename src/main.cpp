@@ -68,6 +68,8 @@ NeoGPS::Location_t current_location;
 
 // launch location determined before arming
 NeoGPS::Location_t launch_location;
+
+// TODO: Get GPS altitude and add it to log. Maybe use a complementary filter for baroAltitude and gpsAltitude for a more accurate altitude estimation. 
 #endif
 
 // motors
@@ -91,6 +93,7 @@ DataLogger sdCardLogger("0_0_2 - connection 0 - TCP", 10'000);
 #endif
 
 // flight modes
+// TODO: Add Loiter mode.
 enum class FlightMode : unsigned char { Stabilize, AltitudeHold, ReturnToLaunch } fMode;
 
 // return to launch states
@@ -442,7 +445,7 @@ void loop() {
 
 					throttle_out = throttle;
 
-					// update the maximum altitude for rtl
+					// update the maximum altitude
 					altitude_max = max(altitude, altitude_max);
 					break;
 
@@ -471,7 +474,7 @@ void loop() {
 					velocity_v_mv = velocity_v_pid.get_mv(velocity_v_sp, velocity_v, dt_s);
 					throttle_out = THROTTLE_HOVER + velocity_v_mv; // use throttle hover, so vertical velocity controller can take over smoothly
 
-					// update the maximum altitude for rtl
+					// update the maximum altitude
 					altitude_max = max(altitude, altitude_max);
 					break;
 #ifdef USE_GPS
@@ -849,6 +852,7 @@ void getGpsData(NeoGPS::Location_t &launch_location, NeoGPS::Location_t &current
 			current_location = fix.location;
 		}
 
+		// TODO: Test if valid means that a new heading and velocity could be calculated from the GPS or if it is even valid when the quadcopter is not moving and no new measurements could be determined.
 		if (fix.valid.heading) {
 			heading = fix.heading();
 			SD_LOG2D(heading, 2);
@@ -1099,6 +1103,7 @@ void rc_rpAngle_yRate(float &roll_angle_sp, float &pitch_angle_sp, float &yaw_ra
 
 #ifdef USE_GPS
 // calculate xyv-velocity setpoints and yaw rate setpoint for returning to launch
+// TODO: Follow trajectory to compensate for wind! Therfore a component parallel and one orthogonal to it needs to be calculated.
 void rtl_xyVelocity_yRate(float &velocity_x_sp, float &velocity_y_sp, float &velocity_v_sp, float &yaw_rate_sp)
 {
 	// minimum distance in m for performing yaw angle adjustments relative to the target location
@@ -1125,8 +1130,8 @@ void rtl_xyVelocity_yRate(float &velocity_x_sp, float &velocity_y_sp, float &vel
 			// set the rtl location to the current location
 			target_location = current_location;
 
-			// set the rtl altitude to the current altitude
-			altitude_sp = altitude;
+			// hold the current altitude or climb to the minimum altitude
+			altitude_sp = max(altitude, RTL_MIN_ALTITUDE);
 
 			// switch to the next rtl state
 			rtlState = RtlState::Wait;
@@ -1150,8 +1155,8 @@ void rtl_xyVelocity_yRate(float &velocity_x_sp, float &velocity_y_sp, float &vel
 			break;
 
 		case RtlState::Climb:
-			// climb to the maximum altitude reached during flight with some added offset for safety
-			altitude_sp = altitude_max + RTL_RETURN_OFFSET;
+			// climb to the RTL altitude
+			altitude_sp = max(RTL_ALTITUDE, RTL_MIN_ALTITUDE);
 
 			// continue turning the quadcopter rear towards the launch location, but only if it is not too close
 			if (current_location.DistanceKm(launch_location) * 1000 > MIN_DISTANCE_YAW_TO_TARGET) {
@@ -1186,8 +1191,8 @@ void rtl_xyVelocity_yRate(float &velocity_x_sp, float &velocity_y_sp, float &vel
 			break;
 
 		case RtlState::Descend:
-			// descend to the initial altitude after arming with some added offset
-			altitude_sp = RTL_DESCEND_OFFSET;
+			// descend to the minimum altitude
+			altitude_sp = RTL_MIN_ALTITUDE;
 
 			// hold the initial yaw angle determined when arming
 			distance_yaw = yaw_angle_init - yaw_angle;

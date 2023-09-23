@@ -133,6 +133,7 @@ const float EMA_ROLL_RATE = 0.030;  // 0.030
 const float EMA_PITCH_RATE = 0.030; // 0.030
 const float EMA_YAW_RATE = 0.010;   // 0.010
 // EMA filter parameters for derivative rate controller inputs
+// TODO: Test reduced derivative noise from updated PID library. Maybe less filtering is possible.
 const float EMA_ROLL_RATE_D = 0.005;  // 0.005
 const float EMA_PITCH_RATE_D = 0.005; // 0.005
 const float EMA_YAW_RATE_D = 0.005;   // 0.005
@@ -155,10 +156,10 @@ const float EMA_VELOCITY_H_D = 0.005;
 // caused by bad compass measurements and wind, is applied slowly.
 const float EMA_HEADING_CORRECTION = 0.00005; // TODO: Test this parameter.
 
-// the altitude for returning to launch is calculated by adding this offset to the maximum altitude reached during flight
-const float RTL_RETURN_OFFSET = 0; // TODO: Add some offset when tested.
+// the altitude for returning to launch
+const float RTL_ALTITUDE = 10;
 // the altitude for descending after returning to launch is calculated by adding this offset to the initial altitude
-const float RTL_DESCEND_OFFSET = 5;
+const float RTL_MIN_ALTITUDE = 5;
 
 // failsafe configuration
 const uint8_t FS_IMU = 0b00000001;
