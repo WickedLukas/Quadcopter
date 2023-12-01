@@ -1110,7 +1110,7 @@ void rtl_xyVelocity_yRate(float &velocity_x_sp, float &velocity_y_sp, float &vel
 	static const float MIN_DISTANCE_YAW_TO_TARGET = 10;
 
 	// target location
-	NeoGPS::Location_t target_location;
+	static NeoGPS::Location_t target_location{current_location};
 
 	// the next rtl state
 	static RtlState rtlStateNext;
