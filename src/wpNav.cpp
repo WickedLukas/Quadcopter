@@ -80,20 +80,3 @@ WpStatus WpNav::updateTarget(float dt_s, NeoGPS::Location_t &targetLocation)
     wpStatus = WpStatus::updating;
     return wpStatus;
 }
-
-/*void WpNav::moveTarget(double distance_rad, const SinCos &bearing_rad)
-{
-    static const double RAD_PER_DEG__LOC_SCALE{NeoGPS::Location_t::RAD_PER_DEG * NeoGPS::Location_t::LOC_SCALE};
-
-    const double lat1 = m_targetLocation.lat() * RAD_PER_DEG__LOC_SCALE;
-    const double sin_lat1{sin(lat1)};
-    const double cos_distance_rad{cos(distance_rad)};
-    const double sin_distance_rad__cos_lat1{sin(distance_rad) * cos(lat1)};
-
-    const double tmp{sin_lat1 * cos_distance_rad + sin_distance_rad__cos_lat1 * bearing_rad.cos_value};
-    const double newLat = asin(tmp);
-    const double dLon = atan2(bearing_rad.sin_value * sin_distance_rad__cos_lat1, cos_distance_rad - sin_lat1 * tmp);
-
-    m_targetLocation._lat = newLat / RAD_PER_DEG__LOC_SCALE;
-    m_targetLocation._lon += dLon / RAD_PER_DEG__LOC_SCALE;
-}*/

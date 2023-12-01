@@ -22,32 +22,6 @@ public:
     WpStatus updateTarget(float dt_s, NeoGPS::Location_t &targetLocation);
 
 private:
-    /*class SinCos
-    {
-    public:
-        SinCos() : m_value(0), m_sin_value(0), m_cos_value(1) {}
-        SinCos(double v) : m_value(v), m_sin_value(sin(v)), m_cos_value(cos(v)) {}
-
-        double operator=(double v)
-        {
-            m_value = v;
-            m_sin_value = sin(v);
-            m_cos_value = cos(v);
-
-            return m_value;
-        }
-
-        const double &sin_value{m_sin_value};
-        const double &cos_value{m_cos_value};
-
-    private:
-        double m_value;
-        double m_sin_value;
-        double m_cos_value;
-    };*/
-
-    //void moveTarget(double distance_rad, const SinCos &bearing_rad);
-
     const double m_earthRadius_m{NeoGPS::Location_t::EARTH_RADIUS_KM * 1000};
     const double m_minDistance_rad{1 / m_earthRadius_m};
 
