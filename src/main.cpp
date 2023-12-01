@@ -405,6 +405,8 @@ void loop() {
 			static FlightMode fMode_last{fMode};
 
 #if defined(USE_GPS) && defined(USE_BAR) && defined(USE_MAG)
+			static WpNav wpNav; // waypoint navigation class
+
 			if ((rc_channelValue[RTL] == 2000) && !(error_code & (ERROR_GPS | ERROR_BAR))) {
 				fMode = FlightMode::ReturnToLaunch;
 			}
@@ -480,7 +482,7 @@ void loop() {
 #ifdef USE_GPS
 				case FlightMode::ReturnToLaunch:
 					// calculate xyv-velocity setpoints and yaw rate setpoint for returning to launch
-					rtl_xyVelocity_yRate(velocity_x_sp, velocity_y_sp, velocity_v_sp, yaw_rate_sp);
+					rtl_xyvVelocity_yRate(velocity_x_sp, velocity_y_sp, velocity_v_sp, yaw_rate_sp, wpNav);
 					SD_LOG2(rtlState, (unsigned char) rtlState);
 
 					// transform velocity from ned- to horizontal frame.
@@ -1103,8 +1105,7 @@ void rc_rpAngle_yRate(float &roll_angle_sp, float &pitch_angle_sp, float &yaw_ra
 
 #ifdef USE_GPS
 // calculate xyv-velocity setpoints and yaw rate setpoint for returning to launch
-// TODO: Follow trajectory to compensate for wind! Therfore a component parallel and one orthogonal to it needs to be calculated.
-void rtl_xyVelocity_yRate(float &velocity_x_sp, float &velocity_y_sp, float &velocity_v_sp, float &yaw_rate_sp)
+void rtl_xyvVelocity_yRate(float &velocity_x_sp, float &velocity_y_sp, float &velocity_v_sp, float &yaw_rate_sp, WpNav &wpNav)
 {
 	// minimum distance in m for performing yaw angle adjustments relative to the target location
 	static const float MIN_DISTANCE_YAW_TO_TARGET = 10;
@@ -1115,11 +1116,6 @@ void rtl_xyVelocity_yRate(float &velocity_x_sp, float &velocity_y_sp, float &vel
 	// the next rtl state
 	static RtlState rtlStateNext;
 
-	// quadcopter velocity
-	static float velocity;
-	velocity = sqrt(pow(velocity_north, 2) + pow(velocity_east, 2) + pow(velocity_v_filtered, 2));
-	SD_LOG2D(velocity, 2);
-
 	// distance to target yaw angle
 	static float distance_yaw;
 	distance_yaw = 0;
@@ -1127,6 +1123,9 @@ void rtl_xyVelocity_yRate(float &velocity_x_sp, float &velocity_y_sp, float &vel
 	// rtl state machine
 	switch (rtlState) {
 		case RtlState::Init:
+			// initialize waypoint navigation
+			wpNav.init(current_location, current_location, VELOCITY_RTL_WP_LIMIT);
+
 			// set the rtl location to the current location
 			target_location = current_location;
 
@@ -1169,13 +1168,16 @@ void rtl_xyVelocity_yRate(float &velocity_x_sp, float &velocity_y_sp, float &vel
 			break;
 
 		case RtlState::Return:
-			// set the target location to the launch location
-			target_location = launch_location;
-
 			// continue turning the quadcopter rear towards the launch location, but only if it is not too close
 			if (current_location.DistanceKm(launch_location) * 1000 > MIN_DISTANCE_YAW_TO_TARGET) {
-				// turn the quadcopter rear towards the launch/target location
-				distance_yaw = current_location.BearingTo(target_location) * DEG_PER_RAD + 180 - yaw_angle;
+				// turn the quadcopter rear towards the launch location
+				distance_yaw = current_location.BearingTo(launch_location) * DEG_PER_RAD + 180 - yaw_angle;
+			}
+			
+			if (rtlStateNext == RtlState::Return)
+			{
+				// set waypoint to the launch location
+				wpNav.addWaypoint(launch_location);
 			}
 
 			// define the next rtl state
@@ -1202,6 +1204,10 @@ void rtl_xyVelocity_yRate(float &velocity_x_sp, float &velocity_y_sp, float &vel
 			break;
 	}
 
+	// update target location
+	static WpStatus wpStatus;
+	wpStatus = wpNav.updateTarget(dt_s, target_location);
+
 	// horizontal distance to target location
 	static float distance_h;
 	distance_h = current_location.DistanceKm(target_location) * 1000;
@@ -1210,6 +1216,11 @@ void rtl_xyVelocity_yRate(float &velocity_x_sp, float &velocity_y_sp, float &vel
 	static float distance;
 	distance = sqrt(pow(distance_h, 2) + pow(altitude_sp - altitude, 2));
 	SD_LOG2D(distance, 2);
+
+	// velocity
+	static float velocity;
+	velocity = sqrt(pow(velocity_north, 2) + pow(velocity_east, 2) + pow(velocity_v_filtered, 2));
+	SD_LOG2D(velocity, 2);
 
 	// because the yaw angle is inverted with gps, while the yaw rates are not, this parameter needs to be inverted
 	distance_yaw = -distance_yaw;
@@ -1225,7 +1236,7 @@ void rtl_xyVelocity_yRate(float &velocity_x_sp, float &velocity_y_sp, float &vel
 	static const float RTL_STATE_MAX_YAW_RATE = 10;    // maximum yaw rate in °/s
 
 	// switch to the next rtl state when all targets are reached
-	if ((distance < RTL_STATE_MAX_DISTANCE) && (velocity < RTL_STATE_MAX_VELOCITY) && 
+	if ((wpStatus == WpStatus::finished) && (distance < RTL_STATE_MAX_DISTANCE) && (velocity < RTL_STATE_MAX_VELOCITY) &&
 	(abs(distance_yaw) < RTL_STATE_MAX_YAW_DISTANCE) && (abs(yaw_rate_filtered) < RTL_STATE_MAX_YAW_RATE)) {
 		rtlState = rtlStateNext;
 	}
@@ -1253,8 +1264,8 @@ void rtl_xyVelocity_yRate(float &velocity_x_sp, float &velocity_y_sp, float &vel
 	SD_LOG2D(distance_x, 2); SD_LOG2D(distance_y, 2);
 
 	// shape x- and y-axis velocity setpoints
-	velocity_x_sp = constrain(shape_position(distance_x, TC_DISTANCE, ACCEL_H_LIMIT, velocity_x_sp, dt_s), -VELOCITY_XY_LIMIT, VELOCITY_XY_LIMIT);
-	velocity_y_sp = constrain(shape_position(distance_y, TC_DISTANCE, ACCEL_H_LIMIT, velocity_y_sp, dt_s), -VELOCITY_XY_LIMIT, VELOCITY_XY_LIMIT);
+	velocity_x_sp = constrain(shape_position(distance_x, TC_DISTANCE, ACCEL_H_LIMIT, velocity_x_sp, dt_s), -VELOCITY_RTL_WP_LIMIT, VELOCITY_RTL_WP_LIMIT);
+	velocity_y_sp = constrain(shape_position(distance_y, TC_DISTANCE, ACCEL_H_LIMIT, velocity_y_sp, dt_s), -VELOCITY_RTL_WP_LIMIT, VELOCITY_RTL_WP_LIMIT);
 
 	// shape vertical velocity setpoint
 	velocity_v_sp = constrain(shape_position(altitude_sp - altitude, TC_ALTITUDE, ACCEL_V_LIMIT, velocity_v_sp, dt_s), -VELOCITY_V_LIMIT, VELOCITY_V_LIMIT);

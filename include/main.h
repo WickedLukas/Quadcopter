@@ -2,6 +2,7 @@
 #define MAIN_H_
 
 #include "common.h"
+#include "wpNav.h"
 
 #include <Plotter.h>
 #include <NMEAGPS.h>
@@ -60,7 +61,7 @@
 #define ROLL_PITCH_ANGLE_LIMIT 33           // deg   // 32, 30, 35
 #define YAW_RATE_LIMIT 150                  // deg/s // 120, 180
 #define VELOCITY_V_LIMIT 2.5                // m/s
-#define VELOCITY_XY_LIMIT 1.5               // m/s   // 2.5 // TODO: Increase this to 5.0 m/s later.
+#define VELOCITY_RTL_WP_LIMIT 1.5           // m/s   // 2.5 // TODO: Increase this to 5.0 m/s later.
 
 // Throttle to enter started state and begin PID calculations.
 // To ensure a smooth start, this value should be close to the throttle necessary for take off.
@@ -223,7 +224,7 @@ void rc_rpAngle_yRate(float &roll_angle_sp, float &pitch_angle_sp, float &yaw_ra
 
 #ifdef USE_GPS
 // calculate xyv-velocity setpoints and yaw rate setpoint for returning to launch
-void rtl_xyVelocity_yRate(float &velocity_x_sp, float &velocity_y_sp, float &velocity_v_sp, float &yaw_rate_sp);
+void rtl_xyvVelocity_yRate(float &velocity_x_sp, float &velocity_y_sp, float &velocity_v_sp, float &yaw_rate_sp, WpNav &wpNav);
 #endif
 
 #ifdef PLOT
