@@ -61,7 +61,8 @@
 #define ROLL_PITCH_ANGLE_LIMIT 33           // deg   // 32, 30, 35
 #define YAW_RATE_LIMIT 150                  // deg/s // 120, 180
 #define VELOCITY_V_LIMIT 2.5                // m/s
-#define VELOCITY_RTL_WP_LIMIT 1.5           // m/s   // 2.5 // TODO: Increase this to 5.0 m/s later.
+#define VELOCITY_XY_LIMIT 3.0               // m/s          // TODO: Increase this to above 5.0 m/s later.
+#define VELOCITY_RTL_WP_TARGET 1.5          // m/s   // 2.5 // TODO: Increase this to 5.0 m/s later.
 
 // Throttle to enter started state and begin PID calculations.
 // To ensure a smooth start, this value should be close to the throttle necessary for take off.

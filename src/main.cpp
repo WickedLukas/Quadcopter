@@ -1124,7 +1124,7 @@ void rtl_xyvVelocity_yRate(float &velocity_x_sp, float &velocity_y_sp, float &ve
 	switch (rtlState) {
 		case RtlState::Init:
 			// initialize waypoint navigation
-			wpNav.init(current_location, current_location, VELOCITY_RTL_WP_LIMIT);
+			wpNav.init(current_location, current_location, VELOCITY_RTL_WP_TARGET);
 
 			// set the rtl location to the current location
 			target_location = current_location;
@@ -1174,8 +1174,7 @@ void rtl_xyvVelocity_yRate(float &velocity_x_sp, float &velocity_y_sp, float &ve
 				distance_yaw = current_location.BearingTo(launch_location) * DEG_PER_RAD + 180 - yaw_angle;
 			}
 			
-			if (rtlStateNext == RtlState::Return)
-			{
+			if (rtlStateNext == RtlState::Return) {
 				// set waypoint to the launch location
 				wpNav.addWaypoint(launch_location);
 			}
@@ -1264,8 +1263,8 @@ void rtl_xyvVelocity_yRate(float &velocity_x_sp, float &velocity_y_sp, float &ve
 	SD_LOG2D(distance_x, 2); SD_LOG2D(distance_y, 2);
 
 	// shape x- and y-axis velocity setpoints
-	velocity_x_sp = constrain(shape_position(distance_x, TC_DISTANCE, ACCEL_H_LIMIT, velocity_x_sp, dt_s), -VELOCITY_RTL_WP_LIMIT, VELOCITY_RTL_WP_LIMIT);
-	velocity_y_sp = constrain(shape_position(distance_y, TC_DISTANCE, ACCEL_H_LIMIT, velocity_y_sp, dt_s), -VELOCITY_RTL_WP_LIMIT, VELOCITY_RTL_WP_LIMIT);
+	velocity_x_sp = constrain(shape_position(distance_x, TC_DISTANCE, ACCEL_H_LIMIT, velocity_x_sp, dt_s), -VELOCITY_XY_LIMIT, VELOCITY_XY_LIMIT);
+	velocity_y_sp = constrain(shape_position(distance_y, TC_DISTANCE, ACCEL_H_LIMIT, velocity_y_sp, dt_s), -VELOCITY_XY_LIMIT, VELOCITY_XY_LIMIT);
 
 	// shape vertical velocity setpoint
 	velocity_v_sp = constrain(shape_position(altitude_sp - altitude, TC_ALTITUDE, ACCEL_V_LIMIT, velocity_v_sp, dt_s), -VELOCITY_V_LIMIT, VELOCITY_V_LIMIT);
